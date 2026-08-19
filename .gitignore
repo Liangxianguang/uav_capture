@@ -23,6 +23,7 @@ results/*
 !results/RECURRENT_POLICY_STAGE3C_FORMAL_SUMMARY.json
 !results/RECURRENT_POLICY_STAGE3C_P1_STRESS_REPORT.md
 !results/RECURRENT_POLICY_STAGE3C_P1_STRESS_SUMMARY.json
+!results/STAGE4A_BELIEF_DIAGNOSTIC_REPORT.md
 
 # Local simulator archives and generated meshes.
 third_party/*.zip
