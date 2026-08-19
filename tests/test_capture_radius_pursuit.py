@@ -496,6 +496,19 @@ def test_time_aligned_belief_training_config_preserves_actor_input_dimension() -
     assert env.policy_observations(observation).shape == (4, 44)
 
 
+def test_time_aligned_uncertainty_config_exposes_explicit_belief_features() -> None:
+    config = yaml.safe_load(
+        (PROJECT_ROOT / "configs" / "capture_radius_pursuit_time_aligned_uncertainty_dev.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=3, target_speed_scale=0.55)
+    observation = env.reset(seed=520120)
+    assert env.pursuit["belief_update_mode"] == "time_aligned"
+    assert env.pursuit["include_uncertainty_features"] is True
+    assert env.policy_observations(observation).shape == (4, 48)
+
+
 def test_prediction_dataset_assembly_uses_history_and_future_labels_only() -> None:
     policy = np.zeros((12, 4, 48), dtype=np.float32)
     belief_relative = np.zeros((12, 4, 3), dtype=np.float32)
