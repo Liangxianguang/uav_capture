@@ -107,3 +107,16 @@ in this order: harder target maneuvers, unseen obstacle layouts, inertial and
 actuator dynamics, learned perception/tracking, and recurrent belief-aware
 multi-agent control. Kinematic, PyBullet, and future hardware results must be
 reported as separate evaluation domains.
+
+## Stage 2 observation/communication baseline
+
+Stage 2 adds configurable observation timestamp, confidence, covariance, burst
+occlusion, local measurement delay, message delay, packet loss, and link loss.
+The protocol is documented in `OBSERVATION_COMMUNICATION_PROTOCOL.md` and the
+locked-test configuration is
+`configs/capture_radius_observation_communication.yaml`. The current Pure
+Pursuit + CBF result is summarized in
+`results/OBSERVATION_COMMUNICATION_STAGE2_REPORT.md`; it is a kinematic rule
+baseline, not the final learned method. The next implementation target is a
+predictor trained only from these local observation histories, followed by
+Recurrent-MAPPO ablations.

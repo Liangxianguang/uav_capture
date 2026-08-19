@@ -10,6 +10,7 @@ import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 from .environment import CylinderObstacle, Encirclement3DEnv
 
@@ -128,6 +129,23 @@ def plot_pursuit_trajectory(env: Any, path: Path, title: str) -> None:
 
 
 def _draw_cylinder(axis: Any, obstacle: CylinderObstacle) -> None:
+    if getattr(obstacle, "shape", "cylinder") != "cylinder":
+        half_extents = getattr(obstacle, "half_extents_xy", None)
+        if half_extents is None:
+            return
+        x0, x1 = obstacle.center_xy[0] - half_extents[0], obstacle.center_xy[0] + half_extents[0]
+        y0, y1 = obstacle.center_xy[1] - half_extents[1], obstacle.center_xy[1] + half_extents[1]
+        vertices = np.array(
+            [
+                [x0, y0, 0.0], [x1, y0, 0.0], [x1, y1, 0.0], [x0, y1, 0.0],
+                [x0, y0, obstacle.height], [x1, y0, obstacle.height],
+                [x1, y1, obstacle.height], [x0, y1, obstacle.height],
+            ]
+        )
+        faces = ((0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7))
+        polygons = [vertices[list(face)] for face in faces]
+        axis.add_collection3d(Poly3DCollection(polygons, facecolor="gray", alpha=0.25, edgecolor="none"))
+        return
     theta = np.linspace(0.0, 2.0 * np.pi, 32)
     z = np.linspace(0.0, obstacle.height, 2)
     theta_grid, z_grid = np.meshgrid(theta, z)

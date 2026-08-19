@@ -1,0 +1,133 @@
+research_task:
+  name: partial_observable_3d_capture_radius_observation_communication
+  primary_scope: evaluate_capture_radius_under_configured_detection_and_communication_uncertainty
+  excluded_scope: real_camera_deployment_real_flight_and_physical_contact
+seed: 630001
+seed_blocks:
+  train: 630001
+  validation: 631001
+  locked_test: 632001
+world:
+  half_extent_xy: 10.0
+  height: 10.0
+  minimum_altitude: 0.5
+  dt: 0.1
+  max_steps: 250
+agents:
+  defenders: 4
+  defender_max_speed: 5.0
+  defender_max_acceleration: 6.0
+  target_max_speed: 3.6
+  target_max_acceleration: 4.0
+  drone_radius: 0.25
+dynamics:
+  backend: kinematic
+task:
+  slot_tracking_gain: 2.5
+  cbf_gamma: 0.25
+  pursuit:
+    capture_radius: 0.80
+    spawn_distance: 4.80
+    detection_range: 7.50
+    visibility_cosine_threshold: -1.0
+    detection_dropout_probability: 0.10
+    observation_noise_std: 0.05
+    observation_delay_steps: 0
+    message_delay_steps: 2
+    message_dropout_probability: 0.05
+    communication_link_dropout_probability: 0.00
+    detection_loss_burst_probability: 0.00
+    detection_loss_burst_duration_steps: 1
+    observation_confidence_decay: 0.97
+    observation_covariance_growth: 0.25
+    maximum_message_age_steps: 60
+    include_prediction_features: true
+    include_uncertainty_features: true
+    prediction_horizon_seconds: 0.55
+    prediction_uncertainty_base: 0.08
+    target_motion_mode: flee_persistence
+    target_turn_interval_steps: 12
+    target_s_curve_amplitude: 0.85
+    target_s_curve_frequency: 0.18
+    target_burst_period_steps: 30
+    target_burst_duration_steps: 8
+    target_burst_speed_scale: 1.25
+    target_defender_avoidance_distance: 2.20
+    target_defender_avoidance_gain: 4.00
+    target_obstacle_avoidance_distance: 2.20
+    target_obstacle_avoidance_gain: 3.50
+    target_boundary_margin: 1.20
+    target_boundary_gain: 7.00
+    target_heading_persistence: 0.55
+    target_flee_gain: 1.00
+    target_vertical_gain: 0.20
+    controller_obstacle_avoidance_distance: 2.00
+    controller_obstacle_avoidance_gain: 2.80
+    controller_inter_agent_distance: 1.50
+    controller_inter_agent_gain: 2.50
+    safety_margin: 0.35
+    capture_bonus: 25.00
+    collision_penalty: 15.00
+    progress_reward_weight: 3.00
+    distance_reward_weight: 0.12
+    coverage_reward_weight: 0.15
+    max_observation_obstacles: 3
+    obstacle_profile: cylinders
+experiments:
+  - name: nominal_partial_observation
+    episodes: 100
+    obstacle_count: 3
+    target_speed_scale: 0.75
+    pursuit_overrides:
+      target_motion_mode: random_turn
+      obstacle_profile: mixed
+      map_seed_offset: 500000
+  - name: delayed_measurements
+    episodes: 100
+    obstacle_count: 3
+    target_speed_scale: 0.75
+    pursuit_overrides:
+      target_motion_mode: random_turn
+      obstacle_profile: mixed
+      observation_delay_steps: 3
+      message_delay_steps: 5
+      map_seed_offset: 510000
+  - name: burst_occlusion
+    episodes: 100
+    obstacle_count: 5
+    target_speed_scale: 1.00
+    pursuit_overrides:
+      target_motion_mode: s_curve
+      obstacle_profile: boxes
+      detection_dropout_probability: 0.20
+      detection_loss_burst_probability: 0.20
+      detection_loss_burst_duration_steps: 5
+      map_seed_offset: 520000
+  - name: communication_loss
+    episodes: 100
+    obstacle_count: 5
+    target_speed_scale: 1.00
+    pursuit_overrides:
+      target_motion_mode: burst
+      obstacle_profile: narrow_channels
+      message_delay_steps: 6
+      message_dropout_probability: 0.20
+      communication_link_dropout_probability: 0.15
+      map_seed_offset: 530000
+  - name: joint_uncertainty_high_mobility
+    episodes: 100
+    obstacle_count: 4
+    target_speed_scale: 1.25
+    pursuit_overrides:
+      target_motion_mode: boundary_escape
+      obstacle_profile: walls
+      observation_delay_steps: 4
+      message_delay_steps: 8
+      detection_dropout_probability: 0.25
+      detection_loss_burst_probability: 0.25
+      detection_loss_burst_duration_steps: 6
+      message_dropout_probability: 0.25
+      communication_link_dropout_probability: 0.20
+      observation_noise_std: 0.10
+      observation_covariance_growth: 0.40
+      map_seed_offset: 540000

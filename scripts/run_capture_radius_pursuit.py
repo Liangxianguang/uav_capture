@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import copy
 import hashlib
 import json
+import os
 import platform
 import sys
 import time
@@ -13,8 +15,17 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
+# Keep the standalone evaluator consistent with the training launchers on
+# Windows, where NumPy/Matplotlib and PyTorch can otherwise load two OpenMP
+# runtimes in one process.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 import numpy as np
 import yaml
+from torch.utils.tensorboard import SummaryWriter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -40,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--episodes", type=int, help="Optional override for every scenario.")
     parser.add_argument("--scenario", type=str, help="Run one configured scenario.")
+    parser.add_argument("--no-tensorboard", action="store_true", help="Disable TensorBoard event logging.")
     return parser.parse_args()
 
 
@@ -96,9 +108,25 @@ def run_episode(
         "nearest_target_distance": float(final_info["nearest_target_distance"]),
         "mean_target_visible_fraction": float(np.mean(visible_fractions)) if visible_fractions else 0.0,
         "mean_message_age_steps": float(np.mean(message_ages)) if message_ages else 0.0,
+        "mean_observation_confidence": float(final_info.get("mean_observation_confidence", 0.0)),
+        "mean_observation_age_steps": float(final_info.get("mean_observation_age_steps", 0.0)),
+        "mean_observation_covariance_trace": float(
+            final_info.get("mean_observation_covariance_trace", 0.0)
+        ),
         "mean_action_correction": float(np.mean(correction_norms)) if correction_norms else 0.0,
         "minimum_cbf_barrier": float(min(barrier_values)) if barrier_values else None,
     }
+
+
+def config_for_experiment(config: dict[str, Any], experiment: dict[str, Any]) -> dict[str, Any]:
+    """Apply per-scenario pursuit overrides without mutating the base config."""
+    scenario_config = copy.deepcopy(config)
+    overrides = experiment.get("pursuit_overrides", {})
+    if overrides:
+        if not isinstance(overrides, dict):
+            raise ValueError("experiment.pursuit_overrides must be a mapping.")
+        scenario_config.setdefault("task", {}).setdefault("pursuit", {}).update(overrides)
+    return scenario_config
 
 
 def write_artifacts(output: Path, config: dict[str, Any]) -> None:
@@ -150,6 +178,15 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, dict[str, float | int | N
             "worst_minimum_clearance_m": float(min(float(row["min_clearance"]) for row in subset)),
             "mean_visible_fraction": float(np.mean([float(row["mean_target_visible_fraction"]) for row in subset])),
             "mean_message_age_steps": float(np.mean([float(row["mean_message_age_steps"]) for row in subset])),
+            "mean_observation_confidence": float(
+                np.mean([float(row["mean_observation_confidence"]) for row in subset])
+            ),
+            "mean_observation_age_steps": float(
+                np.mean([float(row["mean_observation_age_steps"]) for row in subset])
+            ),
+            "mean_observation_covariance_trace": float(
+                np.mean([float(row["mean_observation_covariance_trace"]) for row in subset])
+            ),
             "mean_action_correction": float(np.mean([float(row["mean_action_correction"]) for row in subset])),
             "worst_cbf_barrier": float(min(barriers)) if barriers else None,
         }
@@ -173,22 +210,58 @@ def main() -> None:
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output}")
     output.mkdir(parents=True, exist_ok=True)
     write_artifacts(output, config)
+    tensorboard = None if args.no_tensorboard else SummaryWriter(
+        log_dir=str(output / "tensorboard"),
+        flush_secs=10,
+    )
+    if tensorboard is not None:
+        tensorboard.add_text("Config/effective_benchmark", yaml.safe_dump(config, sort_keys=False), 0)
 
     started = time.perf_counter()
     rows: list[dict[str, Any]] = []
+    seed_blocks = config.get("seed_blocks", {})
+    if not isinstance(seed_blocks, dict):
+        raise ValueError("seed_blocks must be a mapping when provided.")
+    evaluation_seed = int(seed_blocks.get("locked_test", config["seed"]))
     for scenario_index, experiment in enumerate(config["experiments"]):
+        scenario_config = config_for_experiment(config, experiment)
         for episode_index in range(int(experiment["episodes"])):
             env = CaptureRadiusPursuit3DEnv(
-                config,
+                scenario_config,
                 obstacle_count=int(experiment["obstacle_count"]),
                 target_speed_scale=float(experiment["target_speed_scale"]),
             )
             controller = controller_for(args.controller, env)
-            seed = int(config["seed"]) + scenario_index * 10_000 + episode_index
+            seed = evaluation_seed + scenario_index * 10_000 + episode_index
             row = run_episode(env, controller, seed=seed, record_history=episode_index == 0)
             row["scenario"] = str(experiment["name"])
             row["controller"] = args.controller
+            row["target_speed_scale"] = float(experiment["target_speed_scale"])
+            row["obstacle_count"] = int(experiment["obstacle_count"])
+            row["target_motion_mode"] = str(scenario_config["task"]["pursuit"]["target_motion_mode"])
+            row["obstacle_profile"] = str(scenario_config["task"]["pursuit"]["obstacle_profile"])
             rows.append(row)
+            if tensorboard is not None:
+                step = len(rows)
+                for metric in (
+                    "success",
+                    "safe_capture_success",
+                    "capture_event",
+                    "collision_steps",
+                    "world_violation_steps",
+                    "min_clearance",
+                    "mean_target_visible_fraction",
+                    "mean_message_age_steps",
+                    "mean_observation_confidence",
+                    "mean_observation_age_steps",
+                    "mean_observation_covariance_trace",
+                    "mean_action_correction",
+                ):
+                    tensorboard.add_scalar(
+                        f"Episode/{experiment['name']}/{metric}",
+                        float(row[metric]),
+                        step,
+                    )
             if episode_index == 0:
                 plot_pursuit_trajectory(
                     env,
@@ -219,6 +292,8 @@ def main() -> None:
         json.dumps(
             {
                 "controller": args.controller,
+                "evaluation_seed": evaluation_seed,
+                "seed_blocks": seed_blocks,
                 "elapsed_seconds": time.perf_counter() - started,
                 "episodes": len(rows),
             },
@@ -226,6 +301,13 @@ def main() -> None:
         ),
         encoding="utf-8",
     )
+    if tensorboard is not None:
+        for scenario, values in summary.items():
+            for metric, value in values.items():
+                if isinstance(value, (int, float)) and value is not None:
+                    tensorboard.add_scalar(f"Summary/{scenario}/{metric}", float(value), len(rows))
+        tensorboard.flush()
+        tensorboard.close()
     print(json.dumps(summary, indent=2))
 
 

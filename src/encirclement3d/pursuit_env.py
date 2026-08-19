@@ -28,9 +28,19 @@ TETRAHEDRON_DIRECTIONS /= np.linalg.norm(TETRAHEDRON_DIRECTIONS, axis=1, keepdim
 
 @dataclass(frozen=True)
 class CylinderObstacle:
+    """Static obstacle used by the pursuit benchmark.
+
+    The historical name is retained for compatibility.  ``shape='cylinder'``
+    uses ``radius``; ``shape='box'`` additionally uses ``half_extents_xy``.
+    Keeping one observation-compatible record lets the benchmark introduce
+    boxes and wall segments without changing the actor input dimension.
+    """
+
     center_xy: np.ndarray
     radius: float
     height: float
+    shape: str = "cylinder"
+    half_extents_xy: np.ndarray | None = None
 
 
 def _unit(vector: np.ndarray, fallback: np.ndarray | None = None) -> np.ndarray:
@@ -42,7 +52,7 @@ def _unit(vector: np.ndarray, fallback: np.ndarray | None = None) -> np.ndarray:
     return fallback.copy()
 
 
-_PURSUIT_DEFAULTS: dict[str, float | int | bool] = {
+_PURSUIT_DEFAULTS: dict[str, Any] = {
     "capture_radius": 0.80,
     "spawn_distance": 4.80,
     "detection_range": 7.50,
@@ -51,8 +61,15 @@ _PURSUIT_DEFAULTS: dict[str, float | int | bool] = {
     "observation_noise_std": 0.03,
     "message_delay_steps": 2,
     "message_dropout_probability": 0.05,
+    "communication_link_dropout_probability": 0.0,
     "maximum_message_age_steps": 60,
+    "observation_delay_steps": 0,
+    "detection_loss_burst_probability": 0.0,
+    "detection_loss_burst_duration_steps": 1,
+    "observation_confidence_decay": 0.97,
+    "observation_covariance_growth": 0.25,
     "include_prediction_features": False,
+    "include_uncertainty_features": False,
     "prediction_horizon_seconds": 0.55,
     "prediction_uncertainty_base": 0.08,
     "target_defender_avoidance_distance": 2.20,
@@ -62,6 +79,13 @@ _PURSUIT_DEFAULTS: dict[str, float | int | bool] = {
     "target_boundary_margin": 1.20,
     "target_boundary_gain": 7.00,
     "target_heading_persistence": 0.55,
+    "target_motion_mode": "flee_persistence",
+    "target_turn_interval_steps": 12,
+    "target_s_curve_amplitude": 0.85,
+    "target_s_curve_frequency": 0.18,
+    "target_burst_period_steps": 30,
+    "target_burst_duration_steps": 8,
+    "target_burst_speed_scale": 1.25,
     "target_flee_gain": 1.00,
     "target_vertical_gain": 0.20,
     "controller_obstacle_avoidance_distance": 2.00,
@@ -75,7 +99,12 @@ _PURSUIT_DEFAULTS: dict[str, float | int | bool] = {
     "distance_reward_weight": 0.12,
     "coverage_reward_weight": 0.15,
     "max_observation_obstacles": 3,
+    "obstacle_profile": "cylinders",
+    "map_seed_offset": 0,
 }
+
+_TARGET_MOTION_MODES = {"flee_persistence", "random_turn", "s_curve", "burst", "boundary_escape"}
+_OBSTACLE_PROFILES = {"cylinders", "boxes", "walls", "narrow_channels", "mixed"}
 
 
 def pursuit_settings(task: dict[str, Any]) -> dict[str, float | int | bool]:
@@ -103,13 +132,54 @@ def pursuit_settings(task: dict[str, Any]) -> dict[str, float | int | bool]:
             raise ValueError(f"task.pursuit.{name} must be positive.")
     if not -1.0 <= float(settings["visibility_cosine_threshold"]) <= 1.0:
         raise ValueError("task.pursuit.visibility_cosine_threshold must be in [-1, 1].")
-    for name in ("message_dropout_probability", "detection_dropout_probability"):
+    for name in (
+        "message_dropout_probability",
+        "communication_link_dropout_probability",
+        "detection_dropout_probability",
+        "detection_loss_burst_probability",
+    ):
         if not 0.0 <= float(settings[name]) < 1.0:
             raise ValueError(f"task.pursuit.{name} must be in [0, 1).")
-    if int(settings["message_delay_steps"]) < 0 or int(settings["maximum_message_age_steps"]) <= 0:
-        raise ValueError("Message delay must be non-negative and maximum message age must be positive.")
+    if (
+        int(settings["message_delay_steps"]) < 0
+        or int(settings["observation_delay_steps"]) < 0
+        or int(settings["maximum_message_age_steps"]) <= 0
+    ):
+        raise ValueError("Message/observation delays must be non-negative and maximum message age must be positive.")
+    if int(settings["detection_loss_burst_duration_steps"]) <= 0:
+        raise ValueError("task.pursuit.detection_loss_burst_duration_steps must be positive.")
+    if not 0.0 < float(settings["observation_confidence_decay"]) <= 1.0:
+        raise ValueError("task.pursuit.observation_confidence_decay must be in (0, 1].")
+    if float(settings["observation_covariance_growth"]) < 0.0:
+        raise ValueError("task.pursuit.observation_covariance_growth must be non-negative.")
     if float(settings["prediction_uncertainty_base"]) < 0.0:
         raise ValueError("task.pursuit.prediction_uncertainty_base must be non-negative.")
+    if str(settings["target_motion_mode"]) not in _TARGET_MOTION_MODES:
+        raise ValueError(
+            "task.pursuit.target_motion_mode must be one of "
+            + ", ".join(sorted(_TARGET_MOTION_MODES))
+            + "."
+        )
+    if str(settings["obstacle_profile"]) not in _OBSTACLE_PROFILES:
+        raise ValueError(
+            "task.pursuit.obstacle_profile must be one of "
+            + ", ".join(sorted(_OBSTACLE_PROFILES))
+            + "."
+        )
+    for name in (
+        "target_turn_interval_steps",
+        "target_burst_period_steps",
+        "target_burst_duration_steps",
+    ):
+        if int(settings[name]) <= 0:
+            raise ValueError(f"task.pursuit.{name} must be positive.")
+    for name in ("target_s_curve_amplitude", "target_s_curve_frequency", "target_burst_speed_scale"):
+        if float(settings[name]) < 0.0:
+            raise ValueError(f"task.pursuit.{name} must be non-negative.")
+    if int(settings["target_burst_duration_steps"]) > int(settings["target_burst_period_steps"]):
+        raise ValueError("target_burst_duration_steps cannot exceed target_burst_period_steps.")
+    if int(settings["map_seed_offset"]) < 0:
+        raise ValueError("task.pursuit.map_seed_offset must be non-negative.")
     return settings
 
 
@@ -120,6 +190,21 @@ class PursuitEpisodeMetrics:
     collision: bool
     physical_target_contact: bool
     min_clearance: float
+
+
+@dataclass(frozen=True)
+class _BeliefPacket:
+    """Timestamped local detection or delayed teammate message."""
+
+    delivery_step: int
+    receiver: int
+    source: int
+    timestamp_step: int
+    position: np.ndarray
+    velocity: np.ndarray
+    confidence: float
+    covariance: np.ndarray
+    via_message: bool
 
 
 class CaptureRadiusPursuit3DEnv:
@@ -158,8 +243,12 @@ class CaptureRadiusPursuit3DEnv:
         self.target_belief_positions = np.zeros((self.n_defenders, 3), dtype=np.float64)
         self.target_belief_velocities = np.zeros((self.n_defenders, 3), dtype=np.float64)
         self.target_visible = np.zeros(self.n_defenders, dtype=bool)
+        self.target_observation_confidence = np.zeros(self.n_defenders, dtype=np.float64)
+        self.target_observation_timestamps = np.full(self.n_defenders, -1, dtype=np.int64)
+        self.target_observation_covariance = np.zeros((self.n_defenders, 3, 3), dtype=np.float64)
+        self.detection_loss_burst_remaining = np.zeros(self.n_defenders, dtype=np.int64)
         self.message_age_steps = np.full(self.n_defenders, int(self.pursuit["maximum_message_age_steps"]), dtype=np.int64)
-        self._message_queue: list[tuple[int, int, np.ndarray, np.ndarray]] = []
+        self._message_queue: list[_BeliefPacket] = []
 
         self.step_count = 0
         self.collision_steps = 0
@@ -197,11 +286,24 @@ class CaptureRadiusPursuit3DEnv:
         self.defender_positions += self.rng.normal(0.0, 0.20, size=self.defender_positions.shape)
         self.defender_positions = np.clip(self.defender_positions, self.lower + 0.6, self.upper - 0.6)
         self.defender_velocities.fill(0.0)
-        self.obstacles = self._sample_obstacles()
+        map_seed_offset = int(self.pursuit["map_seed_offset"])
+        if map_seed_offset:
+            map_rng = self.rng
+            self.rng = np.random.default_rng(seed + map_seed_offset)
+            self.obstacles = self._sample_obstacles()
+            self.rng = map_rng
+        else:
+            self.obstacles = self._sample_obstacles()
 
         self.target_belief_positions[:] = 0.0
         self.target_belief_velocities[:] = 0.0
         self.message_age_steps[:] = int(self.pursuit["maximum_message_age_steps"])
+        self.target_observation_confidence.fill(0.0)
+        self.target_observation_timestamps.fill(-1)
+        self.target_observation_covariance[:] = np.eye(3, dtype=np.float64)[None, :, :] * float(
+            self.pursuit["observation_covariance_growth"]
+        )
+        self.detection_loss_burst_remaining.fill(0)
         self._update_target_beliefs()
         if record_history:
             self._record_history()
@@ -218,12 +320,25 @@ class CaptureRadiusPursuit3DEnv:
                     "center_xy": obstacle.center_xy.copy(),
                     "radius": float(obstacle.radius),
                     "height": float(obstacle.height),
+                    "shape": obstacle.shape,
+                    "half_extents_xy": (
+                        None
+                        if obstacle.half_extents_xy is None
+                        else obstacle.half_extents_xy.copy()
+                    ),
                 }
                 for obstacle in self.obstacles
             ],
             "target_belief_positions": self.target_belief_positions.copy(),
             "target_belief_velocities": self.target_belief_velocities.copy(),
             "target_visible": self.target_visible.copy(),
+            "target_observation_confidence": self.target_observation_confidence.copy(),
+            "target_observation_timestamps": self.target_observation_timestamps.copy(),
+            "target_observation_covariance": self.target_observation_covariance.copy(),
+            "target_observation_age_steps": np.maximum(
+                self.step_count - self.target_observation_timestamps,
+                0,
+            ).astype(np.int64),
             "message_age_steps": self.message_age_steps.copy(),
             "target_prediction_positions": predicted_positions,
             "target_prediction_uncertainties": predicted_uncertainties,
@@ -266,6 +381,8 @@ class CaptureRadiusPursuit3DEnv:
         beliefs = np.asarray(current["target_belief_positions"], dtype=np.float32)
         belief_velocities = np.asarray(current["target_belief_velocities"], dtype=np.float32)
         visible = np.asarray(current["target_visible"], dtype=np.float32)
+        confidence = np.asarray(current["target_observation_confidence"], dtype=np.float32)
+        covariance = np.asarray(current["target_observation_covariance"], dtype=np.float32)
         message_age = np.asarray(current["message_age_steps"], dtype=np.float32)
         prediction_positions = np.asarray(current["target_prediction_positions"], dtype=np.float32)
         prediction_uncertainties = np.asarray(current["target_prediction_uncertainties"], dtype=np.float32)
@@ -318,6 +435,16 @@ class CaptureRadiusPursuit3DEnv:
                         (
                             np.concatenate(
                                 [
+                                    np.array([confidence[index]], dtype=np.float32),
+                                    np.clip(np.diag(covariance[index]) / max(extent**2, 1e-9), 0.0, 1.0),
+                                ]
+                            )
+                            if bool(self.pursuit["include_uncertainty_features"])
+                            else np.empty(0, dtype=np.float32)
+                        ),
+                        (
+                            np.concatenate(
+                                [
                                     (prediction_positions[index] - positions[index]) / extent,
                                     np.array([prediction_uncertainties[index] / extent], dtype=np.float32),
                                 ]
@@ -365,7 +492,11 @@ class CaptureRadiusPursuit3DEnv:
             self.collision_steps += 1
 
         capture_event = bool(metrics.minimum_target_distance <= float(self.pursuit["capture_radius"]))
-        safety_failure = bool(metrics.collision)
+        # Boundary violations are safety failures just like obstacle and
+        # teammate collisions.  The clamped state is useful for continuing a
+        # diagnostic rollout, but it must not turn an earlier violation into a
+        # Safe Capture later in the episode.
+        safety_failure = bool(metrics.collision or self.world_violation_steps > 0)
         safe_capture = bool(capture_event and not safety_failure)
         if safe_capture:
             self.capture_time_seconds = float(self.step_count * self.dt)
@@ -418,6 +549,13 @@ class CaptureRadiusPursuit3DEnv:
             "reward_components": reward_components,
             "target_visible_fraction": float(np.mean(self.target_visible)),
             "mean_message_age_steps": float(np.mean(self.message_age_steps)),
+            "mean_observation_confidence": float(np.mean(self.target_observation_confidence)),
+            "mean_observation_age_steps": float(
+                np.mean(np.maximum(self.step_count - self.target_observation_timestamps, 0))
+            ),
+            "mean_observation_covariance_trace": float(
+                np.mean(np.trace(self.target_observation_covariance, axis1=1, axis2=2))
+            ),
             "capture_radius": float(self.pursuit["capture_radius"]),
         }
         return self.observe(), reward, terminated, truncated, info
@@ -461,21 +599,66 @@ class CaptureRadiusPursuit3DEnv:
                 desired[axis] += float(self.pursuit["target_boundary_gain"])
             if self.target_position[axis] > self.upper[axis] - margin:
                 desired[axis] -= float(self.pursuit["target_boundary_gain"])
+        mode = str(self.pursuit["target_motion_mode"])
+        if mode == "random_turn" and self.step_count > 0 and self.step_count % int(self.pursuit["target_turn_interval_steps"]) == 0:
+            self.target_escape_direction = _unit(
+                self.rng.normal(0.0, 1.0, size=3),
+                fallback=self.target_escape_direction,
+            )
+            desired = 0.35 * desired + self.target_escape_direction
+        elif mode == "s_curve":
+            lateral = np.array(
+                [-self.target_escape_direction[1], self.target_escape_direction[0], 0.0],
+                dtype=np.float64,
+            )
+            lateral = _unit(lateral, fallback=np.array([0.0, 1.0, 0.0]))
+            desired += lateral * float(self.pursuit["target_s_curve_amplitude"]) * np.sin(
+                float(self.pursuit["target_s_curve_frequency"]) * self.step_count
+            )
+        elif mode == "burst":
+            burst_period = int(self.pursuit["target_burst_period_steps"])
+            burst_duration = int(self.pursuit["target_burst_duration_steps"])
+            if self.step_count % burst_period < burst_duration:
+                desired *= float(self.pursuit["target_burst_speed_scale"])
+        elif mode == "boundary_escape":
+            boundary_direction = np.zeros(3, dtype=np.float64)
+            for axis in range(3):
+                distance_to_lower = self.target_position[axis] - self.lower[axis]
+                distance_to_upper = self.upper[axis] - self.target_position[axis]
+                if distance_to_lower < distance_to_upper:
+                    boundary_direction[axis] -= 1.0 / max(distance_to_lower, 0.5)
+                else:
+                    boundary_direction[axis] += 1.0 / max(distance_to_upper, 0.5)
+            desired += 0.35 * _unit(boundary_direction, fallback=self.target_escape_direction)
+
         direction = _unit(desired, fallback=self.target_escape_direction)
         self.target_escape_direction = direction
-        return direction * float(self.agents["target_max_speed"]) * self.target_speed_scale
+        speed_scale = self.target_speed_scale
+        if mode == "burst":
+            burst_period = int(self.pursuit["target_burst_period_steps"])
+            burst_duration = int(self.pursuit["target_burst_duration_steps"])
+            if self.step_count % burst_period < burst_duration:
+                speed_scale *= float(self.pursuit["target_burst_speed_scale"])
+        return direction * float(self.agents["target_max_speed"]) * speed_scale
 
     def _update_target_beliefs(self) -> None:
         self.target_visible[:] = False
-        pending: list[tuple[int, int, np.ndarray, np.ndarray]] = []
-        for delivery_step, receiver, position, velocity in self._message_queue:
-            if delivery_step <= self.step_count:
-                if self.message_age_steps[receiver] > 0:
-                    self.target_belief_positions[receiver] = position
-                    self.target_belief_velocities[receiver] = velocity
-                    self.message_age_steps[receiver] = 0
+        pending: list[_BeliefPacket] = []
+        for packet in self._message_queue:
+            if packet.delivery_step <= self.step_count:
+                receiver = packet.receiver
+                if packet.timestamp_step >= int(self.target_observation_timestamps[receiver]):
+                    self.target_belief_positions[receiver] = packet.position
+                    self.target_belief_velocities[receiver] = packet.velocity
+                    self.target_observation_confidence[receiver] = float(packet.confidence)
+                    self.target_observation_covariance[receiver] = packet.covariance
+                    self.target_observation_timestamps[receiver] = int(packet.timestamp_step)
+                    self.message_age_steps[receiver] = min(
+                        max(self.step_count - packet.timestamp_step, 0),
+                        int(self.pursuit["maximum_message_age_steps"]),
+                    )
             else:
-                pending.append((delivery_step, receiver, position, velocity))
+                pending.append(packet)
         self._message_queue = pending
 
         for index in range(self.n_defenders):
@@ -487,19 +670,53 @@ class CaptureRadiusPursuit3DEnv:
                     float(self.pursuit["observation_noise_std"]) / max(self.dt, 1e-9),
                     size=3,
                 )
-                self.target_belief_positions[index] = position
-                self.target_belief_velocities[index] = velocity
-                self.message_age_steps[index] = 0
                 self.target_visible[index] = True
+                distance = float(np.linalg.norm(self.target_position - self.defender_positions[index]))
+                confidence = float(
+                    np.clip(
+                        1.0 - distance / max(float(self.pursuit["detection_range"]), 1e-9),
+                        0.05,
+                        1.0,
+                    )
+                )
+                covariance = np.eye(3, dtype=np.float64) * max(
+                    float(self.pursuit["observation_noise_std"]) ** 2,
+                    1e-8,
+                )
+                packet = _BeliefPacket(
+                    delivery_step=self.step_count + int(self.pursuit["observation_delay_steps"]),
+                    receiver=index,
+                    source=index,
+                    timestamp_step=self.step_count,
+                    position=position.copy(),
+                    velocity=velocity.copy(),
+                    confidence=confidence,
+                    covariance=covariance,
+                    via_message=False,
+                )
+                if packet.delivery_step <= self.step_count:
+                    self._deliver_belief_packet(packet)
+                else:
+                    self._message_queue.append(packet)
                 for receiver in range(self.n_defenders):
-                    if receiver == index or self.rng.random() < float(self.pursuit["message_dropout_probability"]):
+                    if receiver == index:
+                        continue
+                    if (
+                        self.rng.random() < float(self.pursuit["message_dropout_probability"])
+                        or self.rng.random() < float(self.pursuit["communication_link_dropout_probability"])
+                    ):
                         continue
                     self._message_queue.append(
-                        (
-                            self.step_count + int(self.pursuit["message_delay_steps"]),
-                            receiver,
-                            position.copy(),
-                            velocity.copy(),
+                        _BeliefPacket(
+                            delivery_step=self.step_count + int(self.pursuit["message_delay_steps"]),
+                            receiver=receiver,
+                            source=index,
+                            timestamp_step=self.step_count,
+                            position=position.copy(),
+                            velocity=velocity.copy(),
+                            confidence=confidence,
+                            covariance=covariance.copy(),
+                            via_message=True,
                         )
                     )
             else:
@@ -508,6 +725,25 @@ class CaptureRadiusPursuit3DEnv:
                     self.message_age_steps[index] + 1,
                     int(self.pursuit["maximum_message_age_steps"]),
                 )
+                self.target_observation_confidence[index] *= float(self.pursuit["observation_confidence_decay"])
+                self.target_observation_covariance[index] += np.eye(3, dtype=np.float64) * float(
+                    self.pursuit["observation_covariance_growth"]
+                )
+
+    def _deliver_belief_packet(self, packet: _BeliefPacket) -> None:
+        """Apply one packet only if it is newer than the receiver's belief."""
+        receiver = int(packet.receiver)
+        if packet.timestamp_step < int(self.target_observation_timestamps[receiver]):
+            return
+        self.target_belief_positions[receiver] = packet.position
+        self.target_belief_velocities[receiver] = packet.velocity
+        self.target_observation_confidence[receiver] = float(packet.confidence)
+        self.target_observation_covariance[receiver] = packet.covariance.copy()
+        self.target_observation_timestamps[receiver] = int(packet.timestamp_step)
+        self.message_age_steps[receiver] = min(
+            max(self.step_count - packet.timestamp_step, 0),
+            int(self.pursuit["maximum_message_age_steps"]),
+        )
 
     def _predict_target_beliefs(self) -> tuple[np.ndarray, np.ndarray]:
         """Predict each local target belief without reading simulator target truth.
@@ -525,6 +761,15 @@ class CaptureRadiusPursuit3DEnv:
         return positions.copy(), uncertainty.astype(np.float64, copy=False)
 
     def _target_is_visible(self, defender_index: int) -> bool:
+        if self.detection_loss_burst_remaining[defender_index] > 0:
+            self.detection_loss_burst_remaining[defender_index] -= 1
+            return False
+        if self.rng.random() < float(self.pursuit["detection_loss_burst_probability"]):
+            self.detection_loss_burst_remaining[defender_index] = max(
+                int(self.pursuit["detection_loss_burst_duration_steps"]) - 1,
+                0,
+            )
+            return False
         if self.rng.random() < float(self.pursuit["detection_dropout_probability"]):
             return False
         origin = self.defender_positions[defender_index]
@@ -541,6 +786,13 @@ class CaptureRadiusPursuit3DEnv:
 
     @staticmethod
     def _segment_blocked_by_cylinder(start: np.ndarray, end: np.ndarray, obstacle: CylinderObstacle) -> bool:
+        if obstacle.shape != "cylinder":
+            for fraction in np.linspace(0.0, 1.0, 41):
+                point = start + fraction * (end - start)
+                clearance, _normal = CaptureRadiusPursuit3DEnv._box_clearance_and_normal(point, obstacle)
+                if clearance <= 0.0:
+                    return True
+            return False
         direction_xy = end[:2] - start[:2]
         squared_length = float(np.sum(direction_xy * direction_xy))
         if squared_length < 1e-12:
@@ -597,15 +849,49 @@ class CaptureRadiusPursuit3DEnv:
     def _sample_obstacles(self) -> list[CylinderObstacle]:
         obstacles: list[CylinderObstacle] = []
         protected_points = np.vstack([self.defender_positions, self.target_position[None, :]])
+        profile = str(self.pursuit["obstacle_profile"])
         for _ in range(self.obstacle_count):
             for _attempt in range(200):
+                shape = profile
+                if profile == "mixed":
+                    shape = str(self.rng.choice(["cylinder", "box", "walls"]))
+                elif profile == "narrow_channels":
+                    shape = "wall"
+                if shape == "cylinders":
+                    shape = "cylinder"
+                if shape == "boxes":
+                    shape = "box"
+                if shape == "walls":
+                    shape = "wall"
                 radius = float(self.rng.uniform(0.65, 1.15))
                 height = float(self.rng.uniform(3.0, 7.0))
                 center_xy = self.rng.uniform(-7.5, 7.5, size=2)
-                candidate = CylinderObstacle(center_xy=center_xy, radius=radius, height=height)
+                half_extents_xy: np.ndarray | None = None
+                if shape == "box":
+                    half_extents_xy = self.rng.uniform(0.65, 1.5, size=2).astype(np.float64)
+                    radius = float(np.max(half_extents_xy))
+                elif shape == "wall":
+                    long_extent = float(self.rng.uniform(3.0, 5.0))
+                    short_extent = float(self.rng.uniform(0.25, 0.45))
+                    if self.rng.random() < 0.5:
+                        half_extents_xy = np.array([long_extent, short_extent], dtype=np.float64)
+                    else:
+                        half_extents_xy = np.array([short_extent, long_extent], dtype=np.float64)
+                    radius = short_extent
+                    if profile == "narrow_channels":
+                        long_extent = float(self.rng.uniform(3.5, 5.5))
+                        short_extent = float(self.rng.uniform(0.30, 0.40))
+                        half_extents_xy = np.array([long_extent, short_extent], dtype=np.float64)
+                        radius = short_extent
+                candidate = CylinderObstacle(
+                    center_xy=center_xy,
+                    radius=radius,
+                    height=height,
+                    shape="cylinder" if shape == "cylinder" else shape,
+                    half_extents_xy=half_extents_xy,
+                )
                 if self._obstacle_clear_of_points(candidate, protected_points) and all(
-                    np.linalg.norm(candidate.center_xy - existing.center_xy)
-                    >= candidate.radius + existing.radius + 1.0
+                    self._obstacle_horizontal_separation(candidate, existing) >= 1.0
                     for existing in obstacles
                 ):
                     obstacles.append(candidate)
@@ -615,11 +901,60 @@ class CaptureRadiusPursuit3DEnv:
         return obstacles
 
     def _obstacle_clear_of_points(self, obstacle: CylinderObstacle, points: np.ndarray) -> bool:
-        radial = np.linalg.norm(points[:, :2] - obstacle.center_xy[None, :], axis=1)
-        vertical_overlap = points[:, 2] <= obstacle.height + 1.0
-        return bool(np.all((radial > obstacle.radius + 1.8) | (~vertical_overlap)))
+        clearances = [self._obstacle_clearance(point, obstacle) for point in points]
+        return bool(all(clearance > 1.8 for clearance in clearances))
+
+    @staticmethod
+    def _box_clearance_and_normal(position: np.ndarray, obstacle: CylinderObstacle) -> tuple[float, np.ndarray]:
+        if obstacle.half_extents_xy is None:
+            raise ValueError("Box/wall obstacle requires half_extents_xy.")
+        center = np.array([obstacle.center_xy[0], obstacle.center_xy[1], obstacle.height * 0.5], dtype=np.float64)
+        half = np.array([obstacle.half_extents_xy[0], obstacle.half_extents_xy[1], obstacle.height * 0.5], dtype=np.float64)
+        delta = np.asarray(position, dtype=np.float64) - center
+        signed = np.abs(delta) - half
+        outside = np.maximum(signed, 0.0)
+        outside_norm = float(np.linalg.norm(outside))
+        if outside_norm > 1e-9:
+            normal = outside * np.sign(delta)
+            return outside_norm, _unit(normal, fallback=np.array([1.0, 0.0, 0.0]))
+        penetration = float(np.min(-signed))
+        axis = int(np.argmin(-signed))
+        normal = np.zeros(3, dtype=np.float64)
+        normal[axis] = 1.0 if delta[axis] >= 0.0 else -1.0
+        return -penetration, normal
+
+    def _obstacle_clearance(self, position: np.ndarray, obstacle: CylinderObstacle) -> float:
+        if obstacle.shape == "cylinder":
+            clearance, _normal = self._cylinder_clearance_and_normal(position, obstacle)
+            return float(clearance)
+        clearance, _normal = self._box_clearance_and_normal(position, obstacle)
+        return float(clearance)
+
+    @staticmethod
+    def _obstacle_horizontal_separation(first: CylinderObstacle, second: CylinderObstacle) -> float:
+        first_half = (
+            np.array([first.radius, first.radius], dtype=np.float64)
+            if first.half_extents_xy is None
+            else np.asarray(first.half_extents_xy, dtype=np.float64)
+        )
+        second_half = (
+            np.array([second.radius, second.radius], dtype=np.float64)
+            if second.half_extents_xy is None
+            else np.asarray(second.half_extents_xy, dtype=np.float64)
+        )
+        delta = np.abs(first.center_xy - second.center_xy) - first_half - second_half
+        gap = np.maximum(delta, 0.0)
+        if np.any(delta <= 0.0):
+            # If the axis-aligned footprints overlap in one direction, use
+            # the separating gap in the other direction.  This is less
+            # conservative than bounding every wall by a large circle and
+            # keeps narrow-channel maps sampleable.
+            return float(np.max(gap))
+        return float(np.linalg.norm(gap))
 
     def _cylinder_clearance_and_normal(self, position: np.ndarray, obstacle: CylinderObstacle) -> tuple[float, np.ndarray]:
+        if obstacle.shape != "cylinder":
+            return self._box_clearance_and_normal(position, obstacle)
         xy_delta = position[:2] - obstacle.center_xy
         xy_norm = float(np.linalg.norm(xy_delta))
         radial_normal = _unit(

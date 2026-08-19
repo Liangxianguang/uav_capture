@@ -1,0 +1,104 @@
+research_task:
+  name: partial_observable_3d_capture_radius_hard_benchmark
+  primary_scope: evaluate_capture_radius_pursuit_under_unseen_target_maneuvers_and_obstacle_profiles
+  excluded_scope: physical_contact_real_flight_and_camera_deployment
+seed: 620001
+world:
+  half_extent_xy: 10.0
+  height: 10.0
+  minimum_altitude: 0.5
+  dt: 0.1
+  max_steps: 250
+agents:
+  defenders: 4
+  defender_max_speed: 5.0
+  defender_max_acceleration: 6.0
+  target_max_speed: 3.6
+  target_max_acceleration: 4.0
+  drone_radius: 0.25
+dynamics:
+  backend: kinematic
+task:
+  slot_tracking_gain: 2.5
+  cbf_gamma: 0.25
+  pursuit:
+    capture_radius: 0.80
+    spawn_distance: 4.80
+    detection_range: 7.50
+    visibility_cosine_threshold: -1.0
+    detection_dropout_probability: 0.15
+    observation_noise_std: 0.03
+    message_delay_steps: 2
+    message_dropout_probability: 0.05
+    maximum_message_age_steps: 60
+    include_prediction_features: false
+    prediction_horizon_seconds: 0.55
+    prediction_uncertainty_base: 0.08
+    target_motion_mode: flee_persistence
+    target_turn_interval_steps: 12
+    target_s_curve_amplitude: 0.85
+    target_s_curve_frequency: 0.18
+    target_burst_period_steps: 30
+    target_burst_duration_steps: 8
+    target_burst_speed_scale: 1.25
+    target_defender_avoidance_distance: 2.20
+    target_defender_avoidance_gain: 4.00
+    target_obstacle_avoidance_distance: 2.20
+    target_obstacle_avoidance_gain: 3.50
+    target_boundary_margin: 1.20
+    target_boundary_gain: 7.00
+    target_heading_persistence: 0.55
+    target_flee_gain: 1.00
+    target_vertical_gain: 0.20
+    controller_obstacle_avoidance_distance: 2.00
+    controller_obstacle_avoidance_gain: 2.80
+    controller_inter_agent_distance: 1.50
+    controller_inter_agent_gain: 2.50
+    safety_margin: 0.35
+    capture_bonus: 25.00
+    collision_penalty: 15.00
+    progress_reward_weight: 3.00
+    distance_reward_weight: 0.12
+    coverage_reward_weight: 0.15
+    # Keep the actor input dimension identical to the frozen 44-feature
+    # baseline; extra obstacles remain outside each defender's local top-3.
+    max_observation_obstacles: 3
+    obstacle_profile: cylinders
+    map_seed_offset: 0
+experiments:
+  - name: baseline_open
+    episodes: 100
+    obstacle_count: 0
+    target_speed_scale: 0.55
+  - name: random_turn_clutter
+    episodes: 100
+    obstacle_count: 3
+    target_speed_scale: 0.75
+    pursuit_overrides:
+      target_motion_mode: random_turn
+      obstacle_profile: mixed
+      map_seed_offset: 100000
+  - name: s_curve_unseen_maps
+    episodes: 100
+    obstacle_count: 5
+    target_speed_scale: 1.00
+    pursuit_overrides:
+      target_motion_mode: s_curve
+      obstacle_profile: boxes
+      map_seed_offset: 200000
+  - name: burst_narrow_channels
+    episodes: 100
+    obstacle_count: 5
+    target_speed_scale: 1.00
+    pursuit_overrides:
+      target_motion_mode: burst
+      obstacle_profile: narrow_channels
+      map_seed_offset: 300000
+  - name: boundary_escape_walls
+    episodes: 100
+    obstacle_count: 4
+    target_speed_scale: 1.25
+    pursuit_overrides:
+      target_motion_mode: boundary_escape
+      obstacle_profile: walls
+      map_seed_offset: 400000
