@@ -142,6 +142,7 @@ def rollout_episode(
     )
     visible_fractions: list[float] = []
     message_ages: list[float] = []
+    observation_ages: list[float] = []
     final_info: dict[str, Any] = {}
     with torch.no_grad():
         while True:
@@ -156,6 +157,7 @@ def rollout_episode(
             observation, _reward, terminated, truncated, final_info = env.step(action, record_history=record_history)
             visible_fractions.append(float(final_info["target_visible_fraction"]))
             message_ages.append(float(final_info["mean_message_age_steps"]))
+            observation_ages.append(float(final_info["mean_observation_age_steps"]))
             if terminated or truncated:
                 break
             local_observation = (
@@ -177,6 +179,7 @@ def rollout_episode(
             "min_clearance_m": float(final_info["min_clearance_so_far"]),
             "mean_visible_fraction": float(np.mean(visible_fractions)),
             "mean_message_age_steps": float(np.mean(message_ages)),
+            "mean_observation_age_steps": float(np.mean(observation_ages)),
         },
         env,
     )
@@ -198,6 +201,9 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, dict[str, float | int | N
             "worst_min_clearance_m": float(min(float(row["min_clearance_m"]) for row in subset)),
             "mean_visible_fraction": float(np.mean([float(row["mean_visible_fraction"]) for row in subset])),
             "mean_message_age_steps": float(np.mean([float(row["mean_message_age_steps"]) for row in subset])),
+            "mean_observation_age_steps": float(
+                np.mean([float(row["mean_observation_age_steps"]) for row in subset])
+            ),
         }
     combined = list(rows)
     times = [float(row["capture_time_seconds"]) for row in combined if row["capture_time_seconds"] is not None]
@@ -212,6 +218,9 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, dict[str, float | int | N
         "worst_min_clearance_m": float(min(float(row["min_clearance_m"]) for row in combined)),
         "mean_visible_fraction": float(np.mean([float(row["mean_visible_fraction"]) for row in combined])),
         "mean_message_age_steps": float(np.mean([float(row["mean_message_age_steps"]) for row in combined])),
+        "mean_observation_age_steps": float(
+            np.mean([float(row["mean_observation_age_steps"]) for row in combined])
+        ),
     }
     return summary
 

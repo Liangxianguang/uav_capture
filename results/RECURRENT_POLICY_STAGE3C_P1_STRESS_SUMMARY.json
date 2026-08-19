@@ -1,0 +1,2222 @@
+{
+  "stage": "3C_P1_representative_partial_observation_stress",
+  "statistical_unit": "training_seed",
+  "confidence_interval": "two-sided 95 percent Student-t interval across independent training seeds",
+  "protocol": {
+    "stage": "3C_P1_representative_partial_observation_stress",
+    "methods": [
+      "recurrent_no_prediction",
+      "recurrent_gru_prediction"
+    ],
+    "training_seeds": [
+      521001,
+      521002,
+      521003
+    ],
+    "test_seed": 642001,
+    "episodes_per_condition": 100,
+    "actions": [
+      "raw",
+      "cbf"
+    ],
+    "conditions": {
+      "nominal_partial_observation": {
+        "obstacle_count": 3,
+        "target_speed_scale": 0.75,
+        "pursuit": {
+          "target_motion_mode": "random_turn",
+          "obstacle_profile": "mixed",
+          "map_seed_offset": 500000
+        }
+      },
+      "delayed_measurements": {
+        "obstacle_count": 3,
+        "target_speed_scale": 0.75,
+        "pursuit": {
+          "target_motion_mode": "random_turn",
+          "obstacle_profile": "mixed",
+          "observation_delay_steps": 3,
+          "message_delay_steps": 5,
+          "message_dropout_probability": 0.1,
+          "map_seed_offset": 510000
+        }
+      },
+      "burst_occlusion": {
+        "obstacle_count": 5,
+        "target_speed_scale": 1.0,
+        "pursuit": {
+          "target_motion_mode": "s_curve",
+          "obstacle_profile": "boxes",
+          "detection_dropout_probability": 0.25,
+          "detection_loss_burst_probability": 0.2,
+          "detection_loss_burst_duration_steps": 5,
+          "observation_delay_steps": 2,
+          "map_seed_offset": 520000
+        }
+      },
+      "communication_loss": {
+        "obstacle_count": 5,
+        "target_speed_scale": 1.0,
+        "pursuit": {
+          "target_motion_mode": "burst",
+          "obstacle_profile": "narrow_channels",
+          "target_burst_period_steps": 30,
+          "target_burst_duration_steps": 8,
+          "message_delay_steps": 6,
+          "message_dropout_probability": 0.2,
+          "communication_link_dropout_probability": 0.15,
+          "map_seed_offset": 530000
+        }
+      }
+    },
+    "statistical_unit": "training_seed",
+    "device": "cpu",
+    "prediction_checkpoint": "results/target_predictor_gru_v1/checkpoint.pt"
+  },
+  "source_summary_sha256": {
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521001/nominal_partial_observation/summary_raw.json": "89cc67cf606f6e554924b7cf1f21e3c9594119b64bb83a3972fcf3f5627ae420",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521002/nominal_partial_observation/summary_raw.json": "3d4b37609e7522bbfc39c18768f64456b2359d1e8bacf9b671c16f0b81976398",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521003/nominal_partial_observation/summary_raw.json": "07eb2298a081321d411bf601bf3aa3a0ae5ca5cb6a20b5fae8e866e478c8f6f5",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521001/delayed_measurements/summary_raw.json": "506d08d9fc246a91592ed51ae9af2511fe3ba3a9d9ab31a46658c7e00e9ea2db",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521002/delayed_measurements/summary_raw.json": "45c4f3e0f5d5868c809b747859465f5e9eb72ed4faa3676745caface14c99e3f",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521003/delayed_measurements/summary_raw.json": "fe0a60def339840216c00fd5f6f99748447940a3ee38b7582fae6389d4651906",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521001/burst_occlusion/summary_raw.json": "54fd8c558b554b5eed6849d595dd8190590d0cea9517172c18ad46247d490ae9",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521002/burst_occlusion/summary_raw.json": "96f19b03902f1ea3d918b61869339fa4e77fa532750a3b9bceebff90ed62f985",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521003/burst_occlusion/summary_raw.json": "faa713e19fabecd9e689aa699eaeb1d57497ee1a7dd7ea4c05d37d57f1c896e2",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521001/communication_loss/summary_raw.json": "5a3fe286f911bd4972f157bc0aee23059df49c591554e1b6db97f6bf5bbecb1b",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521002/communication_loss/summary_raw.json": "74bf02b5a2268f96f264b9a01e9cf733230e6d84285658b0f9eda6da4c9345e4",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521003/communication_loss/summary_raw.json": "89e608712b199770c4160e6d52ff0d1f698419b43d9d2f79628cd96edc0809b3",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521001/nominal_partial_observation/summary_cbf.json": "4d818a31accdb7d1011429f779dbc99f7c81f75f50f5968e658b6ba62a7d6819",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521002/nominal_partial_observation/summary_cbf.json": "a3d0eb54aa11e77fa19464c7a15726633628e76bd101138cef0e4c3296a29fb8",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521003/nominal_partial_observation/summary_cbf.json": "3b0555578334a845b9ccd9eda61a8b43e3599589abc7aacfb410e2ba786873e1",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521001/delayed_measurements/summary_cbf.json": "40b8b9bf1183d575b3e2b1e15ebef6f0b7d4d9e8923d4e108af9a300f855ad74",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521002/delayed_measurements/summary_cbf.json": "79ac247dc4a863e180937d92f74abfd0e72f9f56705b475fe6b7563968526867",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521003/delayed_measurements/summary_cbf.json": "96c39d9587d32b83a9385631a40d7105a5538079480cdef190950757ab1d535d",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521001/burst_occlusion/summary_cbf.json": "9525e1180a078ab4977ddd7d198ed8bc2bb5a4559f3fb0d719ba7654d3982c67",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521002/burst_occlusion/summary_cbf.json": "ddee4651eaa9b130392d36cd0d7abb1c549d17735b92f9cfa893fec82b1410f2",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521003/burst_occlusion/summary_cbf.json": "f2fee51bb09305485d995cad443e500e98d523679f7b4fdd4ababd0ea0c1e437",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521001/communication_loss/summary_cbf.json": "aaf655a5842e0a158ac9acfd0f034423ca0c6416977bc0e59916c4059ef35759",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521002/communication_loss/summary_cbf.json": "5aa7c0196ed3528c4868852340e5d6d451f7474814ed5f669e6d5e6c3f1c9ed8",
+    "results/stage3c_p1_stress/recurrent_no_prediction/seed521003/communication_loss/summary_cbf.json": "4017dec5c8bd6545489427fa001f4c177d8fb5432cea711a6c89f1513ae3dad6",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521001/nominal_partial_observation/summary_raw.json": "e61800171df2139b2fca12f0bcf68259a31ca17422ad89124fd97a19c1bd78bc",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521002/nominal_partial_observation/summary_raw.json": "c98de33d61bbdfc4e350e0d970ae8c3426311decaab072b37bab46a03b1b20e5",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521003/nominal_partial_observation/summary_raw.json": "2ff76ffecba46e2f16e47274fbea1469f26b5ce7b5b0a57ff77e962a9c0b6b2f",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521001/delayed_measurements/summary_raw.json": "584771e3fc21d16863921f016b7ce02b8e43774798c2544b27bc9a69c5908860",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521002/delayed_measurements/summary_raw.json": "e3290726197c8f354c62b2f102b3709e128b39f2a68669420502acd48de17197",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521003/delayed_measurements/summary_raw.json": "4b5727206c87f0e0dcc75fe19fdbcfffdce45538f8005bc19fd7f6d87be9a35a",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521001/burst_occlusion/summary_raw.json": "bfc1469df06c33de763be323e66feb1de09f59b4cdecf641f745ecd13157c976",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521002/burst_occlusion/summary_raw.json": "9cdd9846f596acbd7ef4e2538ecbe0532b06ec8d7483df551fb025385f81c577",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521003/burst_occlusion/summary_raw.json": "7bf107ae876c6a3e56cb089376eb8271a13832dc8270c2d8a7b79874efce1288",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521001/communication_loss/summary_raw.json": "4bb7bd34597ab33e11740d7a2ffa52fc64c811544991ee7541026a046ef04a8c",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521002/communication_loss/summary_raw.json": "70dd5174d6f42558550993b32aa93eaea35e5cff1b4720238a425c42d50dfa4e",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521003/communication_loss/summary_raw.json": "7c341a52fb1435a49b822d488f8e5d76a67387c09abf8c2187aded483f3b835c",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521001/nominal_partial_observation/summary_cbf.json": "edaa26c92bbf83259912af4cee51889f9d0224e272abd83ab48eda26e601cd82",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521002/nominal_partial_observation/summary_cbf.json": "91c4de3a88df595daf8dfe6c5c3a3cfc0921a6096172fb38580dc0b408fd0b16",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521003/nominal_partial_observation/summary_cbf.json": "8befe664a9da429e75f1fe7217476cf533885d92428e7bb6cd4a113af90ca8ef",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521001/delayed_measurements/summary_cbf.json": "d3e23ad199e6bc7f5de2d9a9e843a4b808a8d5ea59ea2df6d7077b8cd3a4272d",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521002/delayed_measurements/summary_cbf.json": "16fe5428fd610d9c680d530134ff3299aa26be864a0c07f4c568a482bb990b12",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521003/delayed_measurements/summary_cbf.json": "0e71d99d876f3c508b8c34c206bb6390c64e553e8d3cf8773e16269d09ba4e14",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521001/burst_occlusion/summary_cbf.json": "2920eb85c027a9fc63e76e6d89203485fac9b642daa6108ee21c6a81cf118396",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521002/burst_occlusion/summary_cbf.json": "3fcd8904691cb52fe965b8f24ebd038aa37a1a3f3eb11c676ff0c3e945d31913",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521003/burst_occlusion/summary_cbf.json": "b1cc288daab53d997fb70dc0cc1640d0eba062f776d7ab871513b68c99e4e8e8",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521001/communication_loss/summary_cbf.json": "a982c241393dea028b93204ecb771fa754e3852e224896e7a3b4d22cb3182c7e",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521002/communication_loss/summary_cbf.json": "b903e43a95828d7010f008c3d2a3e413f1e3f27bbb7abc7ad11fbcd1171ba5cb",
+    "results/stage3c_p1_stress/recurrent_gru_prediction/seed521003/communication_loss/summary_cbf.json": "548a391fe204ed398b5e64b534ea91f5ccc133f87dae6a25db9b3103e97e1332"
+  },
+  "results": {
+    "recurrent_no_prediction": {
+      "raw": {
+        "nominal_partial_observation": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9133333333333334,
+              "sample_std": 0.025166114784235798,
+              "ci95_half_width": 0.06251609479376548,
+              "minimum": 0.89,
+              "maximum": 0.94,
+              "values": [
+                0.89,
+                0.94,
+                0.91
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9466666666666667,
+              "sample_std": 0.032145502536643146,
+              "ci95_half_width": 0.07985385511445112,
+              "minimum": 0.91,
+              "maximum": 0.97,
+              "values": [
+                0.91,
+                0.96,
+                0.97
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.08666666666666667,
+              "sample_std": 0.025166114784235832,
+              "ci95_half_width": 0.06251609479376558,
+              "minimum": 0.06,
+              "maximum": 0.11,
+              "values": [
+                0.11,
+                0.06,
+                0.09
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0033333333333333335,
+              "sample_std": 0.005773502691896258,
+              "ci95_half_width": 0.014342175765833336,
+              "minimum": 0.0,
+              "maximum": 0.01,
+              "values": [
+                0.01,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.415688698105624,
+              "sample_std": 0.020271384115851766,
+              "ci95_half_width": 0.05035690975157029,
+              "minimum": 1.3925531914893619,
+              "maximum": 1.4303370786516854,
+              "values": [
+                1.4303370786516854,
+                1.3925531914893619,
+                1.4241758241758244
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.5209569900801946,
+              "sample_std": 0.054480319964040264,
+              "ci95_half_width": 0.13533661737091374,
+              "minimum": 0.4606076643701925,
+              "maximum": 0.5665126291117999,
+              "values": [
+                0.5357506767585912,
+                0.5665126291117999,
+                0.4606076643701925
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8519579978880483,
+              "sample_std": 0.0013942529779530722,
+              "ci95_half_width": 0.0034635164022538615,
+              "minimum": 0.8510621187378152,
+              "maximum": 0.8535643811509046,
+              "values": [
+                0.8512474937754249,
+                0.8510621187378152,
+                0.8535643811509046
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.2974071043910062,
+              "sample_std": 0.004777291210400368,
+              "ci95_half_width": 0.011867449255770417,
+              "minimum": 0.2922155564392869,
+              "maximum": 0.3016179275016349,
+              "values": [
+                0.2983878292320966,
+                0.3016179275016349,
+                0.2922155564392869
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 0.172153066766949,
+              "sample_std": 0.0021404129131599873,
+              "ci95_half_width": 0.005317080436298773,
+              "minimum": 0.16969342089789408,
+              "maximum": 0.1735925896965951,
+              "values": [
+                0.17317318970635787,
+                0.1735925896965951,
+                0.16969342089789408
+              ]
+            }
+          }
+        },
+        "delayed_measurements": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.6333333333333333,
+              "sample_std": 0.046188021535170105,
+              "ci95_half_width": 0.11473740612666677,
+              "minimum": 0.58,
+              "maximum": 0.66,
+              "values": [
+                0.58,
+                0.66,
+                0.66
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.6533333333333333,
+              "sample_std": 0.03785938897200186,
+              "ci95_half_width": 0.09404793588918615,
+              "minimum": 0.61,
+              "maximum": 0.68,
+              "values": [
+                0.61,
+                0.67,
+                0.68
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.3666666666666667,
+              "sample_std": 0.046188021535170036,
+              "ci95_half_width": 0.11473740612666662,
+              "minimum": 0.34,
+              "maximum": 0.42,
+              "values": [
+                0.42,
+                0.34,
+                0.34
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.016666666666666666,
+              "sample_std": 0.020816659994661327,
+              "ci95_half_width": 0.0517114501254291,
+              "minimum": 0.0,
+              "maximum": 0.04,
+              "values": [
+                0.04,
+                0.0,
+                0.01
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.3102055033089517,
+              "sample_std": 0.03487695949451546,
+              "ci95_half_width": 0.08663917035152544,
+              "minimum": 1.2775862068965518,
+              "maximum": 1.3469696969696972,
+              "values": [
+                1.2775862068965518,
+                1.3469696969696972,
+                1.3060606060606061
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.39995164362086166,
+              "sample_std": 0.019609794608572408,
+              "ci95_half_width": 0.04871343030683911,
+              "minimum": 0.3779720607800584,
+              "maximum": 0.4156549791641707,
+              "values": [
+                0.406227890918356,
+                0.3779720607800584,
+                0.4156549791641707
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8529857294170298,
+              "sample_std": 0.0013319231339182869,
+              "ci95_half_width": 0.0033086804861195153,
+              "minimum": 0.8516873307450168,
+              "maximum": 0.854348819431679,
+              "values": [
+                0.8516873307450168,
+                0.8529210380743938,
+                0.854348819431679
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 11.93610550845508,
+              "sample_std": 0.05900264950791642,
+              "ci95_half_width": 0.14657070673582057,
+              "minimum": 11.867976450647053,
+              "maximum": 11.970539172289271,
+              "values": [
+                11.867976450647053,
+                11.969800902428922,
+                11.970539172289271
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 3.0749504577305857,
+              "sample_std": 0.003051464910741131,
+              "ci95_half_width": 0.007580259060855847,
+              "minimum": 3.071761256964608,
+              "maximum": 3.077842435066198,
+              "values": [
+                3.077842435066198,
+                3.0752476811609517,
+                3.071761256964608
+              ]
+            }
+          }
+        },
+        "burst_occlusion": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.6166666666666666,
+              "sample_std": 0.06429100507328636,
+              "ci95_half_width": 0.15970771022890243,
+              "minimum": 0.57,
+              "maximum": 0.69,
+              "values": [
+                0.57,
+                0.69,
+                0.59
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.63,
+              "sample_std": 0.05567764362830021,
+              "ci95_half_width": 0.13831093423847332,
+              "minimum": 0.58,
+              "maximum": 0.69,
+              "values": [
+                0.58,
+                0.69,
+                0.62
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.3833333333333333,
+              "sample_std": 0.06429100507328636,
+              "ci95_half_width": 0.15970771022890243,
+              "minimum": 0.31,
+              "maximum": 0.43,
+              "values": [
+                0.43,
+                0.31,
+                0.41
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.06666666666666667,
+              "sample_std": 0.011547005383792516,
+              "ci95_half_width": 0.028684351531666673,
+              "minimum": 0.06,
+              "maximum": 0.08,
+              "values": [
+                0.06,
+                0.08,
+                0.06
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.2991863717264176,
+              "sample_std": 0.05385663095237572,
+              "ci95_half_width": 0.13378728797663336,
+              "minimum": 1.2449275362318843,
+              "maximum": 1.3526315789473686,
+              "values": [
+                1.3526315789473686,
+                1.2449275362318843,
+                1.2999999999999998
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.38542907625821243,
+              "sample_std": 0.06236205736810255,
+              "ci95_half_width": 0.15491593849046045,
+              "minimum": 0.33795167324344183,
+              "maximum": 0.45605539181677657,
+              "values": [
+                0.36228016371441896,
+                0.45605539181677657,
+                0.33795167324344183
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.3409048982875565,
+              "sample_std": 0.004265064197042475,
+              "ci95_half_width": 0.01059500681491068,
+              "minimum": 0.3362336702091077,
+              "maximum": 0.34459162068077304,
+              "values": [
+                0.3418894039727887,
+                0.34459162068077304,
+                0.3362336702091077
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 7.069946013334519,
+              "sample_std": 0.22642106237289228,
+              "ci95_half_width": 0.5624610997751458,
+              "minimum": 6.83806276271321,
+              "maximum": 7.29047786785919,
+              "values": [
+                6.83806276271321,
+                7.29047786785919,
+                7.081297409431159
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 2.292800527324245,
+              "sample_std": 0.014400966403147914,
+              "ci95_half_width": 0.03577398372771372,
+              "minimum": 2.2763625793991085,
+              "maximum": 2.303195101055262,
+              "values": [
+                2.303195101055262,
+                2.2763625793991085,
+                2.2988439015183637
+              ]
+            }
+          }
+        },
+        "communication_loss": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.8166666666666665,
+              "sample_std": 0.005773502691896198,
+              "ci95_half_width": 0.014342175765833187,
+              "minimum": 0.81,
+              "maximum": 0.82,
+              "values": [
+                0.81,
+                0.82,
+                0.82
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.8666666666666667,
+              "sample_std": 0.01527525231651948,
+              "ci95_half_width": 0.037945830335972375,
+              "minimum": 0.85,
+              "maximum": 0.88,
+              "values": [
+                0.85,
+                0.87,
+                0.88
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.18333333333333335,
+              "sample_std": 0.005773502691896262,
+              "ci95_half_width": 0.014342175765833345,
+              "minimum": 0.18,
+              "maximum": 0.19,
+              "values": [
+                0.19,
+                0.18,
+                0.18
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.02,
+              "sample_std": 0.01,
+              "ci95_half_width": 0.024841377117506405,
+              "minimum": 0.01,
+              "maximum": 0.03,
+              "values": [
+                0.02,
+                0.03,
+                0.01
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.4863143631436315,
+              "sample_std": 0.043921881672930145,
+              "ci95_half_width": 0.1091080026347751,
+              "minimum": 1.4463414634146343,
+              "maximum": 1.5333333333333334,
+              "values": [
+                1.5333333333333334,
+                1.4463414634146343,
+                1.479268292682927
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.39642846453951325,
+              "sample_std": 0.027554655303232138,
+              "ci95_half_width": 0.06844955837304875,
+              "minimum": 0.37641549935816165,
+              "maximum": 0.42785619703227096,
+              "values": [
+                0.385013697228107,
+                0.42785619703227096,
+                0.37641549935816165
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8425207100141853,
+              "sample_std": 0.0013209684835089443,
+              "ci95_half_width": 0.003281467625918623,
+              "minimum": 0.8414106691882774,
+              "maximum": 0.8439817187041259,
+              "values": [
+                0.8439817187041259,
+                0.8414106691882774,
+                0.8421697421501524
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.37479499386365833,
+              "sample_std": 0.007455120085793903,
+              "ci95_half_width": 0.018519544950750307,
+              "minimum": 0.36767917255895616,
+              "maximum": 0.3825484534506862,
+              "values": [
+                0.36767917255895616,
+                0.37415735558133256,
+                0.3825484534506862
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 0.1904392598085115,
+              "sample_std": 0.0017304012609585158,
+              "ci95_half_width": 0.004298555028807911,
+              "minimum": 0.18859371802567892,
+              "maximum": 0.192025182394332,
+              "values": [
+                0.18859371802567892,
+                0.192025182394332,
+                0.19069887900552362
+              ]
+            }
+          }
+        }
+      },
+      "cbf": {
+        "nominal_partial_observation": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.4993333333333332,
+              "sample_std": 0.04178915329763617,
+              "ci95_half_width": 0.10381001164878667,
+              "minimum": 1.469,
+              "maximum": 1.547,
+              "values": [
+                1.547,
+                1.469,
+                1.4819999999999995
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.7911857317779997,
+              "sample_std": 0.024483976881883435,
+              "ci95_half_width": 0.060821570305917505,
+              "minimum": 0.7650584610781186,
+              "maximum": 0.8136029449612591,
+              "values": [
+                0.7948957892946215,
+                0.8136029449612591,
+                0.7650584610781186
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8526227334149733,
+              "sample_std": 0.0003590622210949184,
+              "ci95_half_width": 0.0008919600042868334,
+              "minimum": 0.8523382466812228,
+              "maximum": 0.8530261781454698,
+              "values": [
+                0.8525037754182272,
+                0.8530261781454698,
+                0.8523382466812228
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.28876116758129516,
+              "sample_std": 0.0020985300549024332,
+              "ci95_half_width": 0.005213037648625277,
+              "minimum": 0.28642725227129257,
+              "maximum": 0.29049244596569634,
+              "values": [
+                0.29049244596569634,
+                0.2893638045068966,
+                0.28642725227129257
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 0.17120345869258635,
+              "sample_std": 0.0007004670135514141,
+              "ci95_half_width": 0.0017400565242004149,
+              "minimum": 0.17065339110279124,
+              "maximum": 0.17199203242951996,
+              "values": [
+                0.17199203242951996,
+                0.17065339110279124,
+                0.1709649525454479
+              ]
+            }
+          }
+        },
+        "delayed_measurements": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.84,
+              "sample_std": 0.06557438524302,
+              "ci95_half_width": 0.1628958033070507,
+              "minimum": 0.77,
+              "maximum": 0.9,
+              "values": [
+                0.77,
+                0.85,
+                0.9
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.84,
+              "sample_std": 0.06557438524302,
+              "ci95_half_width": 0.1628958033070507,
+              "minimum": 0.77,
+              "maximum": 0.9,
+              "values": [
+                0.77,
+                0.85,
+                0.9
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.12333333333333335,
+              "sample_std": 0.03785938897200183,
+              "ci95_half_width": 0.09404793588918607,
+              "minimum": 0.08,
+              "maximum": 0.15,
+              "values": [
+                0.15,
+                0.14,
+                0.08
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.12333333333333335,
+              "sample_std": 0.03785938897200183,
+              "ci95_half_width": 0.09404793588918607,
+              "minimum": 0.08,
+              "maximum": 0.15,
+              "values": [
+                0.15,
+                0.14,
+                0.08
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 2.12132812721048,
+              "sample_std": 0.14240692983009295,
+              "ci95_half_width": 0.3537584248055612,
+              "minimum": 1.984705882352941,
+              "maximum": 2.268888888888889,
+              "values": [
+                2.1103896103896105,
+                1.984705882352941,
+                2.268888888888889
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.6658517266149834,
+              "sample_std": 0.011789595687482309,
+              "ci95_half_width": 0.029286979253567526,
+              "minimum": 0.6580522218680445,
+              "maximum": 0.6794143129801532,
+              "values": [
+                0.6580522218680445,
+                0.6600886449967526,
+                0.6794143129801532
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8498824254713367,
+              "sample_std": 0.0021362526151583877,
+              "ci95_half_width": 0.00530674568314088,
+              "minimum": 0.8474450174669418,
+              "maximum": 0.8514295452174546,
+              "values": [
+                0.8474450174669418,
+                0.8507727137296136,
+                0.8514295452174546
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 10.197846263547268,
+              "sample_std": 0.350065949320299,
+              "ci95_half_width": 0.8696120263063434,
+              "minimum": 9.794316388339352,
+              "maximum": 10.420078216921365,
+              "values": [
+                9.794316388339352,
+                10.420078216921365,
+                10.379144185381087
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 3.0986744145265708,
+              "sample_std": 0.008453162706270688,
+              "ci95_half_width": 0.02099882026221112,
+              "minimum": 3.0915618654973627,
+              "maximum": 3.1080198767621785,
+              "values": [
+                3.1080198767621785,
+                3.0964415013201716,
+                3.0915618654973627
+              ]
+            }
+          }
+        },
+        "burst_occlusion": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.6933333333333334,
+              "sample_std": 0.047258156262526066,
+              "ci95_half_width": 0.11739576815954572,
+              "minimum": 0.64,
+              "maximum": 0.73,
+              "values": [
+                0.64,
+                0.73,
+                0.71
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.6966666666666667,
+              "sample_std": 0.051316014394468826,
+              "ci95_half_width": 0.12747604657403874,
+              "minimum": 0.64,
+              "maximum": 0.74,
+              "values": [
+                0.64,
+                0.74,
+                0.71
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.27666666666666667,
+              "sample_std": 0.050332229568471665,
+              "ci95_half_width": 0.12503218958753115,
+              "minimum": 0.23,
+              "maximum": 0.33,
+              "values": [
+                0.33,
+                0.23,
+                0.27
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.27666666666666667,
+              "sample_std": 0.050332229568471665,
+              "ci95_half_width": 0.12503218958753115,
+              "minimum": 0.23,
+              "maximum": 0.33,
+              "values": [
+                0.33,
+                0.23,
+                0.27
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.4820645620297126,
+              "sample_std": 0.10053060925942937,
+              "ci95_half_width": 0.24973187764661667,
+              "minimum": 1.3835616438356166,
+              "maximum": 1.5845070422535212,
+              "values": [
+                1.4781250000000001,
+                1.3835616438356166,
+                1.5845070422535212
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.6444506983590984,
+              "sample_std": 0.03799873279622123,
+              "ci95_half_width": 0.09439408513782904,
+              "minimum": 0.6222499431907593,
+              "maximum": 0.6883268070043017,
+              "values": [
+                0.622775344882234,
+                0.6883268070043017,
+                0.6222499431907593
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.3411317706015415,
+              "sample_std": 0.0033536949041941457,
+              "ci95_half_width": 0.008331039985214629,
+              "minimum": 0.33751673087645634,
+              "maximum": 0.34414174019274635,
+              "values": [
+                0.34414174019274635,
+                0.33751673087645634,
+                0.34173684073542177
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 6.288492269439488,
+              "sample_std": 0.2665452594852952,
+              "ci95_half_width": 0.662135130975782,
+              "minimum": 6.079193401385198,
+              "maximum": 6.588569089540024,
+              "values": [
+                6.079193401385198,
+                6.588569089540024,
+                6.197714317393244
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 2.291181645509169,
+              "sample_std": 0.01629002771390343,
+              "ci95_half_width": 0.04046667216957059,
+              "minimum": 2.2771887114369354,
+              "maximum": 2.309064496240404,
+              "values": [
+                2.309064496240404,
+                2.2872917288501684,
+                2.2771887114369354
+              ]
+            }
+          }
+        },
+        "communication_loss": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9933333333333333,
+              "sample_std": 0.005773502691896262,
+              "ci95_half_width": 0.014342175765833345,
+              "minimum": 0.99,
+              "maximum": 1.0,
+              "values": [
+                0.99,
+                0.99,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9933333333333333,
+              "sample_std": 0.005773502691896262,
+              "ci95_half_width": 0.014342175765833345,
+              "minimum": 0.99,
+              "maximum": 1.0,
+              "values": [
+                0.99,
+                0.99,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.006666666666666667,
+              "sample_std": 0.005773502691896258,
+              "ci95_half_width": 0.014342175765833336,
+              "minimum": 0.0,
+              "maximum": 0.01,
+              "values": [
+                0.01,
+                0.01,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.006666666666666667,
+              "sample_std": 0.005773502691896258,
+              "ci95_half_width": 0.014342175765833336,
+              "minimum": 0.0,
+              "maximum": 0.01,
+              "values": [
+                0.01,
+                0.01,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.5967979797979799,
+              "sample_std": 0.0694993296423251,
+              "ci95_half_width": 0.17264590570588892,
+              "minimum": 1.551,
+              "maximum": 1.6767676767676767,
+              "values": [
+                1.6767676767676767,
+                1.5626262626262628,
+                1.551
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.698257871398965,
+              "sample_std": 0.012046573523621828,
+              "ci95_half_width": 0.02992534758740578,
+              "minimum": 0.6853612604469816,
+              "maximum": 0.7092203770394281,
+              "values": [
+                0.6853612604469816,
+                0.7092203770394281,
+                0.7001919767104853
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8444043196885228,
+              "sample_std": 0.0017041562828204184,
+              "ci95_half_width": 0.004233358888870992,
+              "minimum": 0.8425188900034241,
+              "maximum": 0.845834902149579,
+              "values": [
+                0.8448591669125656,
+                0.8425188900034241,
+                0.845834902149579
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.35808983669313893,
+              "sample_std": 0.0047179341439868745,
+              "ci95_half_width": 0.011719998128633773,
+              "minimum": 0.35265887870887946,
+              "maximum": 0.3611760232747559,
+              "values": [
+                0.35265887870887946,
+                0.36043460809578143,
+                0.3611760232747559
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 0.18766415403893877,
+              "sample_std": 0.0023749473532523003,
+              "ci95_half_width": 0.00589969628363641,
+              "minimum": 0.1856562509718953,
+              "maximum": 0.19028570221122376,
+              "values": [
+                0.18705050893369723,
+                0.19028570221122376,
+                0.1856562509718953
+              ]
+            }
+          }
+        }
+      }
+    },
+    "recurrent_gru_prediction": {
+      "raw": {
+        "nominal_partial_observation": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.91,
+              "sample_std": 0.02645751311064593,
+              "ci95_half_width": 0.06572410607729255,
+              "minimum": 0.88,
+              "maximum": 0.93,
+              "values": [
+                0.93,
+                0.92,
+                0.88
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9566666666666667,
+              "sample_std": 0.01527525231651948,
+              "ci95_half_width": 0.037945830335972375,
+              "minimum": 0.94,
+              "maximum": 0.97,
+              "values": [
+                0.97,
+                0.96,
+                0.94
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.09000000000000001,
+              "sample_std": 0.0264575131106459,
+              "ci95_half_width": 0.06572410607729248,
+              "minimum": 0.07,
+              "maximum": 0.12,
+              "values": [
+                0.07,
+                0.08,
+                0.12
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.006666666666666667,
+              "sample_std": 0.011547005383792516,
+              "ci95_half_width": 0.028684351531666673,
+              "minimum": 0.0,
+              "maximum": 0.02,
+              "values": [
+                0.0,
+                0.0,
+                0.02
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.369655177298936,
+              "sample_std": 0.02234413097205671,
+              "ci95_half_width": 0.05550589838398158,
+              "minimum": 1.3565217391304347,
+              "maximum": 1.3954545454545455,
+              "values": [
+                1.356989247311828,
+                1.3565217391304347,
+                1.3954545454545455
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.5018564696038778,
+              "sample_std": 0.006095413188369192,
+              "ci95_half_width": 0.015141845769930122,
+              "minimum": 0.4948626681391181,
+              "maximum": 0.5060382920402425,
+              "values": [
+                0.5046684486322726,
+                0.4948626681391181,
+                0.5060382920402425
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8515811230285881,
+              "sample_std": 0.0013829640460405336,
+              "ci95_half_width": 0.003435473140764539,
+              "minimum": 0.8500192862692861,
+              "maximum": 0.8526502930441592,
+              "values": [
+                0.8520737897723191,
+                0.8500192862692861,
+                0.8526502930441592
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.30303760585891,
+              "sample_std": 0.0042697176605649735,
+              "ci95_half_width": 0.010606566659137173,
+              "minimum": 0.29814579277146996,
+              "maximum": 0.30601559551559554,
+              "values": [
+                0.30495142928966457,
+                0.30601559551559554,
+                0.29814579277146996
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 0.17242945339762292,
+              "sample_std": 0.0013949493418598437,
+              "ci95_half_width": 0.0034652462660957743,
+              "minimum": 0.17159562074277634,
+              "maximum": 0.1740398629148629,
+              "values": [
+                0.17165287653522948,
+                0.1740398629148629,
+                0.17159562074277634
+              ]
+            }
+          }
+        },
+        "delayed_measurements": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.5466666666666667,
+              "sample_std": 0.020816659994661285,
+              "ci95_half_width": 0.05171145012542899,
+              "minimum": 0.53,
+              "maximum": 0.57,
+              "values": [
+                0.53,
+                0.57,
+                0.54
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.6066666666666666,
+              "sample_std": 0.01527525231651948,
+              "ci95_half_width": 0.037945830335972375,
+              "minimum": 0.59,
+              "maximum": 0.62,
+              "values": [
+                0.61,
+                0.62,
+                0.59
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.4533333333333333,
+              "sample_std": 0.020816659994661323,
+              "ci95_half_width": 0.05171145012542909,
+              "minimum": 0.43,
+              "maximum": 0.47,
+              "values": [
+                0.47,
+                0.43,
+                0.46
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.006666666666666667,
+              "sample_std": 0.005773502691896258,
+              "ci95_half_width": 0.014342175765833336,
+              "minimum": 0.0,
+              "maximum": 0.01,
+              "values": [
+                0.0,
+                0.01,
+                0.01
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.2387895840229506,
+              "sample_std": 0.03880800736298452,
+              "ci95_half_width": 0.09640443460828639,
+              "minimum": 1.212280701754386,
+              "maximum": 1.2833333333333334,
+              "values": [
+                1.2207547169811321,
+                1.212280701754386,
+                1.2833333333333334
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.3476952932561949,
+              "sample_std": 0.013540178642175575,
+              "ci95_half_width": 0.03363566838886893,
+              "minimum": 0.33385035956816517,
+              "maximum": 0.3609086102846103,
+              "values": [
+                0.3483269099158091,
+                0.3609086102846103,
+                0.33385035956816517
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8525460979852933,
+              "sample_std": 0.001025664717307019,
+              "ci95_half_width": 0.002547892403874426,
+              "minimum": 0.8513629050930674,
+              "maximum": 0.8531827393774956,
+              "values": [
+                0.8530926494853168,
+                0.8531827393774956,
+                0.8513629050930674
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 12.193772223957952,
+              "sample_std": 0.34344212463622825,
+              "ci95_half_width": 0.8531575336126184,
+              "minimum": 11.81415827145262,
+              "maximum": 12.482939294172459,
+              "values": [
+                12.284219106248779,
+                12.482939294172459,
+                11.81415827145262
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 3.0729747482048553,
+              "sample_std": 0.0047405453867991314,
+              "ci95_half_width": 0.011776167569613251,
+              "minimum": 3.0678682101674553,
+              "maximum": 3.077235419495646,
+              "values": [
+                3.073820614951466,
+                3.0678682101674553,
+                3.077235419495646
+              ]
+            }
+          }
+        },
+        "burst_occlusion": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.6166666666666667,
+              "sample_std": 0.06506407098647712,
+              "ci95_half_width": 0.16162811241752856,
+              "minimum": 0.55,
+              "maximum": 0.68,
+              "values": [
+                0.55,
+                0.68,
+                0.62
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.6633333333333333,
+              "sample_std": 0.07234178138070235,
+              "ci95_half_width": 0.17970694726302305,
+              "minimum": 0.58,
+              "maximum": 0.71,
+              "values": [
+                0.58,
+                0.71,
+                0.7
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.3833333333333333,
+              "sample_std": 0.06506407098647712,
+              "ci95_half_width": 0.16162811241752856,
+              "minimum": 0.32,
+              "maximum": 0.45,
+              "values": [
+                0.45,
+                0.32,
+                0.38
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.05666666666666667,
+              "sample_std": 0.015275252316519468,
+              "ci95_half_width": 0.03794583033597235,
+              "minimum": 0.04,
+              "maximum": 0.07,
+              "values": [
+                0.07,
+                0.04,
+                0.06
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.2368544074521306,
+              "sample_std": 0.04781905482694353,
+              "ci95_half_width": 0.11878911743588193,
+              "minimum": 1.1981818181818182,
+              "maximum": 1.2903225806451617,
+              "values": [
+                1.1981818181818182,
+                1.2220588235294119,
+                1.2903225806451617
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.3649715903390563,
+              "sample_std": 0.04757592335782391,
+              "ci95_half_width": 0.11818514538452855,
+              "minimum": 0.32768179837829303,
+              "maximum": 0.4185531725531348,
+              "values": [
+                0.32768179837829303,
+                0.4185531725531348,
+                0.34867980008574123
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.33905014451352705,
+              "sample_std": 0.0009559488158849278,
+              "ci95_half_width": 0.002374708504043119,
+              "minimum": 0.3379579739468479,
+              "maximum": 0.3397348325693914,
+              "values": [
+                0.3379579739468479,
+                0.3397348325693914,
+                0.33945762702434196
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 7.27066609872002,
+              "sample_std": 0.2055314903922273,
+              "ci95_half_width": 0.5105685262356463,
+              "minimum": 7.074839647874652,
+              "maximum": 7.484692176165338,
+              "values": [
+                7.25246647212007,
+                7.484692176165338,
+                7.074839647874652
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 2.288912345679718,
+              "sample_std": 0.005934377544061179,
+              "ci95_half_width": 0.014741811052968526,
+              "minimum": 2.28343952675217,
+              "maximum": 2.295219893137908,
+              "values": [
+                2.288077617149076,
+                2.295219893137908,
+                2.28343952675217
+              ]
+            }
+          }
+        },
+        "communication_loss": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.8633333333333333,
+              "sample_std": 0.056862407030773256,
+              "ci95_half_width": 0.14125404968605862,
+              "minimum": 0.8,
+              "maximum": 0.91,
+              "values": [
+                0.88,
+                0.91,
+                0.8
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.8866666666666667,
+              "sample_std": 0.04932882862316252,
+              "ci95_half_width": 0.12253960345928246,
+              "minimum": 0.83,
+              "maximum": 0.92,
+              "values": [
+                0.91,
+                0.92,
+                0.83
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.1366666666666667,
+              "sample_std": 0.05686240703077328,
+              "ci95_half_width": 0.1412540496860587,
+              "minimum": 0.09,
+              "maximum": 0.2,
+              "values": [
+                0.12,
+                0.09,
+                0.2
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.01,
+              "sample_std": 0.01732050807568877,
+              "ci95_half_width": 0.04302652729749999,
+              "minimum": 0.0,
+              "maximum": 0.03,
+              "values": [
+                0.0,
+                0.0,
+                0.03
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.4277526640026643,
+              "sample_std": 0.044180091142489435,
+              "ci95_half_width": 0.10974943051563847,
+              "minimum": 1.401098901098901,
+              "maximum": 1.4787500000000002,
+              "values": [
+                1.403409090909091,
+                1.401098901098901,
+                1.4787500000000002
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.41917811355221274,
+              "sample_std": 0.030269268338261227,
+              "ci95_half_width": 0.07519303098617437,
+              "minimum": 0.3934706781409304,
+              "maximum": 0.4525397426377269,
+              "values": [
+                0.411523919877981,
+                0.4525397426377269,
+                0.3934706781409304
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8416890030334302,
+              "sample_std": 0.001330416707908573,
+              "ci95_half_width": 0.003304938316458823,
+              "minimum": 0.8402971007320853,
+              "maximum": 0.8429479502802839,
+              "values": [
+                0.8418219580879216,
+                0.8402971007320853,
+                0.8429479502802839
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.3845563033565162,
+              "sample_std": 0.013803082505035022,
+              "ci95_half_width": 0.034288757789163,
+              "minimum": 0.3691567195274626,
+              "maximum": 0.3958148450599108,
+              "values": [
+                0.3958148450599108,
+                0.3886973454821752,
+                0.3691567195274626
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 0.1917583704565129,
+              "sample_std": 0.0019075563624623042,
+              "ci95_half_width": 0.004738632697282485,
+              "minimum": 0.1904069544898686,
+              "maximum": 0.19394040756714903,
+              "values": [
+                0.190927749312521,
+                0.19394040756714903,
+                0.1904069544898686
+              ]
+            }
+          }
+        }
+      },
+      "cbf": {
+        "nominal_partial_observation": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.437,
+              "sample_std": 0.02402082429892858,
+              "ci95_half_width": 0.05967103550830463,
+              "minimum": 1.4180000000000001,
+              "maximum": 1.464,
+              "values": [
+                1.4180000000000001,
+                1.4289999999999998,
+                1.464
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.790764221144631,
+              "sample_std": 0.00652425172522773,
+              "ci95_half_width": 0.016207139751592384,
+              "minimum": 0.7863244884490405,
+              "maximum": 0.7982549926108965,
+              "values": [
+                0.7863244884490405,
+                0.7982549926108965,
+                0.7877131823739562
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8517056730521825,
+              "sample_std": 0.00045045024814051256,
+              "ci95_half_width": 0.0011189804486732811,
+              "minimum": 0.8514273066007779,
+              "maximum": 0.8522253684525904,
+              "values": [
+                0.8514643441031794,
+                0.8522253684525904,
+                0.8514273066007779
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.2990665820275879,
+              "sample_std": 0.002670697309678504,
+              "ci95_half_width": 0.006634379903643351,
+              "minimum": 0.29637581754116193,
+              "maximum": 0.30171674930246917,
+              "values": [
+                0.30171674930246917,
+                0.2991071792391326,
+                0.29637581754116193
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 0.17228293364129277,
+              "sample_std": 0.0008192139164235207,
+              "ci95_half_width": 0.0020350401837786053,
+              "minimum": 0.17143373864697395,
+              "maximum": 0.17306844987872463,
+              "values": [
+                0.17234661239817975,
+                0.17143373864697395,
+                0.17306844987872463
+              ]
+            }
+          }
+        },
+        "delayed_measurements": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.7566666666666667,
+              "sample_std": 0.03055050463303896,
+              "ci95_half_width": 0.07589166067194475,
+              "minimum": 0.73,
+              "maximum": 0.79,
+              "values": [
+                0.79,
+                0.75,
+                0.73
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.7566666666666667,
+              "sample_std": 0.03055050463303896,
+              "ci95_half_width": 0.07589166067194475,
+              "minimum": 0.73,
+              "maximum": 0.79,
+              "values": [
+                0.79,
+                0.75,
+                0.73
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.16666666666666666,
+              "sample_std": 0.04163331998932266,
+              "ci95_half_width": 0.10342290025085821,
+              "minimum": 0.12,
+              "maximum": 0.2,
+              "values": [
+                0.12,
+                0.2,
+                0.18
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.16666666666666666,
+              "sample_std": 0.04163331998932266,
+              "ci95_half_width": 0.10342290025085821,
+              "minimum": 0.12,
+              "maximum": 0.2,
+              "values": [
+                0.12,
+                0.2,
+                0.18
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.7971287979500223,
+              "sample_std": 0.2037125339457015,
+              "ci95_half_width": 0.5060499879307996,
+              "minimum": 1.6093333333333333,
+              "maximum": 2.0136986301369864,
+              "values": [
+                1.7683544303797474,
+                1.6093333333333333,
+                2.0136986301369864
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.6490491436654017,
+              "sample_std": 0.01351782796215105,
+              "ci95_half_width": 0.03358014622173674,
+              "minimum": 0.6341049991533716,
+              "maximum": 0.6604245582606157,
+              "values": [
+                0.6604245582606157,
+                0.6526178735822177,
+                0.6341049991533716
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8515218797960017,
+              "sample_std": 0.0021609511296500046,
+              "ci95_half_width": 0.0053681001944137245,
+              "minimum": 0.8491443718417606,
+              "maximum": 0.8533666076524621,
+              "values": [
+                0.8520546598937819,
+                0.8533666076524621,
+                0.8491443718417606
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 10.055837438089425,
+              "sample_std": 0.41609602631139314,
+              "ci95_half_width": 1.0336398306697188,
+              "minimum": 9.57574079979653,
+              "maximum": 10.31220496484613,
+              "values": [
+                10.279566549625617,
+                10.31220496484613,
+                9.57574079979653
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 3.095348052696886,
+              "sample_std": 0.004436499458136027,
+              "ci95_half_width": 0.011020875612116988,
+              "minimum": 3.09189735348055,
+              "maximum": 3.1003524316783326,
+              "values": [
+                3.0937943729317747,
+                3.09189735348055,
+                3.1003524316783326
+              ]
+            }
+          }
+        },
+        "burst_occlusion": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.6699999999999999,
+              "sample_std": 0.0721110255092798,
+              "ci95_half_width": 0.17913371790061441,
+              "minimum": 0.61,
+              "maximum": 0.75,
+              "values": [
+                0.61,
+                0.75,
+                0.65
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.6699999999999999,
+              "sample_std": 0.0721110255092798,
+              "ci95_half_width": 0.17913371790061441,
+              "minimum": 0.61,
+              "maximum": 0.75,
+              "values": [
+                0.61,
+                0.75,
+                0.65
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.30000000000000004,
+              "sample_std": 0.04582575694955841,
+              "ci95_half_width": 0.11383749100791707,
+              "minimum": 0.25,
+              "maximum": 0.34,
+              "values": [
+                0.34,
+                0.25,
+                0.31
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.30000000000000004,
+              "sample_std": 0.04582575694955841,
+              "ci95_half_width": 0.11383749100791707,
+              "minimum": 0.25,
+              "maximum": 0.34,
+              "values": [
+                0.34,
+                0.25,
+                0.31
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.4704256690486204,
+              "sample_std": 0.15524945442422802,
+              "ci95_half_width": 0.3856610244639372,
+              "minimum": 1.3586666666666667,
+              "maximum": 1.6476923076923078,
+              "values": [
+                1.4049180327868858,
+                1.3586666666666667,
+                1.6476923076923078
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.6539943007511574,
+              "sample_std": 0.034692935708981056,
+              "ci95_half_width": 0.0861820299260203,
+              "minimum": 0.6319548846699342,
+              "maximum": 0.693984647241871,
+              "values": [
+                0.6319548846699342,
+                0.693984647241871,
+                0.6360433703416668
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.3364198462528066,
+              "sample_std": 0.0036930001581073416,
+              "ci95_half_width": 0.009173920962255527,
+              "minimum": 0.3322250455989405,
+              "maximum": 0.3391813141768443,
+              "values": [
+                0.3322250455989405,
+                0.3391813141768443,
+                0.337853178982635
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 6.6185562937723645,
+              "sample_std": 0.2718736989771466,
+              "ci95_half_width": 0.6753717084622713,
+              "minimum": 6.304689412066017,
+              "maximum": 6.781056926149628,
+              "values": [
+                6.304689412066017,
+                6.769922543101451,
+                6.781056926149628
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 2.613681049044906,
+              "sample_std": 0.5627845060702321,
+              "ci95_half_width": 1.3980342151180212,
+              "minimum": 2.2832526862569957,
+              "maximum": 3.263497359067792,
+              "values": [
+                2.29429310180993,
+                2.2832526862569957,
+                3.263497359067792
+              ]
+            }
+          }
+        },
+        "communication_loss": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9966666666666667,
+              "sample_std": 0.005773502691896262,
+              "ci95_half_width": 0.014342175765833345,
+              "minimum": 0.99,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                0.99,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9966666666666667,
+              "sample_std": 0.005773502691896262,
+              "ci95_half_width": 0.014342175765833345,
+              "minimum": 0.99,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                0.99,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0033333333333333335,
+              "sample_std": 0.005773502691896258,
+              "ci95_half_width": 0.014342175765833336,
+              "minimum": 0.0,
+              "maximum": 0.01,
+              "values": [
+                0.0,
+                0.01,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0033333333333333335,
+              "sample_std": 0.005773502691896258,
+              "ci95_half_width": 0.014342175765833336,
+              "minimum": 0.0,
+              "maximum": 0.01,
+              "values": [
+                0.0,
+                0.01,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.489508417508418,
+              "sample_std": 0.041253071026640054,
+              "ci95_half_width": 0.10247830946280428,
+              "minimum": 1.4525252525252526,
+              "maximum": 1.5340000000000003,
+              "values": [
+                1.4820000000000002,
+                1.4525252525252526,
+                1.5340000000000003
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.732464285166822,
+              "sample_std": 0.020370865071359632,
+              "ci95_half_width": 0.05060403414474837,
+              "minimum": 0.7138640250773061,
+              "maximum": 0.754234174118925,
+              "values": [
+                0.7292946563042352,
+                0.754234174118925,
+                0.7138640250773061
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8433712035280045,
+              "sample_std": 0.001295253282493017,
+              "ci95_half_width": 0.0032175875253097094,
+              "minimum": 0.8421593529104047,
+              "maximum": 0.8447362366198472,
+              "values": [
+                0.8447362366198472,
+                0.8421593529104047,
+                0.8432180210537618
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.3697803594763398,
+              "sample_std": 0.010149730001799381,
+              "ci95_half_width": 0.025213327061556743,
+              "minimum": 0.35823383913175194,
+              "maximum": 0.3772929931158454,
+              "values": [
+                0.3772929931158454,
+                0.37381424618142217,
+                0.35823383913175194
+              ]
+            },
+            "mean_observation_age_steps": {
+              "count": 3,
+              "mean": 0.18895279906581056,
+              "sample_std": 0.0015934006999578892,
+              "ci95_half_width": 0.00395822676869526,
+              "minimum": 0.18724450647177038,
+              "maximum": 0.1903987460898384,
+              "values": [
+                0.18724450647177038,
+                0.1903987460898384,
+                0.1892151446358229
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "paired_comparisons": {
+    "gru_minus_no_prediction_raw_safe_capture_percentage_points__nominal_partial_observation": {
+      "count": 3,
+      "mean": -0.33333333333332993,
+      "sample_std": 3.7859388972001833,
+      "ci95_half_width": 9.404793588918608,
+      "minimum": -3.0000000000000027,
+      "maximum": 4.0000000000000036,
+      "values": [
+        4.0000000000000036,
+        -1.9999999999999907,
+        -3.0000000000000027
+      ],
+      "positive_seed_count": 1
+    },
+    "gru_minus_no_prediction_cbf_safe_capture_percentage_points__nominal_partial_observation": {
+      "count": 3,
+      "mean": 0.0,
+      "sample_std": 0.0,
+      "ci95_half_width": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0,
+      "values": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "positive_seed_count": 0
+    },
+    "gru_minus_no_prediction_raw_safe_capture_percentage_points__delayed_measurements": {
+      "count": 3,
+      "mean": -8.666666666666666,
+      "sample_std": 3.51188458428425,
+      "ci95_half_width": 8.724004935136229,
+      "minimum": -12.0,
+      "maximum": -4.999999999999993,
+      "values": [
+        -4.999999999999993,
+        -9.000000000000007,
+        -12.0
+      ],
+      "positive_seed_count": 0
+    },
+    "gru_minus_no_prediction_cbf_safe_capture_percentage_points__delayed_measurements": {
+      "count": 3,
+      "mean": -8.333333333333334,
+      "sample_std": 9.609023536933051,
+      "ci95_half_width": 23.870137741194917,
+      "minimum": -17.000000000000004,
+      "maximum": 2.0000000000000018,
+      "values": [
+        2.0000000000000018,
+        -9.999999999999998,
+        -17.000000000000004
+      ],
+      "positive_seed_count": 1
+    },
+    "gru_minus_no_prediction_raw_safe_capture_percentage_points__burst_occlusion": {
+      "count": 3,
+      "mean": 7.401486830834377e-15,
+      "sample_std": 2.6457513110645867,
+      "ci95_half_width": 6.572410607729241,
+      "minimum": -1.9999999999999907,
+      "maximum": 3.0000000000000027,
+      "values": [
+        -1.9999999999999907,
+        -0.9999999999999898,
+        3.0000000000000027
+      ],
+      "positive_seed_count": 1
+    },
+    "gru_minus_no_prediction_cbf_safe_capture_percentage_points__burst_occlusion": {
+      "count": 3,
+      "mean": -2.3333333333333317,
+      "sample_std": 4.04145188432738,
+      "ci95_half_width": 10.039523036083333,
+      "minimum": -5.999999999999995,
+      "maximum": 2.0000000000000018,
+      "values": [
+        -3.0000000000000027,
+        2.0000000000000018,
+        -5.999999999999995
+      ],
+      "positive_seed_count": 1
+    },
+    "gru_minus_no_prediction_raw_safe_capture_percentage_points__communication_loss": {
+      "count": 3,
+      "mean": 4.66666666666667,
+      "sample_std": 5.859465277082312,
+      "ci95_half_width": 14.555718665493588,
+      "minimum": -1.9999999999999907,
+      "maximum": 9.000000000000007,
+      "values": [
+        6.999999999999995,
+        9.000000000000007,
+        -1.9999999999999907
+      ],
+      "positive_seed_count": 2
+    },
+    "gru_minus_no_prediction_cbf_safe_capture_percentage_points__communication_loss": {
+      "count": 3,
+      "mean": 0.33333333333333365,
+      "sample_std": 0.5773502691896263,
+      "ci95_half_width": 1.4342175765833347,
+      "minimum": 0.0,
+      "maximum": 1.0000000000000009,
+      "values": [
+        1.0000000000000009,
+        0.0,
+        0.0
+      ],
+      "positive_seed_count": 1
+    }
+  }
+}

@@ -155,3 +155,14 @@ by `scripts/aggregate_stage3c_formal.py`. The completed three-seed report is
 statistics in `results/RECURRENT_POLICY_STAGE3C_FORMAL_SUMMARY.json`. Its raw
 GRU-prediction gain is a small, non-significant direction; CBF remains an
 independent safety layer rather than evidence for a prediction gain.
+
+The first representative Stage 3C-P1 stress evaluation is complete. It uses
+four frozen-policy conditions (nominal partial observation, delayed
+measurements, burst occlusion, and communication loss), three training seeds,
+and raw/CBF execution. The report is
+`results/RECURRENT_POLICY_STAGE3C_P1_STRESS_REPORT.md`; the runner and
+aggregator are `scripts/run_stage3c_p1_stress.py` and
+`scripts/aggregate_stage3c_p1_stress.py`. Long measurement delays and burst
+occlusion are current failure boundaries, while communication loss remains
+substantially safer under the local CBF filter. These results are not
+real-sensor or real-flight validation.

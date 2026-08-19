@@ -21,6 +21,8 @@ results/*
 !results/RECURRENT_MAPPO_STAGE3C_PILOT_REPORT.md
 !results/RECURRENT_POLICY_STAGE3C_FORMAL_REPORT.md
 !results/RECURRENT_POLICY_STAGE3C_FORMAL_SUMMARY.json
+!results/RECURRENT_POLICY_STAGE3C_P1_STRESS_REPORT.md
+!results/RECURRENT_POLICY_STAGE3C_P1_STRESS_SUMMARY.json
 
 # Local simulator archives and generated meshes.
 third_party/*.zip
