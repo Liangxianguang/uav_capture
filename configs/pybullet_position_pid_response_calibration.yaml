@@ -1,0 +1,11 @@
+experiment_name: pybullet_position_pid_response_calibration
+environment_config: pybullet_moderate_target03_rule_tuned_c_horizon020.yaml
+calibration:
+  seed: 310001
+  episodes: 12
+  steps_per_episode: 24
+  segment_steps: 2
+  command_magnitudes: [1.0, 2.5, 4.0]
+  obstacle_count: 0
+  target_speed_scale: 0.0
+  deterministic_algorithms: true

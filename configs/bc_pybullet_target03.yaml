@@ -1,0 +1,32 @@
+experiment_name: behavior_cloning_pybullet_target_speed_03
+environment_config: baseline.yaml
+environment_overrides:
+  dynamics:
+    backend: pybullet
+    pybullet_physics: pyb_drag
+    pybullet_control_mode: position_pid
+    pybullet_frequency: 240
+    pybullet_aggregate_steps: 24
+    pybullet_speed_limit: 5.0
+    pybullet_position_horizon: 0.1
+    pybullet_gui: false
+  experiments:
+    - name: easy
+      episodes: 16
+      obstacle_count: 0
+      target_speed_scale: 0.3
+training:
+  seed: 404
+  device: cuda
+  environment_backend: pybullet
+  dataset_episodes: 16
+  epochs: 80
+  minibatch_size: 1024
+  learning_rate: 0.0005
+  evaluation_episodes: 3
+  histogram_interval: 20
+  torch_num_threads: 1
+  deterministic_algorithms: true
+  include_agent_id: false
+  action_scale_mode: full_range
+  hidden_dim: 128

@@ -1,0 +1,66 @@
+seed: 17
+world:
+  half_extent_xy: 10.0
+  height: 10.0
+  minimum_altitude: 0.5
+  dt: 0.1
+  max_steps: 350
+agents:
+  defenders: 4
+  defender_max_speed: 5.0
+  defender_max_acceleration: 6.0
+  target_max_speed: 3.6
+  target_max_acceleration: 4.0
+  drone_radius: 0.25
+dynamics:
+  backend: kinematic
+  action_delay_steps: 2
+  velocity_response_time: 0.35
+  slot_tracking_gain: 5.0
+  target_velocity_feedforward: 0.0
+  defender_nominal_mass: 1.0
+  defender_nominal_drag: 0.35
+  defender_mass_variation: 0.15
+  defender_drag_variation: 0.20
+  # Fixed Gym-PyBullet-Drones transfer backend. 24 / 240 = world.dt.
+  pybullet_physics: pyb_drag
+  pybullet_control_mode: position_pid
+  pybullet_frequency: 240
+  pybullet_aggregate_steps: 24
+  pybullet_speed_limit: 5.0
+  pybullet_position_horizon: 0.1
+  pybullet_gui: false
+task:
+  encirclement_radius: 2.8
+  slot_tolerance: 0.75
+  hold_seconds: 3.0
+  # A moving target at up to 2.88 m/s requires a slot-tracking response
+  # stronger than the original 1.8 s^-1 proportional controller.
+  slot_tracking_gain: 5.0
+  # Discrete-time CBF-QP filter parameters for the Phase 2 comparison.
+  cbf_gamma: 0.25
+  cbf_obstacle_margin: 0.35
+  cbf_inter_agent_margin: 0.15
+  # The tetrahedral slot radius already provides 2.3 m clearance beyond the
+  # two vehicle radii, so use the physical non-contact boundary here.
+  cbf_target_margin: 0.0
+  cbf_target_activation_distance: 0.90
+  target_defender_avoidance_distance: 1.30
+  target_defender_avoidance_gain: 6.0
+  safety_distance: 0.9
+  obstacle_avoidance_distance: 2.1
+  obstacle_avoidance_gain: 2.2
+  inter_agent_avoidance_gain: 1.0
+experiments:
+  - name: easy
+    episodes: 40
+    obstacle_count: 0
+    target_speed_scale: 0.80
+  - name: moderate
+    episodes: 60
+    obstacle_count: 3
+    target_speed_scale: 0.90
+  - name: hard
+    episodes: 60
+    obstacle_count: 6
+    target_speed_scale: 1.00

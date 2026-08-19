@@ -1,0 +1,69 @@
+research_task:
+  name: partial_observable_3d_capture_radius_pursuit
+  primary_scope: four_defenders_cooperatively_capture_one_evasive_target_by_entering_a_geometric_capture_radius
+  excluded_scope: virtual_tetrahedral_closure_softbody_net_and_real_flight_capture
+seed: 520001
+world:
+  half_extent_xy: 10.0
+  height: 10.0
+  minimum_altitude: 0.5
+  dt: 0.1
+  max_steps: 250
+agents:
+  defenders: 4
+  defender_max_speed: 5.0
+  defender_max_acceleration: 6.0
+  target_max_speed: 3.6
+  target_max_acceleration: 4.0
+  drone_radius: 0.25
+dynamics:
+  backend: kinematic
+task:
+  slot_tracking_gain: 2.5
+  cbf_gamma: 0.25
+  pursuit:
+    capture_radius: 0.80
+    spawn_distance: 4.80
+    detection_range: 7.50
+    visibility_cosine_threshold: -1.0
+    detection_dropout_probability: 0.15
+    observation_noise_std: 0.03
+    message_delay_steps: 2
+    message_dropout_probability: 0.05
+    maximum_message_age_steps: 60
+    include_prediction_features: false
+    prediction_horizon_seconds: 0.55
+    prediction_uncertainty_base: 0.08
+    target_defender_avoidance_distance: 2.20
+    target_defender_avoidance_gain: 4.00
+    target_obstacle_avoidance_distance: 2.20
+    target_obstacle_avoidance_gain: 3.50
+    target_boundary_margin: 1.20
+    target_boundary_gain: 7.00
+    target_heading_persistence: 0.55
+    target_flee_gain: 1.00
+    target_vertical_gain: 0.20
+    controller_obstacle_avoidance_distance: 2.00
+    controller_obstacle_avoidance_gain: 2.80
+    controller_inter_agent_distance: 1.50
+    controller_inter_agent_gain: 2.50
+    safety_margin: 0.35
+    capture_bonus: 25.00
+    collision_penalty: 15.00
+    progress_reward_weight: 3.00
+    distance_reward_weight: 0.12
+    coverage_reward_weight: 0.15
+    max_observation_obstacles: 3
+experiments:
+  - name: open
+    episodes: 30
+    obstacle_count: 0
+    target_speed_scale: 0.55
+  - name: clutter
+    episodes: 30
+    obstacle_count: 3
+    target_speed_scale: 0.55
+  - name: occluded
+    episodes: 30
+    obstacle_count: 5
+    target_speed_scale: 0.55

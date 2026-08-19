@@ -1,0 +1,11 @@
+experiment_name: pybullet_vertical_braking_calibration
+environment_config: pybullet_moderate_target03_rule_tuned_c_horizon020.yaml
+calibration:
+  seed: 320001
+  initial_altitude: 7.0
+  initial_descent_speeds: [1.0, 3.0, 5.0, 7.0, 9.0]
+  emergency_climb_heights: [0.5, 1.0, 2.0]
+  steps_per_condition: 12
+  obstacle_count: 0
+  target_speed_scale: 0.0
+  deterministic_algorithms: true

@@ -1,0 +1,16 @@
+experiment_name: pybullet_bc_easy_fixed_seed_evaluation
+environment_config: baseline.yaml
+checkpoint: ../results/bc_easy_best_gpu_seed101/checkpoint.pt
+evaluation:
+  seed: 210001
+  device: cuda
+  episodes: 30
+  scenario: easy
+  record_trajectory: false
+  deterministic_algorithms: true
+pybullet:
+  pybullet_physics: pyb_drag
+  pybullet_frequency: 240
+  pybullet_aggregate_steps: 24
+  pybullet_speed_limit: 5.0
+  pybullet_gui: false

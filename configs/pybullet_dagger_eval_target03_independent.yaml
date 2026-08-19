@@ -1,0 +1,22 @@
+experiment_name: pybullet_dagger_target_speed_03_independent
+environment_config: pybullet_moderate_target03_rule_tuned_b.yaml
+checkpoint: ../results/dagger_pybullet_moderate_target03_full_gpu_seed801/checkpoint.pt
+scenario_target_speed_scale: 0.3
+evaluation:
+  seed: 240001
+  device: cuda
+  episodes: 30
+  scenario: moderate
+  record_trajectory: true
+  deterministic_algorithms: true
+pybullet:
+  pybullet_physics: pyb_drag
+  pybullet_control_mode: position_pid
+  pybullet_frequency: 240
+  pybullet_aggregate_steps: 24
+  pybullet_speed_limit: 5.0
+  pybullet_position_horizon: 0.1
+  pybullet_position_velocity_feedforward: 0.0
+  pybullet_command_max_acceleration: 5.0
+  pybullet_boundary_reference_margin: [0.0, 0.0, 0.0]
+  pybullet_gui: false

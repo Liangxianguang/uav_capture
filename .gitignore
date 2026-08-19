@@ -1,0 +1,31 @@
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Generated experiment outputs are kept locally or in an external archive.
+results/*
+!results/.gitkeep
+!results/CAPTURE_RADIUS_FINAL_REPORT.md
+
+# Local simulator archives and generated meshes.
+third_party/*.zip
+third_party/**/files/
+third_party/**/examples/
+third_party/**/assignments/
+third_party/**/experiments/
+third_party/**/ros2/
+third_party/**/.github/
+third_party/**/README.md
+third_party/**/.gitignore
+third_party/**/setup.py
+third_party/**/gym_pybullet_drones/envs/multi_agent_rl/
+third_party/**/gym_pybullet_drones/envs/single_agent_rl/
+third_party/**/gym_pybullet_drones/envs/DynAviary.py
+third_party/**/gym_pybullet_drones/envs/VisionAviary.py
+third_party/**/gym_pybullet_drones/utils/Logger.py
+**/tensorboard/
+**/checkpoint*.pt
+**/best_checkpoint*.pt
+**/last_checkpoint*.pt
+*.npz
+*.png

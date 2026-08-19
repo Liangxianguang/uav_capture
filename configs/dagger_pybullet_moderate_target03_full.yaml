@@ -1,0 +1,19 @@
+experiment_name: dagger_pybullet_moderate_target03_full
+environment_config: pybullet_moderate_target03_rule_tuned_b.yaml
+training:
+  seed: 801
+  device: cuda
+  environment_backend: pybullet
+  initial_checkpoint: ../results/bc_pybullet_moderate_target03_rule_gpu_seed701/checkpoint.pt
+  training_scenario: moderate
+  evaluation_scenario: moderate
+  obstacle_feature_count: 3
+  dagger_iterations: 3
+  episodes_per_iteration: 16
+  epochs_per_iteration: 30
+  minibatch_size: 2048
+  learning_rate: 0.0001
+  evaluation_episodes: 10
+  torch_num_threads: 1
+  deterministic_algorithms: true
+  include_agent_id: false

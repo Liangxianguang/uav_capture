@@ -1,0 +1,18 @@
+# Copy this file to metadata.yaml for one physical net configuration.
+schema_version: 1
+test_date_utc: "YYYY-MM-DDTHH:MM:SSZ"
+operator: "name"
+material_id: "manufacturer-material-lot"
+attachment_description: "cord, knot, anchor, and deployment hardware"
+representative_segment_length_m: 0.0
+total_moving_net_mass_kg: 0.0
+measured_pretension_n: 0.0
+safe_working_tension_n: 0.0
+maximum_strain: 0.0
+static_fixture: "fixture geometry and loading method"
+decay_fixture: "moving mass, support, and release method"
+impact_fixture: "target fixture and force-sensor arrangement"
+load_cell_calibration: "calibration record identifier"
+sampling_rate_hz: 0.0
+impact_approach_speed_m_s: 0.0
+ambient_conditions: "temperature, humidity, and test location"

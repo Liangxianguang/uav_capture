@@ -1,0 +1,90 @@
+research_task:
+  name: obstacle_aware_3d_spatial_containment
+  target_model: kinematic_evasive_target
+  primary_scope: four_defenders_avoid_static_cylinders_and_hold_a_virtual_tetrahedral_cage
+  excluded_scope: physical_net_deployment_target_contact_dynamics_and_real_flight_capture
+  frozen_encirclement_checkpoint: ../results/dagger_pybullet_horizon015_response_cbf_gamma050_u1_full_gpu_seed1001/best_checkpoint.pt
+  frozen_encirclement_sha256: 4101361371fe7a4f1ef05b9d3426fd59ecaeaee67632218e92c6bbdd3fd18476
+seed: 434001
+world:
+  half_extent_xy: 10.0
+  height: 10.0
+  minimum_altitude: 0.5
+  dt: 0.1
+  max_steps: 350
+agents:
+  defenders: 4
+  defender_max_speed: 5.0
+  defender_max_acceleration: 6.0
+  target_max_speed: 3.6
+  target_max_acceleration: 4.0
+  drone_radius: 0.25
+dynamics:
+  backend: pybullet
+  slot_tracking_gain: 5.0
+  target_velocity_feedforward: 0.0
+  pybullet_physics: pyb_drag
+  pybullet_control_mode: position_pid
+  pybullet_frequency: 240
+  pybullet_aggregate_steps: 24
+  pybullet_speed_limit: 5.0
+  pybullet_position_horizon: 0.15
+  pybullet_position_velocity_feedforward: 0.0
+  pybullet_command_max_acceleration: 5.0
+  pybullet_response_displacement_velocity_coefficient: 0.8220911930352675
+  pybullet_response_displacement_command_coefficient: 0.07367442040027326
+  pybullet_response_displacement_error_p95: 0.06954834594321728
+  pybullet_vertical_emergency_enabled: true
+  pybullet_vertical_emergency_braking_deceleration: 12.0
+  pybullet_vertical_emergency_reaction_time: 0.10
+  pybullet_vertical_emergency_margin: 0.50
+  pybullet_vertical_emergency_climb_height: 1.0
+  pybullet_attitude_recovery_enabled: true
+  pybullet_attitude_recovery_max_tilt: 0.35
+  pybullet_attitude_recovery_climb_height: 1.0
+  pybullet_deformable_world: false
+  pybullet_softbody_net_enabled: false
+  pybullet_gui: false
+task:
+  encirclement_radius: 2.8
+  slot_tolerance: 0.75
+  hold_seconds: 3.0
+  slot_tracking_gain: 5.0
+  cbf_gamma: 0.25
+  cbf_obstacle_margin: 0.35
+  cbf_inter_agent_margin: 0.15
+  cbf_target_margin: 0.0
+  cbf_target_activation_distance: 0.9
+  target_defender_avoidance_distance: 1.3
+  target_defender_avoidance_gain: 6.0
+  safety_distance: 0.9
+  obstacle_avoidance_distance: 3.0
+  obstacle_avoidance_gain: 4.0
+  inter_agent_avoidance_gain: 1.0
+  capture:
+    # Legacy field name: this is a virtual, radius-aware cage-closure gate,
+    # not a physical net or target collision body.
+    enabled: true
+    model: rigid_contact
+    target_radius: 0.25
+    contact_tolerance: 0.005
+    contact_projection_iterations: 96
+    compression_tolerance: 0.02
+    closure_slot_tolerance: 0.70
+    minimum_face_clearance: 0.15
+    minimum_edge_length: 3.60
+    maximum_edge_length: 5.40
+    maximum_relative_speed: 1.25
+    hold_seconds: 2.00
+    escape_tolerance: 0.05
+    encirclement_reward_weight: 1.00
+    feasibility_reward_weight: 0.75
+    closure_bonus: 4.00
+    success_bonus: 20.00
+    escape_penalty: 10.00
+    collision_penalty: 5.00
+experiments:
+  - name: spatial_containment_locked_test
+    episodes: 100
+    obstacle_count: 3
+    target_speed_scale: 0.30
