@@ -1,0 +1,12 @@
+experiment_name: capture_radius_recurrent_behavior_cloning_gru_prediction_dev
+environment_config: capture_radius_pursuit_gru_prediction_dev.yaml
+imitation:
+  seed: 521001
+  device: cuda
+  episodes: 240
+  training_obstacle_counts: [0, 3, 5]
+  training_target_speed_scales: [0.45, 0.55]
+  epochs: 30
+  learning_rate: 0.0003
+  hidden_dim: 128
+  validation_episodes: 10

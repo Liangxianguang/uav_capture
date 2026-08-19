@@ -11,6 +11,7 @@ from encirclement3d.prediction import (
     deterministic_mse,
     gaussian_nll,
 )
+from encirclement3d.learning import RecurrentCentralizedSharedActorCritic
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 
 
@@ -59,3 +60,29 @@ def test_learned_prediction_observer_preserves_actor_width_and_replaces_block() 
     assert repeated.shape == (4, 52)
     assert adapter.last_prediction_mean is not None
     assert adapter.last_prediction_std is not None
+
+
+def test_recurrent_actor_sequence_matches_step_rollout_and_resets() -> None:
+    torch.manual_seed(520203)
+    model = RecurrentCentralizedSharedActorCritic(
+        local_observation_dim=6,
+        centralized_state_dim=9,
+        hidden_dim=16,
+    )
+    local = torch.randn(1, 4, 4, 6)
+    actions = torch.randn(1, 4, 4, 3).clamp(-1.0, 1.0)
+    reset_masks = torch.tensor([[1, 0, 1, 0]], dtype=torch.float32)
+    initial_hidden = model.initial_actor_hidden(4, batch_size=1)
+    _log_probabilities, _entropy, sequence_means = model.evaluate_actions_sequence(
+        local,
+        initial_hidden,
+        reset_masks,
+        actions,
+        action_scale=1.0,
+    )
+    hidden = initial_hidden[0]
+    step_means: list[torch.Tensor] = []
+    for index in range(local.shape[1]):
+        distribution, hidden = model.distribution_step(local[0, index], hidden, reset_masks[0, index])
+        step_means.append(distribution.mean)
+    assert torch.allclose(sequence_means[0], torch.stack(step_means), atol=1e-6)

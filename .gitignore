@@ -18,6 +18,7 @@ results/*
 !results/PREDICTION_POLICY_STAGE3_PILOT_SUMMARY.json
 !results/PREDICTION_POLICY_STAGE3_FORMAL_REPORT.md
 !results/PREDICTION_POLICY_STAGE3_FORMAL_SUMMARY.json
+!results/RECURRENT_MAPPO_STAGE3C_PILOT_REPORT.md
 
 # Local simulator archives and generated meshes.
 third_party/*.zip

@@ -23,7 +23,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from encirclement3d.learning import CentralizedSharedActorCritic
+from encirclement3d.learning import CentralizedSharedActorCritic, RecurrentCentralizedSharedActorCritic
 from encirclement3d.prediction import HistoryTargetPredictor, LearnedPredictionObserver
 from encirclement3d.pursuit_controllers import PursuitCBFSafetyFilter
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
@@ -67,7 +67,7 @@ def load_policy(
     env: CaptureRadiusPursuit3DEnv,
     observation: dict[str, Any],
     device: torch.device,
-) -> tuple[CentralizedSharedActorCritic, float, dict[str, Any]]:
+) -> tuple[CentralizedSharedActorCritic | RecurrentCentralizedSharedActorCritic, float, dict[str, Any]]:
     checkpoint = safe_load_checkpoint(checkpoint_path, device)
     local_dim = int(env.policy_observations(observation).shape[-1])
     state_dim = int(env.centralized_state().shape[-1])
@@ -75,7 +75,15 @@ def load_policy(
         raise ValueError("Checkpoint observation dimension does not match the selected environment YAML.")
     if int(checkpoint.get("centralized_state_dim", -1)) != state_dim:
         raise ValueError("Checkpoint critic-state dimension does not match the selected environment YAML.")
-    policy = CentralizedSharedActorCritic(local_dim, state_dim).to(device)
+    if bool(checkpoint.get("actor_recurrent", False)):
+        hidden_dim = int(checkpoint.get("recurrent_hidden_dim", 128))
+        policy: CentralizedSharedActorCritic | RecurrentCentralizedSharedActorCritic = RecurrentCentralizedSharedActorCritic(
+            local_dim,
+            state_dim,
+            hidden_dim=hidden_dim,
+        ).to(device)
+    else:
+        policy = CentralizedSharedActorCritic(local_dim, state_dim).to(device)
     policy.load_state_dict(checkpoint["state_dict"], strict=True)
     return policy.eval(), float(checkpoint["action_scale"]), checkpoint
 
@@ -95,7 +103,7 @@ def load_prediction_model(checkpoint_path: Path, device: torch.device) -> Histor
 
 
 def rollout_episode(
-    policy: CentralizedSharedActorCritic,
+    policy: CentralizedSharedActorCritic | RecurrentCentralizedSharedActorCritic,
     config: dict[str, Any],
     obstacle_count: int,
     target_speed_scale: float,
@@ -127,13 +135,22 @@ def rollout_episode(
         if prediction_observer is not None
         else env.policy_observations(observation)
     )
+    actor_hidden = (
+        policy.initial_actor_hidden(env.n_defenders, device=device)
+        if isinstance(policy, RecurrentCentralizedSharedActorCritic)
+        else None
+    )
     visible_fractions: list[float] = []
     message_ages: list[float] = []
     final_info: dict[str, Any] = {}
     with torch.no_grad():
         while True:
             local = torch.as_tensor(local_observation, device=device)
-            action = torch.tanh(policy.distribution(local).mean).cpu().numpy() * action_scale
+            if isinstance(policy, RecurrentCentralizedSharedActorCritic):
+                distribution, actor_hidden = policy.distribution_step(local, actor_hidden)
+            else:
+                distribution = policy.distribution(local)
+            action = torch.tanh(distribution.mean).cpu().numpy() * action_scale
             if safety_filter is not None:
                 action, _diagnostics = safety_filter.filter(action, observation)
             observation, _reward, terminated, truncated, final_info = env.step(action, record_history=record_history)
@@ -222,6 +239,7 @@ def write_artifacts(
     checkpoint: Path,
     args: argparse.Namespace,
     prediction_checkpoint: Path | None = None,
+    actor_recurrent: bool = False,
 ) -> None:
     output.joinpath("config.yaml").write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     output.joinpath("evaluation_protocol.json").write_text(
@@ -235,6 +253,7 @@ def write_artifacts(
                 "seed": args.seed,
                 "episodes_per_scenario": args.episodes,
                 "use_local_cbf_execution_filter": bool(args.use_cbf),
+                "actor_recurrent": bool(actor_recurrent),
                 "prediction_checkpoint": str(prediction_checkpoint.resolve()) if prediction_checkpoint is not None else None,
                 "prediction_checkpoint_sha256": (
                     hashlib.sha256(prediction_checkpoint.read_bytes()).hexdigest()
@@ -300,8 +319,6 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     device = select_device(args.device)
     prediction_model = load_prediction_model(prediction_checkpoint, device) if prediction_checkpoint is not None else None
-    write_artifacts(output, config, checkpoint, args, prediction_checkpoint=prediction_checkpoint)
-
     first_experiment = config["experiments"][0]
     prototype = CaptureRadiusPursuit3DEnv(
         config,
@@ -313,6 +330,14 @@ def main() -> None:
         prototype,
         prototype.reset(seed=args.seed),
         device,
+    )
+    write_artifacts(
+        output,
+        config,
+        checkpoint,
+        args,
+        prediction_checkpoint=prediction_checkpoint,
+        actor_recurrent=bool(checkpoint_metadata.get("actor_recurrent", False)),
     )
     rows: list[dict[str, Any]] = []
     started = time.perf_counter()

@@ -143,3 +143,10 @@ seeds and 300 locked episodes per seed. Its aggregate result and statistical
 protocol are in `results/PREDICTION_POLICY_STAGE3_FORMAL_REPORT.md`. The GRU
 raw-action result has a small positive mean over no prediction, but its 95%
 training-seed interval overlaps zero; CBF produces the dominant safety gain.
+
+Stage 3C now includes a parameter-sharing Recurrent-MAPPO actor with per-agent
+GRU memory, episode reset masks, and ordered recurrent PPO replay. It is
+initialized as an MLP behavior prior plus a zero-initialized GRU residual. The
+implementation pilot is documented in `PREDICTION_RECURRENT_MAPPO_METHOD.md`
+and `results/RECURRENT_MAPPO_STAGE3C_PILOT_REPORT.md`; final multi-seed
+recurrent ablations remain pending.
