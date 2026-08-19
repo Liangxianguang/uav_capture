@@ -64,6 +64,9 @@ _PURSUIT_DEFAULTS: dict[str, Any] = {
     "communication_link_dropout_probability": 0.0,
     "maximum_message_age_steps": 60,
     "observation_delay_steps": 0,
+    "belief_update_mode": "legacy",
+    "belief_stale_velocity_decay": 1.0,
+    "belief_velocity_decay_start_age_steps": 0,
     "detection_loss_burst_probability": 0.0,
     "detection_loss_burst_duration_steps": 1,
     "observation_confidence_decay": 0.97,
@@ -105,9 +108,10 @@ _PURSUIT_DEFAULTS: dict[str, Any] = {
 
 _TARGET_MOTION_MODES = {"flee_persistence", "random_turn", "s_curve", "burst", "boundary_escape"}
 _OBSTACLE_PROFILES = {"cylinders", "boxes", "walls", "narrow_channels", "mixed"}
+_BELIEF_UPDATE_MODES = {"legacy", "zero_velocity", "constant_velocity", "time_aligned"}
 
 
-def pursuit_settings(task: dict[str, Any]) -> dict[str, float | int | bool]:
+def pursuit_settings(task: dict[str, Any]) -> dict[str, Any]:
     configured = task.get("pursuit", {})
     if not isinstance(configured, dict):
         raise ValueError("task.pursuit must be a mapping.")
@@ -154,6 +158,10 @@ def pursuit_settings(task: dict[str, Any]) -> dict[str, float | int | bool]:
         raise ValueError("task.pursuit.observation_covariance_growth must be non-negative.")
     if float(settings["prediction_uncertainty_base"]) < 0.0:
         raise ValueError("task.pursuit.prediction_uncertainty_base must be non-negative.")
+    if not 0.0 <= float(settings["belief_stale_velocity_decay"]) <= 1.0:
+        raise ValueError("task.pursuit.belief_stale_velocity_decay must be in [0, 1].")
+    if int(settings["belief_velocity_decay_start_age_steps"]) < 0:
+        raise ValueError("task.pursuit.belief_velocity_decay_start_age_steps must be non-negative.")
     if str(settings["target_motion_mode"]) not in _TARGET_MOTION_MODES:
         raise ValueError(
             "task.pursuit.target_motion_mode must be one of "
@@ -164,6 +172,12 @@ def pursuit_settings(task: dict[str, Any]) -> dict[str, float | int | bool]:
         raise ValueError(
             "task.pursuit.obstacle_profile must be one of "
             + ", ".join(sorted(_OBSTACLE_PROFILES))
+            + "."
+        )
+    if str(settings["belief_update_mode"]) not in _BELIEF_UPDATE_MODES:
+        raise ValueError(
+            "task.pursuit.belief_update_mode must be one of "
+            + ", ".join(sorted(_BELIEF_UPDATE_MODES))
             + "."
         )
     for name in (
@@ -205,6 +219,18 @@ class _BeliefPacket:
     confidence: float
     covariance: np.ndarray
     via_message: bool
+
+
+@dataclass(frozen=True)
+class _BeliefSnapshot:
+    """Local belief state retained for a bounded fixed-lag update."""
+
+    step: int
+    positions: np.ndarray
+    velocities: np.ndarray
+    confidences: np.ndarray
+    covariances: np.ndarray
+    timestamps: np.ndarray
 
 
 class CaptureRadiusPursuit3DEnv:
@@ -658,20 +684,12 @@ class CaptureRadiusPursuit3DEnv:
 
     def _update_target_beliefs(self) -> None:
         self.target_visible[:] = False
+        delivered_this_step = np.zeros(self.n_defenders, dtype=bool)
         pending: list[_BeliefPacket] = []
         for packet in self._message_queue:
             if packet.delivery_step <= self.step_count:
-                receiver = packet.receiver
-                if packet.timestamp_step >= int(self.target_observation_timestamps[receiver]):
-                    self.target_belief_positions[receiver] = packet.position
-                    self.target_belief_velocities[receiver] = packet.velocity
-                    self.target_observation_confidence[receiver] = float(packet.confidence)
-                    self.target_observation_covariance[receiver] = packet.covariance
-                    self.target_observation_timestamps[receiver] = int(packet.timestamp_step)
-                    self.message_age_steps[receiver] = min(
-                        max(self.step_count - packet.timestamp_step, 0),
-                        int(self.pursuit["maximum_message_age_steps"]),
-                    )
+                receiver = int(packet.receiver)
+                delivered_this_step[receiver] |= self._deliver_belief_packet(packet)
             else:
                 pending.append(packet)
         self._message_queue = pending
@@ -710,7 +728,7 @@ class CaptureRadiusPursuit3DEnv:
                     via_message=False,
                 )
                 if packet.delivery_step <= self.step_count:
-                    self._deliver_belief_packet(packet)
+                    delivered_this_step[index] |= self._deliver_belief_packet(packet)
                 else:
                     self._message_queue.append(packet)
                 for receiver in range(self.n_defenders):
@@ -734,7 +752,17 @@ class CaptureRadiusPursuit3DEnv:
                             via_message=True,
                         )
                     )
-            else:
+            elif not (
+                str(self.pursuit["belief_update_mode"]) in {"zero_velocity", "constant_velocity", "time_aligned"}
+                and delivered_this_step[index]
+            ):
+                belief_age = max(self.step_count - int(self.target_observation_timestamps[index]), 0)
+                if (
+                    str(self.pursuit["belief_update_mode"]) == "time_aligned"
+                    and int(self.target_observation_timestamps[index]) >= 0
+                    and belief_age >= int(self.pursuit["belief_velocity_decay_start_age_steps"])
+                ):
+                    self.target_belief_velocities[index] *= float(self.pursuit["belief_stale_velocity_decay"])
                 self.target_belief_positions[index] += self.target_belief_velocities[index] * self.dt
                 self.message_age_steps[index] = min(
                     self.message_age_steps[index] + 1,
@@ -744,21 +772,113 @@ class CaptureRadiusPursuit3DEnv:
                 self.target_observation_covariance[index] += np.eye(3, dtype=np.float64) * float(
                     self.pursuit["observation_covariance_growth"]
                 )
+        self._append_belief_snapshot()
 
-    def _deliver_belief_packet(self, packet: _BeliefPacket) -> None:
-        """Apply one packet only if it is newer than the receiver's belief."""
+    def _append_belief_snapshot(self) -> None:
+        """Retain only locally available belief states for fixed-lag updates."""
+        history: list[_BeliefSnapshot] = [] if self.step_count == 0 else list(getattr(self, "_belief_history", []))
+        history.append(
+            _BeliefSnapshot(
+                step=int(self.step_count),
+                positions=self.target_belief_positions.copy(),
+                velocities=self.target_belief_velocities.copy(),
+                confidences=self.target_observation_confidence.copy(),
+                covariances=self.target_observation_covariance.copy(),
+                timestamps=self.target_observation_timestamps.copy(),
+            )
+        )
+        oldest_step = int(self.step_count) - int(self.pursuit["maximum_message_age_steps"])
+        self._belief_history = [snapshot for snapshot in history if snapshot.step >= oldest_step]
+
+    def _belief_snapshot_at(self, step: int) -> _BeliefSnapshot | None:
+        for snapshot in reversed(getattr(self, "_belief_history", [])):
+            if snapshot.step == step:
+                return snapshot
+        return None
+
+    def _time_aligned_packet_state(
+        self,
+        packet: _BeliefPacket,
+        receiver: int,
+        age_steps: int,
+    ) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
+        """Fuse a delayed packet at its timestamp and propagate it to now.
+
+        The optional prior is a receiver-local state saved at the packet's
+        timestamp. It contains no simulator truth. If no valid prior exists,
+        the fixed-lag update reduces to constant-velocity propagation of the
+        received measurement.
+        """
+        position = packet.position.copy()
+        velocity = packet.velocity.copy()
+        confidence = float(packet.confidence)
+        covariance = packet.covariance.copy()
+        snapshot = self._belief_snapshot_at(int(packet.timestamp_step))
+        if snapshot is not None and int(snapshot.timestamps[receiver]) >= 0:
+            prior_covariance = snapshot.covariances[receiver]
+            innovation_covariance = prior_covariance + covariance
+            try:
+                gain = prior_covariance @ np.linalg.inv(innovation_covariance)
+            except np.linalg.LinAlgError:
+                gain = np.zeros((3, 3), dtype=np.float64)
+            position = snapshot.positions[receiver] + gain @ (position - snapshot.positions[receiver])
+            velocity = snapshot.velocities[receiver] + gain @ (velocity - snapshot.velocities[receiver])
+            covariance = (np.eye(3, dtype=np.float64) - gain) @ prior_covariance
+            covariance = 0.5 * (covariance + covariance.T)
+            confidence = max(confidence, float(snapshot.confidences[receiver]))
+        position += velocity * (age_steps * self.dt)
+        confidence *= float(self.pursuit["observation_confidence_decay"]) ** age_steps
+        covariance += np.eye(3, dtype=np.float64) * (
+            float(self.pursuit["observation_covariance_growth"]) * age_steps
+        )
+        return position, velocity, confidence, covariance
+
+    def _deliver_belief_packet(self, packet: _BeliefPacket) -> bool:
+        """Apply one packet only if it is newer than the receiver's belief.
+
+        ``legacy`` retains the original benchmark semantics. ``zero_velocity``
+        and ``constant_velocity`` are transparent diagnostic baselines.
+        ``time_aligned`` updates a saved local state at the packet timestamp,
+        then propagates the fused belief and uncertainty to the current
+        decision step. All paths retain the source timestamp, so an actor can
+        still distinguish a current estimate from an old measurement.
+        """
         receiver = int(packet.receiver)
         if packet.timestamp_step < int(self.target_observation_timestamps[receiver]):
-            return
-        self.target_belief_positions[receiver] = packet.position
-        self.target_belief_velocities[receiver] = packet.velocity
-        self.target_observation_confidence[receiver] = float(packet.confidence)
-        self.target_observation_covariance[receiver] = packet.covariance.copy()
+            return False
+        age_steps = max(self.step_count - int(packet.timestamp_step), 0)
+        mode = str(self.pursuit["belief_update_mode"])
+        if mode == "zero_velocity":
+            self.target_belief_positions[receiver] = packet.position
+            self.target_belief_velocities[receiver] = np.zeros(3, dtype=np.float64)
+            self.target_observation_confidence[receiver] = float(packet.confidence)
+            self.target_observation_covariance[receiver] = packet.covariance.copy()
+        elif mode == "constant_velocity":
+            self.target_belief_positions[receiver] = packet.position + packet.velocity * (age_steps * self.dt)
+            self.target_belief_velocities[receiver] = packet.velocity
+            self.target_observation_confidence[receiver] = float(packet.confidence) * float(
+                self.pursuit["observation_confidence_decay"]
+            ) ** age_steps
+            self.target_observation_covariance[receiver] = packet.covariance + np.eye(3, dtype=np.float64) * (
+                float(self.pursuit["observation_covariance_growth"]) * age_steps
+            )
+        elif mode == "time_aligned":
+            position, velocity, confidence, covariance = self._time_aligned_packet_state(packet, receiver, age_steps)
+            self.target_belief_positions[receiver] = position
+            self.target_belief_velocities[receiver] = velocity
+            self.target_observation_confidence[receiver] = confidence
+            self.target_observation_covariance[receiver] = covariance
+        else:
+            self.target_belief_positions[receiver] = packet.position
+            self.target_belief_velocities[receiver] = packet.velocity
+            self.target_observation_confidence[receiver] = float(packet.confidence)
+            self.target_observation_covariance[receiver] = packet.covariance.copy()
         self.target_observation_timestamps[receiver] = int(packet.timestamp_step)
         self.message_age_steps[receiver] = min(
-            max(self.step_count - packet.timestamp_step, 0),
+            age_steps,
             int(self.pursuit["maximum_message_age_steps"]),
         )
+        return True
 
     def _predict_target_beliefs(self) -> tuple[np.ndarray, np.ndarray]:
         """Predict each local target belief without reading simulator target truth.

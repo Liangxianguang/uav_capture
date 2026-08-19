@@ -3,11 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 import yaml
 
 from encirclement3d.pursuit_controllers import DynamicEncirclementController
-from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
+from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv, _BeliefPacket, _BeliefSnapshot
 from scripts.generate_prediction_dataset import assemble_prediction_samples
 
 
@@ -197,6 +198,213 @@ def test_delayed_observation_updates_belief_only_at_configured_timestamp() -> No
     observation, *_ = env.step(np.zeros((4, 3)))
     assert np.all(observation["target_observation_timestamps"] == 0)
     assert np.all(observation["target_observation_age_steps"] == 3)
+
+
+def test_time_aligned_delayed_belief_propagates_packet_to_current_step_once() -> None:
+    config = load_config()
+    config["task"]["pursuit"].update(
+        {
+            "belief_update_mode": "time_aligned",
+            "observation_delay_steps": 3,
+            "detection_dropout_probability": 0.0,
+            "observation_noise_std": 0.0,
+            "message_dropout_probability": 1.0 - 1e-6,
+            "communication_link_dropout_probability": 1.0 - 1e-6,
+        }
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+    env.reset(seed=520114)
+    packet = next(item for item in env._message_queue if item.receiver == 0 and not item.via_message)
+    env.detection_loss_burst_remaining[:] = 20
+    for _ in range(3):
+        observation, *_ = env.step(np.zeros((4, 3)))
+
+    assert observation["target_observation_timestamps"][0] == 0
+    assert observation["target_observation_age_steps"][0] == 3
+    np.testing.assert_allclose(
+        observation["target_belief_positions"][0],
+        packet.position + packet.velocity * (3 * env.dt),
+    )
+    np.testing.assert_allclose(
+        observation["target_observation_covariance"][0],
+        packet.covariance + np.eye(3) * (3 * float(env.pursuit["observation_covariance_growth"])),
+    )
+    assert observation["target_observation_confidence"][0] == pytest.approx(
+        packet.confidence * float(env.pursuit["observation_confidence_decay"]) ** 3
+    )
+    assert env.policy_observations(observation).shape == (4, 44)
+
+
+def test_legacy_delayed_belief_semantics_remain_the_default() -> None:
+    config = load_config()
+    config["task"]["pursuit"].update(
+        {
+            "observation_delay_steps": 3,
+            "detection_dropout_probability": 0.0,
+            "observation_noise_std": 0.0,
+            "message_dropout_probability": 1.0 - 1e-6,
+            "communication_link_dropout_probability": 1.0 - 1e-6,
+        }
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+    assert env.pursuit["belief_update_mode"] == "legacy"
+    env.reset(seed=520114)
+    packet = next(item for item in env._message_queue if item.receiver == 0 and not item.via_message)
+    env.detection_loss_burst_remaining[:] = 20
+    for _ in range(3):
+        observation, *_ = env.step(np.zeros((4, 3)))
+
+    np.testing.assert_allclose(
+        observation["target_belief_positions"][0],
+        packet.position + packet.velocity * env.dt,
+    )
+    np.testing.assert_allclose(observation["target_observation_covariance"][0], packet.covariance + np.eye(3) * 0.25)
+    assert observation["target_observation_confidence"][0] == pytest.approx(
+        packet.confidence * float(env.pursuit["observation_confidence_decay"])
+    )
+
+
+def test_belief_update_mode_is_validated() -> None:
+    config = load_config()
+    config["task"]["pursuit"]["belief_update_mode"] = "future_truth"
+    with pytest.raises(ValueError, match="belief_update_mode"):
+        CaptureRadiusPursuit3DEnv(config, obstacle_count=0)
+
+
+def test_time_aligned_fixed_lag_fuses_local_snapshot_before_propagation() -> None:
+    config = load_config()
+    config["task"]["pursuit"].update(
+        {
+            "belief_update_mode": "time_aligned",
+            "observation_confidence_decay": 1.0,
+            "observation_covariance_growth": 0.0,
+        }
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+    env.reset(seed=520115)
+    env.step_count = 4
+    env._belief_history = [
+        _BeliefSnapshot(
+            step=2,
+            positions=np.tile(np.array([10.0, 0.0, 0.0]), (4, 1)),
+            velocities=np.tile(np.array([2.0, 0.0, 0.0]), (4, 1)),
+            confidences=np.full(4, 0.9),
+            covariances=np.repeat(np.eye(3)[None, :, :], 4, axis=0),
+            timestamps=np.full(4, 2, dtype=np.int64),
+        )
+    ]
+    packet = _BeliefPacket(
+        delivery_step=4,
+        receiver=0,
+        source=1,
+        timestamp_step=2,
+        position=np.array([2.0, 0.0, 0.0]),
+        velocity=np.zeros(3),
+        confidence=0.5,
+        covariance=np.eye(3),
+        via_message=True,
+    )
+
+    assert env._deliver_belief_packet(packet)
+    # Equal prior and packet covariance gives a 0.5 gain at t=2, then the
+    # fused 1 m/s velocity is propagated for the two delayed steps.
+    np.testing.assert_allclose(env.target_belief_positions[0], np.array([6.2, 0.0, 0.0]))
+    np.testing.assert_allclose(env.target_belief_velocities[0], np.array([1.0, 0.0, 0.0]))
+    np.testing.assert_allclose(env.target_observation_covariance[0], 0.5 * np.eye(3))
+    assert env.target_observation_confidence[0] == pytest.approx(0.9)
+
+
+def test_zero_and_constant_velocity_belief_baselines_are_distinct() -> None:
+    packet = _BeliefPacket(
+        delivery_step=4,
+        receiver=0,
+        source=1,
+        timestamp_step=2,
+        position=np.array([2.0, 0.0, 0.0]),
+        velocity=np.array([3.0, 0.0, 0.0]),
+        confidence=0.5,
+        covariance=np.eye(3),
+        via_message=True,
+    )
+    positions: dict[str, np.ndarray] = {}
+    for mode in ("zero_velocity", "constant_velocity"):
+        config = load_config()
+        config["task"]["pursuit"].update(
+            {
+                "belief_update_mode": mode,
+                "observation_confidence_decay": 1.0,
+                "observation_covariance_growth": 0.0,
+            }
+        )
+        env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+        env.reset(seed=520116)
+        env.step_count = 4
+        assert env._deliver_belief_packet(packet)
+        positions[mode] = env.target_belief_positions[0].copy()
+        if mode == "zero_velocity":
+            np.testing.assert_allclose(env.target_belief_velocities[0], np.zeros(3))
+    np.testing.assert_allclose(positions["zero_velocity"], np.array([2.0, 0.0, 0.0]))
+    np.testing.assert_allclose(positions["constant_velocity"], np.array([2.6, 0.0, 0.0]))
+
+
+def test_time_aligned_belief_decays_velocity_only_after_an_aligned_packet_becomes_stale() -> None:
+    config = load_config()
+    config["task"]["pursuit"].update(
+        {
+            "belief_update_mode": "time_aligned",
+            "belief_stale_velocity_decay": 0.0,
+            "belief_velocity_decay_start_age_steps": 3,
+            "observation_delay_steps": 3,
+            "detection_dropout_probability": 0.0,
+            "observation_noise_std": 0.0,
+            "message_dropout_probability": 1.0 - 1e-6,
+            "communication_link_dropout_probability": 1.0 - 1e-6,
+        }
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+    env.reset(seed=520117)
+    packet = next(item for item in env._message_queue if item.receiver == 0 and not item.via_message)
+    env.detection_loss_burst_remaining[:] = 20
+    for _ in range(3):
+        observation, *_ = env.step(np.zeros((4, 3)))
+    aligned_position = packet.position + packet.velocity * (3 * env.dt)
+    np.testing.assert_allclose(observation["target_belief_positions"][0], aligned_position)
+    np.testing.assert_allclose(observation["target_belief_velocities"][0], packet.velocity)
+
+    observation, *_ = env.step(np.zeros((4, 3)))
+    np.testing.assert_allclose(observation["target_belief_positions"][0], aligned_position)
+    np.testing.assert_allclose(observation["target_belief_velocities"][0], np.zeros(3))
+
+
+def test_time_aligned_belief_observation_remains_truth_free_after_packet_delivery() -> None:
+    config = load_config()
+    config["task"]["pursuit"].update(
+        {
+            "belief_update_mode": "time_aligned",
+            "observation_delay_steps": 2,
+            "detection_dropout_probability": 0.0,
+            "message_dropout_probability": 1.0 - 1e-6,
+            "communication_link_dropout_probability": 1.0 - 1e-6,
+        }
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+    env.reset(seed=520118)
+    for _ in range(2):
+        observation, *_ = env.step(np.zeros((4, 3)))
+    published = {
+        key: np.asarray(observation[key]).copy()
+        for key in (
+            "target_belief_positions",
+            "target_belief_velocities",
+            "target_observation_timestamps",
+            "target_observation_covariance",
+        )
+    }
+    env.target_position += np.array([4.0, -3.0, 1.0])
+    env.target_velocity += np.array([-1.0, 0.5, 0.2])
+    repeated = env.observe()
+    for key, expected in published.items():
+        np.testing.assert_allclose(repeated[key], expected)
 
 
 def test_continuous_detection_loss_increases_age_and_covariance() -> None:
