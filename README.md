@@ -137,3 +137,9 @@ and the local CBF execution filter. The pilot uses one training seed and 90
 locked episodes per method, so it validates the online interface and ablation
 protocol but is not the final multi-seed claim. Recurrent-MAPPO remains a later
 Stage 3C task.
+
+The completed multi-seed Stage 3B evaluation uses three independent training
+seeds and 300 locked episodes per seed. Its aggregate result and statistical
+protocol are in `results/PREDICTION_POLICY_STAGE3_FORMAL_REPORT.md`. The GRU
+raw-action result has a small positive mean over no prediction, but its 95%
+training-seed interval overlaps zero; CBF produces the dominant safety gain.

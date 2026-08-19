@@ -103,9 +103,11 @@ Persistent Capture（可选附加指标）：
 
 阶段 3B：预测器接入捕获策略（进行中）
 
-[~] LearnedPredictionObserver 已接入统一环境接口，actor 继续保持 52 维输入。
+[x] LearnedPredictionObserver 已接入统一环境接口，actor 继续保持 52 维输入。
 [x] 完成无预测、constant-velocity 和 GRU 预测 MAPPO 的单种子 pilot。
 [x] 完成 raw action 与 CBF action 的策略级锁定评估和阶段报告。
+[x] 完成 3 个独立训练 seed 和每个 seed 300 个 locked-test 回合的正式统计。
+[x] 完成正式报告：results/PREDICTION_POLICY_STAGE3_FORMAL_REPORT.md。
 [ ] Recurrent-MAPPO 尚未完成，不能把阶段 3 标记为完成。
 
 当前最重要的科学结论：
@@ -134,6 +136,8 @@ Persistent Capture（可选附加指标）：
     results/PREDICTION_POLICY_STAGE3_PILOT_SUMMARY.json
 [x] 报告 prediction error、Safe Capture、Capture、Collision 和 Boundary Violation，
     不只报告训练奖励。
+[x] 正式多种子统计显示：GRU raw-action Safe Capture 相对无预测均值 +1.33 个百分点，
+    95% CI 为 +/- 2.48 个百分点，未达到预设 +5 个百分点门槛；CBF 是当前安全收益的主因。
 
 阶段 3C：记忆型协同策略（优先级 P1）
 
