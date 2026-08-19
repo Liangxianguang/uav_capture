@@ -10,6 +10,8 @@ results/*
 !results/HARD_BENCHMARK_STAGE1_PURE_CBF_SUMMARY.json
 !results/OBSERVATION_COMMUNICATION_STAGE2_REPORT.md
 !results/OBSERVATION_COMMUNICATION_STAGE2_SUMMARY.json
+!results/PREDICTION_STAGE3_BASELINE_REPORT.md
+!results/PREDICTION_STAGE3_BASELINE_SUMMARY.json
 
 # Local simulator archives and generated meshes.
 third_party/*.zip

@@ -8,6 +8,7 @@ import yaml
 
 from encirclement3d.pursuit_controllers import DynamicEncirclementController
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
+from scripts.generate_prediction_dataset import assemble_prediction_samples
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -273,3 +274,39 @@ def test_hard_benchmark_preserves_frozen_actor_observation_dimension() -> None:
         )
         observation = env.reset(seed=620001)
         assert env.policy_observations(observation).shape == (4, 44)
+
+
+def test_prediction_dataset_assembly_uses_history_and_future_labels_only() -> None:
+    policy = np.zeros((12, 4, 48), dtype=np.float32)
+    belief_relative = np.zeros((12, 4, 3), dtype=np.float32)
+    belief_velocity = np.zeros((12, 4, 3), dtype=np.float32)
+    confidence = np.ones((12, 4), dtype=np.float32)
+    covariance = np.ones((12, 4, 3), dtype=np.float32)
+    message_age = np.zeros((12, 4), dtype=np.int64)
+    target_positions = np.zeros((12, 3), dtype=np.float32)
+    target_positions[:, 0] = np.arange(12, dtype=np.float32)
+    defender_positions = np.zeros((12, 4, 3), dtype=np.float32)
+    episode = {
+        "policy": policy,
+        "belief_relative": belief_relative,
+        "belief_velocity": belief_velocity,
+        "confidence": confidence,
+        "covariance": covariance,
+        "message_age": message_age,
+        "target_positions": target_positions,
+        "defender_positions": defender_positions,
+        "seed": 123,
+    }
+    arrays = assemble_prediction_samples(
+        [episode],
+        history_length=4,
+        horizon_steps=[1, 3],
+        extent=10.0,
+        target_max_speed=3.6,
+        dt=0.1,
+    )
+    assert arrays["inputs"].shape == (6 * 4, 4, 48)
+    assert arrays["labels_relative"].shape == (6 * 4, 2, 3)
+    np.testing.assert_allclose(arrays["labels_relative"][0, 0, 0], 0.4)
+    np.testing.assert_allclose(arrays["labels_relative"][0, 1, 0], 0.6)
+    assert np.all(arrays["episode_seed"] == 123)

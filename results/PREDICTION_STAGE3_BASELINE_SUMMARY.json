@@ -1,0 +1,41 @@
+{
+  "stage": 3,
+  "artifact": "local_history_prediction_dataset_and_baselines",
+  "backend": "kinematic",
+  "controller_for_data_generation": "pure_cbf",
+  "history_length": 8,
+  "horizon_steps": [1, 3, 5, 10],
+  "horizon_seconds": [0.1, 0.3, 0.5, 1.0],
+  "seed_blocks": {
+    "train": 630001,
+    "validation": 631001,
+    "locked_test": 632001
+  },
+  "splits": {
+    "train": {"episodes": 100, "samples": 10168},
+    "validation": {"episodes": 50, "samples": 5204},
+    "locked_test": {"episodes": 50, "samples": 4304}
+  },
+  "locked_test_overall_mean_error_m": {
+    "zero_velocity": {"0.1": 0.8441315964, "0.3": 1.4263234980, "0.5": 2.0147634529, "1.0": 3.4471992314},
+    "constant_velocity": {"0.1": 0.6246588698, "0.3": 0.7698273695, "0.5": 0.9736720454, "1.0": 1.6725062473}
+  },
+  "constant_velocity_improvement_percent": {
+    "0.1": 25.9998237,
+    "0.3": 46.0271551,
+    "0.5": 51.6731334,
+    "1.0": 51.4821705
+  },
+  "scenario_index_mapping": {
+    "0": "nominal_partial_observation",
+    "1": "delayed_measurements",
+    "2": "burst_occlusion",
+    "3": "communication_loss",
+    "4": "joint_uncertainty_high_mobility"
+  },
+  "input_boundary": {
+    "uses_hidden_target_truth": false,
+    "truth_used_only_for_offline_labels": true,
+    "policy_input_shape": [8, 52]
+  }
+}

@@ -120,3 +120,9 @@ Pursuit + CBF result is summarized in
 baseline, not the final learned method. The next implementation target is a
 predictor trained only from these local observation histories, followed by
 Recurrent-MAPPO ablations.
+
+The first Stage 3 artifact is the local-history prediction pipeline:
+`PREDICTION_DATASET_PROTOCOL.md`,
+`scripts/generate_prediction_dataset.py`, and
+`scripts/evaluate_prediction_baselines.py`. Its locked-test baseline is
+summarized in `results/PREDICTION_STAGE3_BASELINE_REPORT.md`.
