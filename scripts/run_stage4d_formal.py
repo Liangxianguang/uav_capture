@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-steps", type=int, default=65_536)
     parser.add_argument("--sequence-length", type=int, default=32)
     parser.add_argument("--episodes-per-condition", type=int, default=100)
-    parser.add_argument("--test-seed", type=int, default=646001)
+    parser.add_argument("--test-seed", type=int, default=642001)
     parser.add_argument("--device", choices=("cuda", "cpu", "auto"), default="cuda")
     parser.add_argument("--evaluation-device", choices=("cuda", "cpu", "auto"), default="cpu")
     parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "results" / "stage4d_formal")

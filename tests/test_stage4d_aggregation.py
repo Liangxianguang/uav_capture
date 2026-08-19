@@ -13,7 +13,7 @@ def test_stage4d_statistics_and_paired_percentage_points() -> None:
 
 
 def test_stage4d_uses_same_four_locked_conditions() -> None:
-    from scripts.aggregate_stage4d_formal import CONDITIONS, METHOD
+    from scripts.aggregate_stage4d_formal import CONDITIONS, F2_METHOD
 
-    assert METHOD == "f2_uncertainty_features"
+    assert F2_METHOD == "f2_uncertainty_features"
     assert len(CONDITIONS) == 4
