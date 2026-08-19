@@ -126,8 +126,8 @@ Safe Capture：
 
 [x] 使用仿真历史观测生成预测器数据集；按场景 seed block 划分 train/validation/locked_test，禁止轨迹泄漏。
 [x] 保留 constant-velocity predictor 作为最弱基线，并与 zero-velocity 基线比较。
-[ ] 训练或接入学习式预测器；输入只能使用局部历史观测及其置信度，不得使用隐藏目标真值。
-[ ] 输出未来位置/速度或轨迹分布，同时输出预测不确定度。
+[x] 训练独立 GRU 学习式预测器；输入只使用局部历史观测及其置信度，不使用隐藏目标真值。
+[x] 输出多个未来时域的目标位置分布均值和不确定度。
 [ ] 统一预测接口，兼容 MAPPO、Recurrent-MAPPO、CBF 和评估脚本。
 
 2. 记忆型协同策略
@@ -158,6 +158,7 @@ Safe Capture：
 [x] PREDICTION_DATASET_PROTOCOL.md
 [x] 预测器数据生成脚本、train/validation/locked_test 数据块和常速度基线评估脚本
 [x] results/PREDICTION_STAGE3_BASELINE_REPORT.md
+[x] results/PREDICTION_GRU_STAGE3_REPORT.md 与 GPU 训练/TensorBoard 记录
 [ ] PREDICTION_RECURRENT_MAPPO_METHOD.md
 [ ] 学习式预测器训练曲线、消融表、失败案例和三维轨迹可视化
 
@@ -237,7 +238,7 @@ Safe Capture：
 
 1. 冻结阶段 1/2 困难测试集和种子，不再用测试集调参。
 2. 生成仅由阶段 2 局部历史观测构成的预测器数据集，并先完成 constant-velocity 基线。
-3. 训练学习式预测器，离线检查预测误差和不确定度。
+3. 将 GRU 预测均值和不确定度接入统一 belief-state 接口。
 4. 实现 GRU/LSTM 版 Recurrent-MAPPO，完成“无预测/常速度/学习式预测”的消融。
 5. 最后再加入动作延迟、控制噪声和轻量动力学随机化。
 

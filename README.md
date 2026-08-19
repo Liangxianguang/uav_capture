@@ -126,3 +126,6 @@ The first Stage 3 artifact is the local-history prediction pipeline:
 `scripts/generate_prediction_dataset.py`, and
 `scripts/evaluate_prediction_baselines.py`. Its locked-test baseline is
 summarized in `results/PREDICTION_STAGE3_BASELINE_REPORT.md`.
+The standalone GRU predictor and its locked-test result are documented in
+`results/PREDICTION_GRU_STAGE3_REPORT.md`; this is still an offline prediction
+result and has not yet been counted as a capture-rate improvement.

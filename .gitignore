@@ -12,6 +12,8 @@ results/*
 !results/OBSERVATION_COMMUNICATION_STAGE2_SUMMARY.json
 !results/PREDICTION_STAGE3_BASELINE_REPORT.md
 !results/PREDICTION_STAGE3_BASELINE_SUMMARY.json
+!results/PREDICTION_GRU_STAGE3_REPORT.md
+!results/PREDICTION_GRU_STAGE3_SUMMARY.json
 
 # Local simulator archives and generated meshes.
 third_party/*.zip
