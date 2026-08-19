@@ -102,11 +102,11 @@ Equivalent `.bat` launchers are provided for Command Prompt.
 ## Scope of the next phase
 
 The next research stage is defined in
-`NEXT_PHASE_CAPTURE_ROBUSTNESS_TODOLIST.txt`. It upgrades the frozen baseline
-in this order: harder target maneuvers, unseen obstacle layouts, inertial and
-actuator dynamics, learned perception/tracking, and recurrent belief-aware
-multi-agent control. Kinematic, PyBullet, and future hardware results must be
-reported as separate evaluation domains.
+`NEXT_PHASE_CAPTURE_ROBUSTNESS_TODOLIST.txt`. Its main evidence remains
+simulation-only: first finish the multi-seed recurrent-policy ablation, then
+stress frozen policies under observation/communication uncertainty and a
+lightweight action-execution model. PyBullet, SITL, and hardware are optional
+future validation domains, not prerequisites for the theoretical result.
 
 ## Stage 2 observation/communication baseline
 
@@ -149,4 +149,9 @@ GRU memory, episode reset masks, and ordered recurrent PPO replay. It is
 initialized as an MLP behavior prior plus a zero-initialized GRU residual. The
 implementation pilot is documented in `PREDICTION_RECURRENT_MAPPO_METHOD.md`
 and `results/RECURRENT_MAPPO_STAGE3C_PILOT_REPORT.md`; final multi-seed
-recurrent ablations remain pending.
+recurrent ablations are run by `scripts/run_stage3c_formal.py` and aggregated
+by `scripts/aggregate_stage3c_formal.py`. The completed three-seed report is
+`results/RECURRENT_POLICY_STAGE3C_FORMAL_REPORT.md`, with machine-readable
+statistics in `results/RECURRENT_POLICY_STAGE3C_FORMAL_SUMMARY.json`. Its raw
+GRU-prediction gain is a small, non-significant direction; CBF remains an
+independent safety layer rather than evidence for a prediction gain.

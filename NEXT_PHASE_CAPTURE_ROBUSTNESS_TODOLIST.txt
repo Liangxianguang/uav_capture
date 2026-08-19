@@ -1,34 +1,36 @@
-下一阶段实验计划书（精炼修订版）
+下一阶段实验计划书（理论研究可复现版）
 主题：部分可观测障碍环境下多无人机协同三维捕获
 版本：2026-08-19
 
 ======================================================================
-一、研究定位
+一、研究目标与边界
 ======================================================================
 
-1. 核心问题
+1. 研究目标
 
-在三维障碍环境中，4 架防守无人机仅依据局部观测、有限历史信息和受限
-队友通信，能否稳定追踪并捕获 1 个高机动逃逸目标？重点考察目标遮挡、
-漏检、观测延迟、通信丢包和执行误差存在时，预测与记忆机制是否能够提高
-安全捕获率。
+在三维障碍环境中，4 架防守无人机仅利用本机局部观测、有限历史信息和
+受限队友通信，协同追踪并捕获 1 个高机动逃逸目标。研究重点不是复现某个
+特定实飞系统，而是回答下列可检验的理论问题：
 
-2. 推荐方法主线
+- 遮挡、漏检、观测延迟和通信不稳定时，轨迹预测能否提高闭环捕获能力？
+- 历史记忆能否减轻陈旧观测和连续失联造成的决策退化？
+- 在动作延迟、跟踪误差和参数扰动下，策略能否仍保持稳定、安全的捕获？
+- 预测、循环记忆和 CBF 安全层各自贡献什么，又在哪些条件下失效？
 
-局部历史轨迹预测
-    + belief state（预测均值、不确定度、置信度、观测年龄）
-    + MAPPO / Recurrent-MAPPO
-    + 局部 CBF 安全过滤器
+2. 论文可以成立的最小结论
+
+在预先锁定的部分可观测三维障碍测试集上，经过多训练种子重复和统计检验，
+给出一种能够稳定完成“进入捕获半径”的多无人机协同策略，并清楚分离预测、
+记忆与安全过滤对 Safe Capture、碰撞和越界的影响。
 
 3. 当前研究边界
 
-[ ] 当前论文结论只基于可控、可复现的三维仿真。
-[ ] 训练数据可以全部由仿真器生成；没有真实飞行数据不是当前研究阻塞点。
-[ ] 参数化噪声、遮挡和延迟用于模拟感知不确定性，但不等同于真实相机、
-    RGB-D、LiDAR 或完整视觉跟踪系统。
-[ ] 阶段 4 先采用轻量执行误差和高层动力学随机化，不把完整飞控模型、
-    SITL、PyBullet 或实飞作为主线前置条件。
-[ ] 仿真捕获半径不等同于实体接触、网捕或真实飞行捕获。
+[x] 本研究的主结论基于可控、可复现的三维仿真；训练数据可全部由仿真器生成。
+[x] 没有实飞平台、真实飞控日志或真实视觉数据，不构成当前理论研究的阻塞。
+[x] 参数化噪声、遮挡、延迟和控制误差用于研究鲁棒性，不等同于真实相机、
+    RGB-D、LiDAR 或完整视觉闭环系统。
+[x] 仿真中的捕获半径只表示拦截/接触条件，不外推为网捕、实体抓取或实飞捕获。
+[ ] PyBullet、SITL 和实飞属于后续附加验证；它们不能取代本计划中的统计仿真结论。
 
 ======================================================================
 二、固定任务定义与成功判据
@@ -37,12 +39,12 @@
 1. 固定任务
 
 - 防守无人机：4 架；逃逸目标：1 个。
-- 世界范围：20 m × 20 m × 10 m。
+- 世界范围：20 m x 20 m x 10 m。
 - 障碍物：圆柱、方盒、墙体、窄通道和混合布局。
 - 目标模式：直线逃逸、随机转向、S 曲线、持续转向、边界诱导和高机动组合。
 - 捕获半径：r_capture = 0.80 m。
-- 执行信息：每架无人机只使用自己的局部观测、历史 belief 和可获得的队友消息。
-- centralized critic 只在训练阶段使用全局状态，执行阶段禁止读取隐藏真值。
+- 执行阶段：每架无人机只能使用自身局部观测、历史 belief 和可获得的队友消息。
+- centralized critic 仅在训练阶段读取全局状态；执行阶段禁止读取目标隐藏真值。
 
 2. 事件判据
 
@@ -50,196 +52,183 @@ Capture：
     min_i ||p_i - p_target|| <= r_capture。
 
 Safe Capture：
-    首次满足 Capture 前，没有发生无人机-障碍物碰撞、无人机-无人机碰撞
-    或边界越界。
+    在首次 Capture 之前，未发生无人机-障碍物碰撞、无人机-无人机碰撞或边界越界。
 
-Persistent Capture（可选附加指标）：
+Persistent Capture（附加指标）：
     至少 1 架无人机连续 N 个时间步保持在捕获半径内。
 
-说明：视频和截图只用于展示；最终结论必须来自事件日志和统计结果。
+说明：视频和截图只用于定性展示；最终结论以事件日志和 locked-test 统计结果为准。
 
 3. 必报指标
 
-- Safe Capture Rate
-- Capture Rate
-- Collision Rate
-- Boundary Violation Rate
-- Time-to-Capture
-- Minimum Clearance
-- Target Visibility / Observation Age
-- Communication Age / Packet Loss
-- Prediction Error
-- CBF Correction Magnitude
+- Safe Capture Rate、Capture Rate、Collision Rate、Boundary Violation Rate。
+- Time-to-Capture、Minimum Clearance。
+- Target Visibility / Observation Age、Communication Age / Packet Loss。
+- Prediction Error、CBF Correction Magnitude。
 
 ======================================================================
-三、已完成工作与当前状态
+三、已完成基础与当前证据
 ======================================================================
 
-阶段 0/1：任务、基线和困难场景（已完成）
+阶段 0/1：任务、基线与困难场景（已完成）
 
 [x] 冻结三维捕获半径任务、场景生成器、Safe Capture 判据和指标脚本。
-[x] 完成 MAPPO/规则控制基线、训练种子和 locked_test 协议。
-[x] 增加高机动目标与多类障碍物，并形成困难测试场景。
+[x] 完成规则控制与 MAPPO 基线、训练种子和 locked-test 协议。
+[x] 加入高机动目标、多类障碍和困难测试场景。
 [x] 将边界越界纳入 Safe Capture 的安全失败条件。
 
 阶段 2：观测与通信不确定性（已完成）
 
 [x] 统一 position、velocity、confidence、timestamp、covariance、visible 字段。
-[x] 支持测量噪声、漏检、连续失联、观测延迟、通信延迟、消息丢包和链路丢包。
-[x] 记录 observation age、message age、confidence 和 covariance。
-[x] 完成 train / validation / locked_test seed block 和真值泄漏测试。
-[x] 完成阶段报告：
-    results/OBSERVATION_COMMUNICATION_STAGE2_REPORT.md
+[x] 支持测量噪声、漏检、连续失联、观测/通信延迟和消息/链路丢包。
+[x] 完成 train、validation、locked_test 的独立 seed block 与真值泄漏测试。
+[x] 阶段报告：results/OBSERVATION_COMMUNICATION_STAGE2_REPORT.md。
 
-阶段 3A：离线轨迹预测器（已完成）
+阶段 3A/3B：轨迹预测与非循环策略闭环（已完成）
 
-[x] 使用局部历史观测生成无轨迹泄漏的数据集。
-[x] 完成 zero-velocity、constant-velocity 和 GRU 预测器比较。
-[x] GRU 输出多个未来时域的目标位置均值和不确定度。
-[x] 完成 CUDA、TensorBoard、checkpoint 和 locked_test 评估。
-[x] 完成阶段报告：
-    results/PREDICTION_STAGE3_BASELINE_REPORT.md
-    results/PREDICTION_GRU_STAGE3_REPORT.md
+[x] 完成 zero-velocity、constant-velocity、GRU 多时域预测器及不确定度输出。
+[x] 完成预测器接入策略、CUDA、TensorBoard、checkpoint 与 locked-test 评估。
+[x] 以 3 个独立训练 seed 和每 seed 300 个 locked-test 回合完成 A/B/C 正式比较。
+[x] 正式报告：results/PREDICTION_POLICY_STAGE3_FORMAL_REPORT.md。
+[x] GRU 相对无预测的 raw-action Safe Capture 平均变化为 +1.33 个百分点，
+    95% CI 为 +/- 2.48 个百分点；这是正向趋势，不足以声明稳定显著提升。
+[x] CBF 将三种非循环策略的该测试协议下 Safe Capture 提升至 100%，
+    表明当前安全收益的主要来源是 CBF，而非预测器。
 
-阶段 3B：预测器接入捕获策略（进行中）
+阶段 3C：循环策略（正式多种子评估已完成）
 
-[x] LearnedPredictionObserver 已接入统一环境接口，actor 继续保持 52 维输入。
-[x] 完成无预测、constant-velocity 和 GRU 预测 MAPPO 的单种子 pilot。
-[x] 完成 raw action 与 CBF action 的策略级锁定评估和阶段报告。
-[x] 完成 3 个独立训练 seed 和每个 seed 300 个 locked-test 回合的正式统计。
-[x] 完成正式报告：results/PREDICTION_POLICY_STAGE3_FORMAL_REPORT.md。
-[~] Recurrent-MAPPO 已完成序列 PPO、hidden reset 和单 seed implementation pilot；
-    尚未完成正式多种子消融，不能把阶段 3 标记为完成。
-
-当前最重要的科学结论：
-
-- GRU 在离线预测误差上改善了部分中长期和高不确定性场景；
-- 预测误差改善尚不等于 Safe Capture Rate 改善；
-- 是否真正提升围捕能力，必须以策略闭环实验为准。
+[x] 实现参数共享 Recurrent-MAPPO：MLP prior + GRU 时序残差 actor。
+[x] 实现 sequence PPO、hidden-state reset、reset mask 和序列一致性测试。
+[x] 完成单 seed raw/CBF implementation pilot：
+    results/RECURRENT_MAPPO_STAGE3C_PILOT_REPORT.md。
+[x] 按 3 个独立训练 seed 完成 D/E 的正式 locked-test 消融；每种方法每种执行方式
+    共 900 个 locked-test 回合。
+[x] 生成正式报告与结构化汇总：
+    results/RECURRENT_POLICY_STAGE3C_FORMAL_REPORT.md
+    results/RECURRENT_POLICY_STAGE3C_FORMAL_SUMMARY.json
+[x] 完成 raw/CBF、场景分桶、训练 seed 均值/标准差/95% Student-t CI 和配对差值统计。
+[x] 正式结果：D raw Safe Capture = 93.67% +/- 5.04%，E raw = 94.33% +/- 4.14%；
+    E-D = +0.67 +/- 6.25 个百分点，2/3 seed 为正，95% CI 跨 0，不能声称循环预测
+    已稳定显著提高 Safe Capture。
+[x] D/E 的 CBF 评估均为 100% Safe Capture、0% Collision；安全收益仍主要来自独立的 CBF 层。
 
 ======================================================================
-四、下一步执行计划
+四、主线实验计划
 ======================================================================
 
-阶段 3B：先完成预测增强的非循环策略闭环（优先级 P0）
+P0：完成循环策略的正式消融（已完成）
 
-目标：确认预测特征本身是否能改善捕获，不把“预测”和“循环策略记忆”同时
-引入而无法区分贡献。
+目标：判断在相同训练预算、相同任务和相同 locked-test 条件下，循环记忆及其
+与预测器的组合是否比非循环基线更稳健。
 
-[x] 重新运行完整测试，确认 LearnedPredictionObserver、配置和训练脚本稳定。
-[x] 在同一训练 seed、同一环境和同一训练预算下运行：
-    A. MAPPO，无预测特征；
-    B. MAPPO + constant-velocity prediction；
-    C. MAPPO + learned GRU prediction。
-[x] 对每组记录 raw action 和 CBF action 两套结果。
-[x] 生成：
-    results/PREDICTION_POLICY_STAGE3_PILOT_REPORT.md
-    results/PREDICTION_POLICY_STAGE3_PILOT_SUMMARY.json
-[x] 报告 prediction error、Safe Capture、Capture、Collision 和 Boundary Violation，
-    不只报告训练奖励。
-[x] 正式多种子统计显示：GRU raw-action Safe Capture 相对无预测均值 +1.33 个百分点，
-    95% CI 为 +/- 2.48 个百分点，未达到预设 +5 个百分点门槛；CBF 是当前安全收益的主因。
-
-阶段 3C：记忆型协同策略（优先级 P1）
-
-目标：处理连续遮挡、陈旧观测和通信中断造成的时序依赖。
-
-[x] 将 MLP actor 扩展为带 GRU 时序残差的 actor，使用历史 belief、预测结果和消息年龄。
-[x] 实现参数共享的 Recurrent-MAPPO；critic 仍只在训练阶段读取 centralized state。
-[ ] 至少比较：
+[x] 完成下列两种方法各 3 个独立训练 seed、每 seed 300 个 locked-test 回合：
     D. Recurrent-MAPPO，无学习式预测；
     E. Recurrent-MAPPO + learned GRU prediction。
-[ ] 采用课程训练：开阔环境 -> 障碍环境 -> 遮挡/漏检 -> 通信受限 -> 高机动目标。
-[x] 保存 episode hidden state、reset mask 和有效序列长度，保证循环训练可复现。
-[x] 完成单 seed、raw/CBF implementation pilot：results/RECURRENT_MAPPO_STAGE3C_PILOT_REPORT.md。
+[x] 对 D/E 分别记录 raw action 与 CBF action，保留完整 evaluation.json 和轨迹。
+[x] 以 training seed 为统计单位，报告均值、样本标准差、95% Student-t CI 和配对差值。
+[x] 将 D/E 与 A/C 的结论谨慎比较；循环策略与非循环策略不是同一随机试验，
+    不把一次小样本差异表述为因果结论。
+[x] 生成正式报告、聚合 JSON、失败案例和可复现运行命令。
 
-阶段 4：轻量执行误差与动力学鲁棒性（优先级 P2）
+P1：部分可观测鲁棒性压力测试（核心理论扩展）
 
-目标：回答控制延迟、动作误差和参数扰动是否会破坏阶段 3 的结论；不要求
-真实飞行数据。
+目标：不新增真实数据依赖，只改变可控的观测与通信条件，定位方法在哪些
+难度下获益、在哪些难度下失效。
 
-[ ] 增加动作延迟、速度/加速度限制、控制噪声和速度跟踪误差。
-[ ] 随机化最大速度、阻力和等效质量等高层参数，可选加入恒风/阵风。
-[ ] 记录 desired action、executed action、动作误差和 CBF 修正幅度。
-[ ] 在未见过的扰动参数组合上评估冻结策略。
-[ ] 将 kinematic 结果与轻量执行误差结果分开报告。
+[ ] 基于冻结的 A、C、D、E 策略，建立预注册难度网格：
+    可见性 {正常、短时遮挡、连续遮挡}；
+    漏检率 {低、中、高}；
+    观测延迟 {低、中、高}；
+    通信 {可靠、延迟、丢包}。
+[ ] 每个难度桶使用固定、互不重叠的 locked-test seed block；先完成代表性组合，
+    再扩展为全网格，避免组合数量失控。
+[ ] 除成功率外，按 Target Visibility、Observation Age、Message Age 分桶报告结果。
+[ ] 重点分析遮挡后首次重获观测、连续失联和预测不确定度升高时的失败轨迹。
+[ ] 若预测未提高最终 Safe Capture，仍报告其对恢复时间、最小间距或失败模式的影响；
+    不事后修改主要成功指标。
 
-可选附加验证：
+P2：轻量执行误差与动力学鲁棒性（仍然完全可在本地完成）
 
-[ ] 阶段 3 稳定后再进行 PyBullet 零样本迁移；
-[ ] PyBullet 结果单独标注为动力学附加验证，不等同于 SITL 或实飞；
-[ ] 若迁移工作阻塞主线一个实验周期以上，转为未来工作。
+目标：验证阶段 3 的结论是否依赖“动作瞬时、精确执行”的理想运动学假设，
+而不试图复现完整飞控或真实空气动力学。
+
+[ ] 增加动作延迟、速度/加速度限制、控制噪声和一阶速度跟踪误差。
+[ ] 在训练时对最大速度、加速度、阻尼和等效质量进行范围随机化；
+    可选加入恒风/阵风的简化扰动。
+[ ] 在未见过的扰动组合上评估冻结策略，并与无扰动运动学结果单独并列报告。
+[ ] 记录 desired action、executed action、动作误差、最小间距和 CBF 修正幅度。
+[ ] 先做 1 个最小扰动模型和 1 个强扰动测试域；只有结论仍清晰时才继续增加参数。
+
+P3：可选 sim-to-sim 附加验证（不阻塞主线）
+
+[ ] 在 P0-P2 得到稳定结论后，选择 PyBullet 或简单四旋翼动力学环境做零样本迁移。
+[ ] 该部分仅检验结论对另一仿真器的敏感性，单独标注为 sim-to-sim 验证。
+[ ] 若环境搭建、控制接口或迁移调试超过一个实验周期，停止投入并作为未来工作。
+[ ] SITL、实飞、真实视觉检测跟踪仅在有平台、传感器和数据后再另立子课题。
 
 ======================================================================
-五、最小消融矩阵
+五、最小消融矩阵与停止规则
 ======================================================================
 
-第一轮必须完成：
-
-| 编号 | 策略 | 预测 | 记忆 | CBF |
+| 编号 | 策略 | 学习式预测 | 循环记忆 | CBF |
 | A | MAPPO | 无 | 无 | 关/开 |
 | B | MAPPO | 常速度 | 无 | 关/开 |
 | C | MAPPO | GRU | 无 | 关/开 |
-
-阶段 3C 完成后追加：
-
-| 编号 | 策略 | 预测 | 记忆 | CBF |
 | D | Recurrent-MAPPO | 无 | GRU actor | 关/开 |
 | E | Recurrent-MAPPO | GRU | GRU actor | 关/开 |
 
-所有对比必须使用相同环境、训练步数、奖励、评估协议和测试 seed block。
+所有对比使用相同环境版本、奖励、训练步数、评估协议和测试 seed block。
+先完成 D/E 的正式统计，再冻结 A/C/D/E 进入 P1；不要在主方法尚未稳定时并行
+叠加更多网络、视觉输入或完整动力学。
+
+继续扩展一个模块的参考条件：
+
+- 核心方法在预先锁定的困难域上相对对应基线取得有解释力的改进，或揭示了
+  清晰、可重复的失败边界；
+- 至少 3 个训练 seed 中 2 个呈同方向变化；
+- 捕获率改进不以明显更高的 Collision Rate 或 Boundary Violation Rate 为代价；
+- 结论可由事件日志、配置、checkpoint 和固定 seed 重现。
+
+若不满足上述条件，优先分析奖励、课程、观测编码、预测不确定度和失败轨迹，
+不通过增加复杂模块或转向实飞来掩盖不确定结论。
 
 ======================================================================
-六、数据与统计协议
+六、数据、统计与可复现协议
 ======================================================================
 
-[ ] 预测器和策略训练数据全部由仿真器生成；输入不得使用隐藏目标真值。
-[ ] train、validation、locked_test 使用互不重叠的 seed block。
-[ ] 模型选择只能使用 validation；locked_test 只在模型冻结后使用。
-[ ] 每个主方法至少使用 3 个独立训练种子。
-[ ] 每个主要测试域至少运行 300 个 locked_test 回合。
-[ ] 报告均值、标准差和 95% 置信区间；不能只展示最佳种子。
-[ ] 按目标机动、障碍布局、可见性、通信延迟和执行扰动分桶。
-[ ] 保存 effective YAML、源码 hash、checkpoint hash、依赖版本、GPU 信息、
-    训练种子和测试种子。
-
-建议的阶段 3 参考门槛：
-
-- 核心方法在预先锁定的困难测试域上，相对冻结 MAPPO 的 Safe Capture Rate
-  平均提升至少 5 个百分点；
-- 至少 3 个训练种子中的 2 个取得提升；
-- Collision Rate 和 Boundary Violation Rate 不得因捕获率提升而明显恶化。
-
-该门槛是继续扩展模块的决策参考，不是为了事后挑选有利结果。若未达到，
-先分析预测误差、奖励、课程、动作执行和失败轨迹，不继续堆叠视觉或完整动力学。
+[x] 训练数据由仿真器生成；策略输入不得使用隐藏目标真值。
+[x] train、validation、locked_test 使用互不重叠的 seed block；模型选择仅看 validation。
+[x] 每个主方法至少 3 个独立训练 seed；每个主要测试域至少 300 个 locked-test 回合。
+[x] 以 training seed 为重复单位，报告均值、标准差、95% CI；不得只展示最佳 seed。
+[x] 同时报告 raw action 与 CBF action，以分离策略能力和安全层贡献。
+[x] 保存 effective YAML、源码 hash、checkpoint hash、依赖版本、GPU 信息、训练/测试 seed。
+[x] TensorBoard 保存训练曲线；报告中记录运行命令和结果文件位置。
 
 ======================================================================
 七、最终成果清单
 ======================================================================
 
-[ ] 预测增强 MAPPO / Recurrent-MAPPO 的训练脚本、配置和 checkpoint。
-[ ] prediction-policy 阶段报告和完整消融表。
-[ ] 典型成功、遮挡失败、边界失败和碰撞失败的三维轨迹与视频/截图。
-[ ] Safe Capture、Capture、Collision、Boundary Violation 和 Time-to-Capture
-    的统计图表。
-[ ] 运动学环境与轻量执行误差环境的独立结果。
-[ ] 一份明确的论文结论：预测、记忆和 CBF 各自贡献是什么，在哪些条件下失效。
+[ ] A-E 方法的训练脚本、YAML、checkpoint 和可复现评估命令。
+[x] 阶段 3C 正式多 seed 报告与预测/记忆/CBF 消融表。
+[ ] P1 部分可观测压力测试报告，包括收益区间和明确失败边界。
+[ ] P2 轻量执行误差结果，与理想运动学结果分开呈现。
+[ ] 典型成功、遮挡失败、通信失败、边界失败和碰撞失败的三维轨迹与视频/截图。
+[ ] 一份严格限定结论的论文实验章节：结果只说明三维仿真中的协同捕获半径围捕，
+    不声称已完成实体捕获、真实感知闭环或实飞验证。
 
 ======================================================================
-八、当前立即执行顺序
+八、当前执行顺序
 ======================================================================
 
-1. 完成当前无预测 MAPPO pilot，并保存 evaluation.json。
-2. 使用同一 seed 和预算运行 GRU 预测 MAPPO pilot。
-3. 重新运行完整测试，核对 52 维观测、checkpoint 加载和 TensorBoard 记录。
-4. 生成阶段 3B pilot 报告，先判断预测特征是否带来策略级收益。
-5. 若结果稳定，再实现 Recurrent-MAPPO；若不稳定，先定位失败原因。
-6. 阶段 3 完成后，再加入动作延迟、控制噪声和轻量动力学随机化。
-7. 最后冻结模型，进行多种子、锁定测试和论文图表整理。
+1. [x] 完成 D/E 三种子 Recurrent-MAPPO 训练和 locked-test 评估。
+2. [x] 聚合阶段 3C 结果，检查置信区间、配对差值、raw/CBF 差异和失败轨迹。
+3. [x] 冻结 A/C/D/E 及其 YAML、checkpoint、测试 seed；生成阶段 3 正式报告。
+4. [ ] 只选 3-6 个代表性 P1 困难组合做首轮压力测试，确认值得扩展后再跑全网格。
+5. 实现最小 P2 执行误差模型，并在未见扰动域评估冻结策略。
+6. 整理图表、局限性与可复现材料；P3 仅在时间和结果允许时开展。
 
 本计划的完成标志：
 
-在固定的部分可观测三维障碍测试集上，至少用 3 个训练种子复现预测增强的
-协同策略，并能够分别说明 MAPPO、轨迹预测、循环记忆和 CBF 对 Safe Capture、
-Collision 和 Boundary Violation 的独立影响。最终结果仍明确限定为三维仿真中的
-捕获半径围捕，不外推为实体捕获或实飞验证。
+在固定的部分可观测三维障碍测试集上，以多训练 seed 的统计结果说明协同策略
+在何种条件下能够安全进入捕获半径，并分别量化预测、循环记忆和 CBF 的贡献。
+没有实飞数据不会妨碍该理论结论；缺失的是更高保真验证，而不是当前研究的核心证据。

@@ -1,0 +1,2042 @@
+{
+  "stage": "3C_recurrent_policy_formal_multiseed",
+  "statistical_unit": "training_seed",
+  "confidence_interval": "two-sided 95 percent Student-t interval across independent training seeds",
+  "protocol": {
+    "stage": "3C_recurrent_formal_multiseed",
+    "seeds": [
+      521001,
+      521002,
+      521003
+    ],
+    "methods": [
+      "recurrent_no_prediction",
+      "recurrent_gru_prediction"
+    ],
+    "train_steps": 65536,
+    "test_seed": 632001,
+    "episodes_per_scenario": 100,
+    "sequence_length": 32,
+    "prediction_checkpoint": "F:\\uav_capture\\three_d_encirclement\\results\\target_predictor_gru_v1\\checkpoint.pt"
+  },
+  "source_summary_sha256": {
+    "results/stage3c_formal/recurrent_no_prediction/seed521001/evaluation_raw/summary.json": "67ab9b39390f2de989cca1e4d32a723e095741e25112852205ead742348902c8",
+    "results/stage3c_formal/recurrent_no_prediction/seed521002/evaluation_raw/summary.json": "220f5c6a8b31a49922203ad0445f6f2d65d84db81fef6e2baa5cbf3ec9f93c4b",
+    "results/stage3c_formal/recurrent_no_prediction/seed521003/evaluation_raw/summary.json": "67f7ae72c2b974b63b48e331354e724dcb168862649e373f72cca59e79ef67fd",
+    "results/stage3c_formal/recurrent_no_prediction/seed521001/evaluation_cbf/summary.json": "8e916fa967e748538efd12415485eeda070f24e10e5f1cfaf3ea8397a157a742",
+    "results/stage3c_formal/recurrent_no_prediction/seed521002/evaluation_cbf/summary.json": "dd7475c6547e4fd7ae4a79168de920fd1f488602b45c3f9e77683ef9837062c2",
+    "results/stage3c_formal/recurrent_no_prediction/seed521003/evaluation_cbf/summary.json": "98f4c34c3f33e059445e1d1ad5658859411b055ee26b4e8047f683700db72812",
+    "results/stage3c_formal/recurrent_gru_prediction/seed521001/evaluation_raw/summary.json": "33dbbae333b0e2344268bae7085de47fbdfe749fb4d83756af814c5fa5fcf936",
+    "results/stage3c_formal/recurrent_gru_prediction/seed521002/evaluation_raw/summary.json": "23c8b6c7d19b7e6b9591d0f723dec830652e6b348eae79c39865a14db1d3c0b4",
+    "results/stage3c_formal/recurrent_gru_prediction/seed521003/evaluation_raw/summary.json": "264314f634a83c24434f06248192c41a945a1af375ce1bdcff2c0606b72b1e74",
+    "results/stage3c_formal/recurrent_gru_prediction/seed521001/evaluation_cbf/summary.json": "a6c80dcda2648d8ec58e8a835c40b195411806435036e13efd43524cf7ae718a",
+    "results/stage3c_formal/recurrent_gru_prediction/seed521002/evaluation_cbf/summary.json": "cd040d0922c4893f6d072eb3a2627a6f892a4b55221da5d9f30f652f19e2ef6e",
+    "results/stage3c_formal/recurrent_gru_prediction/seed521003/evaluation_cbf/summary.json": "540ce8abcb8c15e7679fe6e7686a2708c092d5fcd271afe27245201d9b48359e"
+  },
+  "results": {
+    "recurrent_no_prediction": {
+      "raw": {
+        "clutter": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9433333333333334,
+              "sample_std": 0.015275252316519432,
+              "ci95_half_width": 0.03794583033597226,
+              "minimum": 0.93,
+              "maximum": 0.96,
+              "values": [
+                0.93,
+                0.96,
+                0.94
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9700000000000001,
+              "sample_std": 1.3597399555105182e-16,
+              "ci95_half_width": 3.377781301657817e-16,
+              "minimum": 0.97,
+              "maximum": 0.97,
+              "values": [
+                0.97,
+                0.97,
+                0.97
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.05666666666666667,
+              "sample_std": 0.015275252316519468,
+              "ci95_half_width": 0.03794583033597235,
+              "minimum": 0.04,
+              "maximum": 0.07,
+              "values": [
+                0.07,
+                0.04,
+                0.06
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.006666666666666667,
+              "sample_std": 0.005773502691896258,
+              "ci95_half_width": 0.014342175765833336,
+              "minimum": 0.0,
+              "maximum": 0.01,
+              "values": [
+                0.01,
+                0.01,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.375580530770991,
+              "sample_std": 0.02977153514687055,
+              "ci95_half_width": 0.07395659319505078,
+              "minimum": 1.3458333333333334,
+              "maximum": 1.405376344086022,
+              "values": [
+                1.405376344086022,
+                1.3458333333333334,
+                1.3755319148936171
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.5200431904108451,
+              "sample_std": 0.039917331259385444,
+              "ci95_half_width": 0.09916014793388209,
+              "minimum": 0.48206754706471566,
+              "maximum": 0.5616535941471313,
+              "values": [
+                0.5164084300206884,
+                0.5616535941471313,
+                0.48206754706471566
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8593595131039984,
+              "sample_std": 0.0014246088290483473,
+              "ci95_half_width": 0.0035389245167319217,
+              "minimum": 0.8583663009784334,
+              "maximum": 0.8609917500799853,
+              "values": [
+                0.8583663009784334,
+                0.8587204882535765,
+                0.8609917500799853
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.22000791093438155,
+              "sample_std": 0.004322739084632231,
+              "ci95_half_width": 0.010738279178193368,
+              "minimum": 0.21571115240968183,
+              "maximum": 0.22435617038190567,
+              "values": [
+                0.21995641001155708,
+                0.22435617038190567,
+                0.21571115240968183
+              ]
+            }
+          }
+        },
+        "occluded": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9333333333333332,
+              "sample_std": 0.023094010767584987,
+              "ci95_half_width": 0.05736870306333323,
+              "minimum": 0.92,
+              "maximum": 0.96,
+              "values": [
+                0.92,
+                0.96,
+                0.92
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.96,
+              "sample_std": 0.010000000000000009,
+              "ci95_half_width": 0.02484137711750643,
+              "minimum": 0.95,
+              "maximum": 0.97,
+              "values": [
+                0.95,
+                0.96,
+                0.97
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.06666666666666667,
+              "sample_std": 0.023094010767585032,
+              "ci95_half_width": 0.057368703063333346,
+              "minimum": 0.04,
+              "maximum": 0.08,
+              "values": [
+                0.08,
+                0.04,
+                0.08
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.321089975845411,
+              "sample_std": 0.028329314201052277,
+              "ci95_half_width": 0.07037391775486694,
+              "minimum": 1.2947916666666668,
+              "maximum": 1.3510869565217394,
+              "values": [
+                1.3510869565217394,
+                1.2947916666666668,
+                1.3173913043478265
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.5453973554193086,
+              "sample_std": 0.06330322548948174,
+              "ci95_half_width": 0.157253929713876,
+              "minimum": 0.5074601502880743,
+              "maximum": 0.6184757972703566,
+              "values": [
+                0.5102561186994948,
+                0.6184757972703566,
+                0.5074601502880743
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8512536068019814,
+              "sample_std": 0.0011343951698651394,
+              "ci95_half_width": 0.002817993821489767,
+              "minimum": 0.85009307012432,
+              "maximum": 0.8523599154113859,
+              "values": [
+                0.8523599154113859,
+                0.85009307012432,
+                0.8513078348702382
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.2932516352219332,
+              "sample_std": 0.008048470584290621,
+              "ci95_half_width": 0.01999350930035205,
+              "minimum": 0.28487611551030667,
+              "maximum": 0.3009273573648574,
+              "values": [
+                0.28487611551030667,
+                0.3009273573648574,
+                0.2939514327906356
+              ]
+            }
+          }
+        },
+        "open": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9333333333333335,
+              "sample_std": 0.025166114784235794,
+              "ci95_half_width": 0.06251609479376548,
+              "minimum": 0.91,
+              "maximum": 0.96,
+              "values": [
+                0.93,
+                0.96,
+                0.91
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9566666666666667,
+              "sample_std": 0.011547005383792525,
+              "ci95_half_width": 0.02868435153166669,
+              "minimum": 0.95,
+              "maximum": 0.97,
+              "values": [
+                0.95,
+                0.97,
+                0.95
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.06666666666666667,
+              "sample_std": 0.02516611478423583,
+              "ci95_half_width": 0.06251609479376556,
+              "minimum": 0.04,
+              "maximum": 0.09,
+              "values": [
+                0.07,
+                0.04,
+                0.09
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.01,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.01,
+              "maximum": 0.01,
+              "values": [
+                0.01,
+                0.01,
+                0.01
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.317126634566151,
+              "sample_std": 0.026494520116399394,
+              "ci95_half_width": 0.06581603657588371,
+              "minimum": 1.288541666666667,
+              "maximum": 1.3408602150537636,
+              "values": [
+                1.3408602150537636,
+                1.288541666666667,
+                1.3219780219780222
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.5294517304372572,
+              "sample_std": 0.07727416524439053,
+              "ci95_half_width": 0.1919596680276412,
+              "minimum": 0.478085248532245,
+              "maximum": 0.6183204920154882,
+              "values": [
+                0.4919494507640383,
+                0.6183204920154882,
+                0.478085248532245
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8477266455344049,
+              "sample_std": 0.0006219232283369003,
+              "ci95_half_width": 0.0015449429453253988,
+              "minimum": 0.847287242470292,
+              "maximum": 0.8484382639419404,
+              "values": [
+                0.8474544301909822,
+                0.8484382639419404,
+                0.847287242470292
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.2632339464228009,
+              "sample_std": 0.0019692385687022614,
+              "ci95_half_width": 0.0048918597919471426,
+              "minimum": 0.2609957277844275,
+              "maximum": 0.2647004511011864,
+              "values": [
+                0.2609957277844275,
+                0.2647004511011864,
+                0.2640056603827889
+              ]
+            }
+          }
+        },
+        "overall": {
+          "episodes_per_seed": 300,
+          "episodes_total": 900,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9366666666666666,
+              "sample_std": 0.02027587510099405,
+              "ci95_half_width": 0.05036806597712515,
+              "minimum": 0.9233333333333333,
+              "maximum": 0.96,
+              "values": [
+                0.9266666666666666,
+                0.96,
+                0.9233333333333333
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9622222222222222,
+              "sample_std": 0.005091750772173165,
+              "ci95_half_width": 0.012648610111990805,
+              "minimum": 0.9566666666666667,
+              "maximum": 0.9666666666666667,
+              "values": [
+                0.9566666666666667,
+                0.9666666666666667,
+                0.9633333333333334
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.06333333333333334,
+              "sample_std": 0.020275875100994063,
+              "ci95_half_width": 0.05036806597712518,
+              "minimum": 0.04,
+              "maximum": 0.07666666666666666,
+              "values": [
+                0.07333333333333333,
+                0.04,
+                0.07666666666666666
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.005555555555555556,
+              "sample_std": 0.0019245008972987527,
+              "ci95_half_width": 0.0047807252552777785,
+              "minimum": 0.0033333333333333335,
+              "maximum": 0.006666666666666667,
+              "values": [
+                0.006666666666666667,
+                0.006666666666666667,
+                0.0033333333333333335
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.3380592397321616,
+              "sample_std": 0.028056884350541832,
+              "ci95_half_width": 0.06969716448940735,
+              "minimum": 1.3097222222222225,
+              "maximum": 1.3658273381294965,
+              "values": [
+                1.3658273381294965,
+                1.3097222222222225,
+                1.3386281588447655
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.5316307587558036,
+              "sample_std": 0.05937362998960689,
+              "ci95_half_width": 0.14749227334071127,
+              "minimum": 0.4892043152950116,
+              "maximum": 0.5994832944776587,
+              "values": [
+                0.5062046664947405,
+                0.5994832944776587,
+                0.4892043152950116
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8527799218134615,
+              "sample_std": 0.0003918689284349262,
+              "ci95_half_width": 0.0009734563831885131,
+              "minimum": 0.8524172741066124,
+              "maximum": 0.8531956091401718,
+              "values": [
+                0.8527268821936004,
+                0.8524172741066124,
+                0.8531956091401718
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.25883116419303853,
+              "sample_std": 0.004107733689197646,
+              "ci95_half_width": 0.010204176167164458,
+              "minimum": 0.25527608443543043,
+              "maximum": 0.26332799294931647,
+              "values": [
+                0.25527608443543043,
+                0.26332799294931647,
+                0.25788941519436875
+              ]
+            }
+          }
+        }
+      },
+      "cbf": {
+        "clutter": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.4420000000000002,
+              "sample_std": 0.030049958402633675,
+              "ci95_half_width": 0.07464823490452036,
+              "minimum": 1.4129999999999998,
+              "maximum": 1.4730000000000003,
+              "values": [
+                1.4730000000000003,
+                1.4129999999999998,
+                1.4400000000000004
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.7815534739738323,
+              "sample_std": 0.026355218811394087,
+              "ci95_half_width": 0.06546999295082395,
+              "minimum": 0.7641781556671297,
+              "maximum": 0.8118783994494813,
+              "values": [
+                0.7686038668048861,
+                0.8118783994494813,
+                0.7641781556671297
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8583098836738249,
+              "sample_std": 0.0007417240072198945,
+              "ci95_half_width": 0.0018425445780457447,
+              "minimum": 0.8578677817546905,
+              "maximum": 0.8591662014456132,
+              "values": [
+                0.8578956678211709,
+                0.8591662014456132,
+                0.8578677817546905
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.21937462651344486,
+              "sample_std": 0.000879743297512098,
+              "ci95_half_width": 0.0021854035020096663,
+              "minimum": 0.21847594362691874,
+              "maximum": 0.2202341204547087,
+              "values": [
+                0.21941381545870717,
+                0.2202341204547087,
+                0.21847594362691874
+              ]
+            }
+          }
+        },
+        "occluded": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.3973333333333333,
+              "sample_std": 0.03153305144341936,
+              "ci95_half_width": 0.07833244225717101,
+              "minimum": 1.365,
+              "maximum": 1.428,
+              "values": [
+                1.428,
+                1.365,
+                1.3990000000000002
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.8099098568162454,
+              "sample_std": 0.03538109335943311,
+              "ci95_half_width": 0.08789150829713796,
+              "minimum": 0.7866668789197859,
+              "maximum": 0.850628506299267,
+              "values": [
+                0.7924341852296836,
+                0.850628506299267,
+                0.7866668789197859
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.851042337388274,
+              "sample_std": 0.0007098691119328429,
+              "ci95_half_width": 0.0017634126313593118,
+              "minimum": 0.8505124212066743,
+              "maximum": 0.8518488726078702,
+              "values": [
+                0.8505124212066743,
+                0.8507657183502773,
+                0.8518488726078702
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.28961972029948035,
+              "sample_std": 0.0041767056898153404,
+              "ci95_half_width": 0.010375512114953762,
+              "minimum": 0.28512208474360173,
+              "maximum": 0.2933762934369552,
+              "values": [
+                0.28512208474360173,
+                0.2933762934369552,
+                0.2903607827178841
+              ]
+            }
+          }
+        },
+        "open": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.387666666666667,
+              "sample_std": 0.021455380055672064,
+              "ci95_half_width": 0.05329811871623753,
+              "minimum": 1.3630000000000004,
+              "maximum": 1.4020000000000001,
+              "values": [
+                1.3980000000000006,
+                1.3630000000000004,
+                1.4020000000000001
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.8301946092212686,
+              "sample_std": 0.03710985707398942,
+              "ci95_half_width": 0.09218599543517342,
+              "minimum": 0.7974181880828916,
+              "maximum": 0.870487236852409,
+              "values": [
+                0.8226784027285055,
+                0.870487236852409,
+                0.7974181880828916
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8479491537644789,
+              "sample_std": 0.0005891741237365184,
+              "ci95_half_width": 0.0014635896595615238,
+              "minimum": 0.8472799675599599,
+              "maximum": 0.8483899001325471,
+              "values": [
+                0.8472799675599599,
+                0.8483899001325471,
+                0.8481775936009295
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.2620592758333858,
+              "sample_std": 0.0028616911742096146,
+              "ci95_half_width": 0.007108834965238076,
+              "minimum": 0.25956198050315704,
+              "maximum": 0.2651819334775991,
+              "values": [
+                0.2651819334775991,
+                0.25956198050315704,
+                0.26143391351940115
+              ]
+            }
+          }
+        },
+        "overall": {
+          "episodes_per_seed": 300,
+          "episodes_total": 900,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.409,
+              "sample_std": 0.026641654936917444,
+              "ci95_half_width": 0.06618153973224426,
+              "minimum": 1.3803333333333334,
+              "maximum": 1.433,
+              "values": [
+                1.433,
+                1.3803333333333334,
+                1.4136666666666668
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.8072193133371154,
+              "sample_std": 0.03267864647986567,
+              "ci95_half_width": 0.08117825808960163,
+              "minimum": 0.7827544075566023,
+              "maximum": 0.8443313808670524,
+              "values": [
+                0.7945721515876917,
+                0.8443313808670524,
+                0.7827544075566023
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8524337916088592,
+              "sample_std": 0.0004711453244747491,
+              "ci95_half_width": 0.0011703898682427164,
+              "minimum": 0.8518960188626017,
+              "maximum": 0.852773939976146,
+              "values": [
+                0.8518960188626017,
+                0.852773939976146,
+                0.85263141598783
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.257017874215437,
+              "sample_std": 0.0006185371596725095,
+              "ci95_half_width": 0.0015365314844616085,
+              "minimum": 0.25657261122663605,
+              "maximum": 0.2577241314649403,
+              "values": [
+                0.25657261122663605,
+                0.2577241314649403,
+                0.2567568799547346
+              ]
+            }
+          }
+        }
+      }
+    },
+    "recurrent_gru_prediction": {
+      "raw": {
+        "clutter": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9333333333333332,
+              "sample_std": 0.011547005383792462,
+              "ci95_half_width": 0.028684351531666537,
+              "minimum": 0.92,
+              "maximum": 0.94,
+              "values": [
+                0.94,
+                0.92,
+                0.94
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.96,
+              "sample_std": 0.010000000000000009,
+              "ci95_half_width": 0.02484137711750643,
+              "minimum": 0.95,
+              "maximum": 0.97,
+              "values": [
+                0.96,
+                0.95,
+                0.97
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.06666666666666667,
+              "sample_std": 0.011547005383792516,
+              "ci95_half_width": 0.028684351531666673,
+              "minimum": 0.06,
+              "maximum": 0.08,
+              "values": [
+                0.06,
+                0.08,
+                0.06
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.3482192414431082,
+              "sample_std": 0.017031878284465077,
+              "ci95_half_width": 0.04230953114838651,
+              "minimum": 1.3308510638297872,
+              "maximum": 1.3648936170212767,
+              "values": [
+                1.3308510638297872,
+                1.348913043478261,
+                1.3648936170212767
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.4993266339831572,
+              "sample_std": 0.02818992732153527,
+              "ci95_half_width": 0.0700276615509355,
+              "minimum": 0.4675838017990509,
+              "maximum": 0.5214403618338611,
+              "values": [
+                0.5214403618338611,
+                0.4675838017990509,
+                0.5089557383165596
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8587904978327772,
+              "sample_std": 0.0007069112118683605,
+              "ci95_half_width": 0.0017560648002615416,
+              "minimum": 0.8579877597892304,
+              "maximum": 0.8593200549450549,
+              "values": [
+                0.8593200549450549,
+                0.8590636787640463,
+                0.8579877597892304
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.22306295223023165,
+              "sample_std": 0.00387626409933982,
+              "ci95_half_width": 0.009629173829875179,
+              "minimum": 0.21953211759645583,
+              "maximum": 0.22721066433566434,
+              "values": [
+                0.22244607475857475,
+                0.21953211759645583,
+                0.22721066433566434
+              ]
+            }
+          }
+        },
+        "occluded": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.96,
+              "sample_std": 0.020000000000000018,
+              "ci95_half_width": 0.04968275423501286,
+              "minimum": 0.94,
+              "maximum": 0.98,
+              "values": [
+                0.98,
+                0.94,
+                0.96
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9766666666666666,
+              "sample_std": 0.01527525231651948,
+              "ci95_half_width": 0.037945830335972375,
+              "minimum": 0.96,
+              "maximum": 0.99,
+              "values": [
+                0.99,
+                0.96,
+                0.98
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.04,
+              "sample_std": 0.02,
+              "ci95_half_width": 0.04968275423501281,
+              "minimum": 0.02,
+              "maximum": 0.06,
+              "values": [
+                0.02,
+                0.06,
+                0.04
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.3006146873643076,
+              "sample_std": 0.006140250044068715,
+              "ci95_half_width": 0.01525322669404963,
+              "minimum": 1.293617021276596,
+              "maximum": 1.3051020408163265,
+              "values": [
+                1.3051020408163265,
+                1.293617021276596,
+                1.303125
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.5964665861531135,
+              "sample_std": 0.03182535197007991,
+              "ci95_half_width": 0.07905855701861306,
+              "minimum": 0.5768484863714067,
+              "maximum": 0.6331866124055877,
+              "values": [
+                0.5768484863714067,
+                0.579364659682346,
+                0.6331866124055877
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.851063526149633,
+              "sample_std": 0.0014932033126233623,
+              "ci95_half_width": 0.003709322660198676,
+              "minimum": 0.8493939914252415,
+              "maximum": 0.8522713169505933,
+              "values": [
+                0.8493939914252415,
+                0.8522713169505933,
+                0.851525270073064
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.29527554086135743,
+              "sample_std": 0.005974086846609433,
+              "ci95_half_width": 0.014840454428935957,
+              "minimum": 0.28876642291531995,
+              "maximum": 0.30050829378954375,
+              "values": [
+                0.30050829378954375,
+                0.29655190587920854,
+                0.28876642291531995
+              ]
+            }
+          }
+        },
+        "open": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9366666666666666,
+              "sample_std": 0.04932882862316246,
+              "ci95_half_width": 0.1225396034592823,
+              "minimum": 0.88,
+              "maximum": 0.97,
+              "values": [
+                0.96,
+                0.97,
+                0.88
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9633333333333333,
+              "sample_std": 0.011547005383792525,
+              "ci95_half_width": 0.02868435153166669,
+              "minimum": 0.95,
+              "maximum": 0.97,
+              "values": [
+                0.97,
+                0.97,
+                0.95
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.06333333333333334,
+              "sample_std": 0.04932882862316247,
+              "ci95_half_width": 0.12253960345928233,
+              "minimum": 0.03,
+              "maximum": 0.12,
+              "values": [
+                0.04,
+                0.03,
+                0.12
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0033333333333333335,
+              "sample_std": 0.005773502691896258,
+              "ci95_half_width": 0.014342175765833336,
+              "minimum": 0.0,
+              "maximum": 0.01,
+              "values": [
+                0.0,
+                0.0,
+                0.01
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.3074852910548789,
+              "sample_std": 0.01551522795655092,
+              "ci95_half_width": 0.03854196287327597,
+              "minimum": 1.2896907216494846,
+              "maximum": 1.3181818181818186,
+              "values": [
+                1.3145833333333334,
+                1.2896907216494846,
+                1.3181818181818186
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.5334444232482637,
+              "sample_std": 0.04803043480388882,
+              "ci95_half_width": 0.11931421440812072,
+              "minimum": 0.4975408369212089,
+              "maximum": 0.5880038936679679,
+              "values": [
+                0.4975408369212089,
+                0.5880038936679679,
+                0.5147885391556142
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.847486575519567,
+              "sample_std": 0.00035593990747755073,
+              "ci95_half_width": 0.0008842037472820177,
+              "minimum": 0.8472677218614716,
+              "maximum": 0.8478972838199812,
+              "values": [
+                0.8472677218614716,
+                0.8478972838199812,
+                0.8472947208772479
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.2648182695142835,
+              "sample_std": 0.0007663714734298368,
+              "ci95_half_width": 0.0019037722783569618,
+              "minimum": 0.26393452380952387,
+              "maximum": 0.26529977041577274,
+              "values": [
+                0.26393452380952387,
+                0.26522051431755383,
+                0.26529977041577274
+              ]
+            }
+          }
+        },
+        "overall": {
+          "episodes_per_seed": 300,
+          "episodes_total": 900,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 0.9433333333333334,
+              "sample_std": 0.016666666666666663,
+              "ci95_half_width": 0.041402295195844006,
+              "minimum": 0.9266666666666666,
+              "maximum": 0.96,
+              "values": [
+                0.96,
+                0.9433333333333334,
+                0.9266666666666666
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 0.9666666666666667,
+              "sample_std": 0.00666666666666671,
+              "ci95_half_width": 0.016560918078337712,
+              "minimum": 0.96,
+              "maximum": 0.9733333333333334,
+              "values": [
+                0.9733333333333334,
+                0.96,
+                0.9666666666666667
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.056666666666666664,
+              "sample_std": 0.016666666666666666,
+              "ci95_half_width": 0.04140229519584401,
+              "minimum": 0.04,
+              "maximum": 0.07333333333333333,
+              "values": [
+                0.04,
+                0.056666666666666664,
+                0.07333333333333333
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0011111111111111111,
+              "sample_std": 0.0019245008972987529,
+              "ci95_half_width": 0.004780725255277779,
+              "minimum": 0.0,
+              "maximum": 0.0033333333333333335,
+              "values": [
+                0.0,
+                0.0,
+                0.0033333333333333335
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.318563664969085,
+              "sample_std": 0.009409343009844617,
+              "ci95_half_width": 0.023374103813552292,
+              "minimum": 1.3102473498233218,
+              "maximum": 1.328776978417266,
+              "values": [
+                1.3166666666666669,
+                1.3102473498233218,
+                1.328776978417266
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.5430792144615114,
+              "sample_std": 0.010316291072489464,
+              "ci95_half_width": 0.02562708769856754,
+              "minimum": 0.5319432283754921,
+              "maximum": 0.5523102966259205,
+              "values": [
+                0.5319432283754921,
+                0.5449841183831216,
+                0.5523102966259205
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8524468665006589,
+              "sample_std": 0.0005631658316275229,
+              "ci95_half_width": 0.0013989814803153416,
+              "minimum": 0.8519939227439227,
+              "maximum": 0.8530774265115403,
+              "values": [
+                0.8519939227439227,
+                0.8530774265115403,
+                0.8522692502465141
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.2610522542019575,
+              "sample_std": 0.0010773829356559882,
+              "ci95_half_width": 0.0026763675804596545,
+              "minimum": 0.2604256192222524,
+              "maximum": 0.26229629745254746,
+              "values": [
+                0.26229629745254746,
+                0.2604348459310727,
+                0.2604256192222524
+              ]
+            }
+          }
+        }
+      },
+      "cbf": {
+        "clutter": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.413333333333333,
+              "sample_std": 0.01700980109623066,
+              "ci95_half_width": 0.042254688372523976,
+              "minimum": 1.3960000000000001,
+              "maximum": 1.43,
+              "values": [
+                1.3960000000000001,
+                1.4139999999999997,
+                1.43
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.7854207418934007,
+              "sample_std": 0.006455708635445223,
+              "ci95_half_width": 0.016036869277383747,
+              "minimum": 0.7799758865010518,
+              "maximum": 0.7925524026638261,
+              "values": [
+                0.7925524026638261,
+                0.7799758865010518,
+                0.7837339365153241
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8578940390606413,
+              "sample_std": 0.0019192434064967698,
+              "ci95_half_width": 0.004767664924107391,
+              "minimum": 0.8558240369451672,
+              "maximum": 0.8596144696806463,
+              "values": [
+                0.8582436105561106,
+                0.8596144696806463,
+                0.8558240369451672
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.22244543131017588,
+              "sample_std": 0.004361950766599446,
+              "ci95_half_width": 0.0108356863961093,
+              "minimum": 0.21787360392875096,
+              "maximum": 0.2265617576008443,
+              "values": [
+                0.22290093240093242,
+                0.21787360392875096,
+                0.2265617576008443
+              ]
+            }
+          }
+        },
+        "occluded": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.3663333333333336,
+              "sample_std": 0.012096831541082877,
+              "ci95_half_width": 0.0300501954238986,
+              "minimum": 1.3570000000000004,
+              "maximum": 1.3800000000000006,
+              "values": [
+                1.3570000000000004,
+                1.3800000000000006,
+                1.3619999999999999
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.8390215739695649,
+              "sample_std": 0.01101664618117796,
+              "ci95_half_width": 0.027366866235677852,
+              "minimum": 0.8285817045706234,
+              "maximum": 0.850536215833078,
+              "values": [
+                0.8379468015049931,
+                0.8285817045706234,
+                0.850536215833078
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8521058838493597,
+              "sample_std": 0.0012696193912555386,
+              "ci95_half_width": 0.0031539094093877753,
+              "minimum": 0.851367110431129,
+              "maximum": 0.8535718989258078,
+              "values": [
+                0.8513786421911422,
+                0.8535718989258078,
+                0.851367110431129
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.28989619280993456,
+              "sample_std": 0.003953346544728354,
+              "ci95_half_width": 0.009820657239378796,
+              "minimum": 0.28644183123994504,
+              "maximum": 0.29420784423909424,
+              "values": [
+                0.29420784423909424,
+                0.28903890295076434,
+                0.28644183123994504
+              ]
+            }
+          }
+        },
+        "open": {
+          "episodes_per_seed": 100,
+          "episodes_total": 300,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.3736666666666668,
+              "sample_std": 0.029005746557076034,
+              "ci95_half_width": 0.07205426887991388,
+              "minimum": 1.3450000000000002,
+              "maximum": 1.403,
+              "values": [
+                1.3730000000000002,
+                1.3450000000000002,
+                1.403
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.8342890241558903,
+              "sample_std": 0.03747660743060899,
+              "ci95_half_width": 0.09309705382685007,
+              "minimum": 0.808189393668985,
+              "maximum": 0.877232033789425,
+              "values": [
+                0.8174456450092612,
+                0.877232033789425,
+                0.808189393668985
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.848311418293036,
+              "sample_std": 0.0006286158177851027,
+              "ci95_half_width": 0.0015615682591629428,
+              "minimum": 0.847881652564412,
+              "maximum": 0.8490328916332206,
+              "values": [
+                0.8480197106814754,
+                0.8490328916332206,
+                0.847881652564412
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.26014731767343996,
+              "sample_std": 0.000645427257866631,
+              "ci95_half_width": 0.0016033301914583035,
+              "minimum": 0.2595521318636644,
+              "maximum": 0.2608333584307849,
+              "values": [
+                0.2608333584307849,
+                0.2600564627258707,
+                0.2595521318636644
+              ]
+            }
+          }
+        },
+        "overall": {
+          "episodes_per_seed": 300,
+          "episodes_total": 900,
+          "metrics": {
+            "safe_capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "capture_rate": {
+              "count": 3,
+              "mean": 1.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 1.0,
+              "maximum": 1.0,
+              "values": [
+                1.0,
+                1.0,
+                1.0
+              ]
+            },
+            "collision_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "world_violation_rate": {
+              "count": 3,
+              "mean": 0.0,
+              "sample_std": 0.0,
+              "ci95_half_width": 0.0,
+              "minimum": 0.0,
+              "maximum": 0.0,
+              "values": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "mean_capture_time_seconds": {
+              "count": 3,
+              "mean": 1.3844444444444444,
+              "sample_std": 0.01222171716128181,
+              "ci95_half_width": 0.030360428502690138,
+              "minimum": 1.3753333333333335,
+              "maximum": 1.3983333333333334,
+              "values": [
+                1.3753333333333335,
+                1.3796666666666666,
+                1.3983333333333334
+              ]
+            },
+            "mean_min_clearance_m": {
+              "count": 3,
+              "mean": 0.8195771133396187,
+              "sample_std": 0.007864372699743147,
+              "ci95_half_width": 0.01953618480269415,
+              "minimum": 0.8141531820057958,
+              "maximum": 0.8285965416203667,
+              "values": [
+                0.8159816163926935,
+                0.8285965416203667,
+                0.8141531820057958
+              ]
+            },
+            "mean_visible_fraction": {
+              "count": 3,
+              "mean": 0.8527704470676788,
+              "sample_std": 0.001206649339411971,
+              "ci95_half_width": 0.0029974831288922758,
+              "minimum": 0.8516909333135692,
+              "maximum": 0.854073086746558,
+              "values": [
+                0.8525473211429093,
+                0.854073086746558,
+                0.8516909333135692
+              ]
+            },
+            "mean_message_age_steps": {
+              "count": 3,
+              "mean": 0.2574963139311835,
+              "sample_std": 0.0018289625064533172,
+              "ci95_half_width": 0.004543394735658661,
+              "minimum": 0.2556563232017953,
+              "maximum": 0.25931404502360383,
+              "values": [
+                0.25931404502360383,
+                0.2556563232017953,
+                0.2575185735681513
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "paired_comparisons": {
+    "recurrent_gru_minus_recurrent_no_prediction_raw_safe_capture_percentage_points": {
+      "count": 3,
+      "mean": 0.6666666666666673,
+      "sample_std": 2.5166114784235805,
+      "ci95_half_width": 6.25160947937655,
+      "minimum": -1.6666666666666607,
+      "maximum": 3.3333333333333326,
+      "values": [
+        3.3333333333333326,
+        -1.6666666666666607,
+        0.33333333333332993
+      ]
+    },
+    "positive_seed_count": 2
+  },
+  "stage3b_context": {
+    "no_prediction_raw": {
+      "safe_capture_rate": {
+        "count": 3,
+        "mean": 0.9355555555555556,
+        "sample_std": 0.02219442706159797,
+        "ci95_half_width": 0.05513401325441448,
+        "minimum": 0.9166666666666666,
+        "maximum": 0.96,
+        "values": [
+          0.93,
+          0.96,
+          0.9166666666666666
+        ]
+      },
+      "capture_rate": {
+        "count": 3,
+        "mean": 0.9677777777777777,
+        "sample_std": 0.013471506281091242,
+        "ci95_half_width": 0.03346507678694438,
+        "minimum": 0.9533333333333334,
+        "maximum": 0.98,
+        "values": [
+          0.97,
+          0.98,
+          0.9533333333333334
+        ]
+      },
+      "collision_rate": {
+        "count": 3,
+        "mean": 0.06444444444444446,
+        "sample_std": 0.022194427061597976,
+        "ci95_half_width": 0.0551340132544145,
+        "minimum": 0.04,
+        "maximum": 0.08333333333333333,
+        "values": [
+          0.07,
+          0.04,
+          0.08333333333333333
+        ]
+      },
+      "world_violation_rate": {
+        "count": 3,
+        "mean": 0.0033333333333333335,
+        "sample_std": 0.0033333333333333335,
+        "ci95_half_width": 0.008280459039168804,
+        "minimum": 0.0,
+        "maximum": 0.006666666666666667,
+        "values": [
+          0.006666666666666667,
+          0.0,
+          0.0033333333333333335
+        ]
+      },
+      "mean_capture_time_seconds": {
+        "count": 3,
+        "mean": 1.3495511159986968,
+        "sample_std": 0.03780546233851983,
+        "ci95_half_width": 0.09391397470528567,
+        "minimum": 1.3267361111111111,
+        "maximum": 1.3931899641577064,
+        "values": [
+          1.3931899641577064,
+          1.3267361111111111,
+          1.3287272727272728
+        ]
+      },
+      "mean_min_clearance_m": {
+        "count": 3,
+        "mean": 0.5054361149226505,
+        "sample_std": 0.01363526283220178,
+        "ci95_half_width": 0.03387187061110429,
+        "minimum": 0.49201083915352617,
+        "maximum": 0.5192720856223664,
+        "values": [
+          0.49201083915352617,
+          0.5192720856223664,
+          0.5050254199920591
+        ]
+      },
+      "mean_visible_fraction": {
+        "count": 3,
+        "mean": 0.8530359637674846,
+        "sample_std": 0.0005102718032552099,
+        "ci95_half_width": 0.0012675854297092702,
+        "minimum": 0.8526290963257873,
+        "maximum": 0.8536084794262039,
+        "values": [
+          0.8536084794262039,
+          0.8528703155504626,
+          0.8526290963257873
+        ]
+      },
+      "mean_message_age_steps": {
+        "count": 3,
+        "mean": 0.25990788476492166,
+        "sample_std": 0.0015040428132132965,
+        "ci95_half_width": 0.0037362494723906753,
+        "minimum": 0.2583813213145643,
+        "maximum": 0.2613883469471705,
+        "values": [
+          0.2583813213145643,
+          0.2613883469471705,
+          0.25995398603303016
+        ]
+      }
+    },
+    "gru_prediction_raw": {
+      "safe_capture_rate": {
+        "count": 3,
+        "mean": 0.9488888888888889,
+        "sample_std": 0.01710533813148961,
+        "ci95_half_width": 0.04249201552467958,
+        "minimum": 0.93,
+        "maximum": 0.9633333333333334,
+        "values": [
+          0.9533333333333334,
+          0.9633333333333334,
+          0.93
+        ]
+      },
+      "capture_rate": {
+        "count": 3,
+        "mean": 0.9766666666666666,
+        "sample_std": 0.006666666666666654,
+        "ci95_half_width": 0.016560918078337573,
+        "minimum": 0.97,
+        "maximum": 0.9833333333333333,
+        "values": [
+          0.9766666666666667,
+          0.9833333333333333,
+          0.97
+        ]
+      },
+      "collision_rate": {
+        "count": 3,
+        "mean": 0.051111111111111114,
+        "sample_std": 0.01710533813148962,
+        "ci95_half_width": 0.042492015524679606,
+        "minimum": 0.03666666666666667,
+        "maximum": 0.07,
+        "values": [
+          0.04666666666666667,
+          0.03666666666666667,
+          0.07
+        ]
+      },
+      "world_violation_rate": {
+        "count": 3,
+        "mean": 0.0022222222222222222,
+        "sample_std": 0.0019245008972987527,
+        "ci95_half_width": 0.0047807252552777785,
+        "minimum": 0.0,
+        "maximum": 0.0033333333333333335,
+        "values": [
+          0.0033333333333333335,
+          0.0,
+          0.0033333333333333335
+        ]
+      },
+      "mean_capture_time_seconds": {
+        "count": 3,
+        "mean": 1.3049868593288618,
+        "sample_std": 0.017935760486849247,
+        "ci95_half_width": 0.04455489901430924,
+        "minimum": 1.2863636363636364,
+        "maximum": 1.3221453287197233,
+        "values": [
+          1.2863636363636364,
+          1.3221453287197233,
+          1.3064516129032262
+        ]
+      },
+      "mean_min_clearance_m": {
+        "count": 3,
+        "mean": 0.544760123449786,
+        "sample_std": 0.02454642540601881,
+        "ci95_half_width": 0.06097670103976536,
+        "minimum": 0.5208817904073489,
+        "maximum": 0.569924111654078,
+        "values": [
+          0.569924111654078,
+          0.5434744682879309,
+          0.5208817904073489
+        ]
+      },
+      "mean_visible_fraction": {
+        "count": 3,
+        "mean": 0.8521270589694868,
+        "sample_std": 0.0008306007345180779,
+        "ci95_half_width": 0.0020633266080241396,
+        "minimum": 0.851607344656977,
+        "maximum": 0.853084999469771,
+        "values": [
+          0.851607344656977,
+          0.853084999469771,
+          0.851688832781712
+        ]
+      },
+      "mean_message_age_steps": {
+        "count": 3,
+        "mean": 0.26252344954666934,
+        "sample_std": 0.003219475997123654,
+        "ci95_half_width": 0.007997621736530866,
+        "minimum": 0.2604757127368389,
+        "maximum": 0.2662343434751523,
+        "values": [
+          0.2662343434751523,
+          0.26086029242801684,
+          0.2604757127368389
+        ]
+      }
+    },
+    "source": "results/PREDICTION_POLICY_STAGE3_FORMAL_SUMMARY.json",
+    "sha256": "b8dae8ef969d335388e3fc488dc589656e6f73b6748107de36dab11078b4e63b"
+  }
+}
