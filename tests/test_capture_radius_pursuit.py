@@ -484,6 +484,18 @@ def test_hard_benchmark_preserves_frozen_actor_observation_dimension() -> None:
         assert env.policy_observations(observation).shape == (4, 44)
 
 
+def test_time_aligned_belief_training_config_preserves_actor_input_dimension() -> None:
+    config = yaml.safe_load(
+        (PROJECT_ROOT / "configs" / "capture_radius_pursuit_time_aligned_belief_dev.yaml").read_text(encoding="utf-8")
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=3, target_speed_scale=0.55)
+    observation = env.reset(seed=520119)
+    assert env.pursuit["belief_update_mode"] == "time_aligned"
+    assert env.pursuit["belief_stale_velocity_decay"] == pytest.approx(0.80)
+    assert env.pursuit["belief_velocity_decay_start_age_steps"] == 3
+    assert env.policy_observations(observation).shape == (4, 44)
+
+
 def test_prediction_dataset_assembly_uses_history_and_future_labels_only() -> None:
     policy = np.zeros((12, 4, 48), dtype=np.float32)
     belief_relative = np.zeros((12, 4, 3), dtype=np.float32)

@@ -1,0 +1,25 @@
+experiment_name: capture_radius_recurrent_mappo_time_aligned_belief
+environment_config: capture_radius_pursuit_time_aligned_belief_dev.yaml
+training:
+  seed: 521001
+  device: cuda
+  total_steps: 65536
+  rollout_steps: 1024
+  epochs: 4
+  minibatch_size: 8
+  learning_rate: 0.0001
+  evaluation_episodes: 10
+  evaluation_interval: 4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_ratio: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.003
+  max_gradient_norm: 0.5
+  hidden_dim: 128
+  torch_num_threads: 1
+  deterministic_algorithms: true
+  training_obstacle_counts: [0, 3, 5]
+  training_target_speed_scales: [0.45, 0.55]
+  warm_start_log_std: -2.2
+  evaluation_use_cbf: true

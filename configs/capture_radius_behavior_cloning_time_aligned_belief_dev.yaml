@@ -1,0 +1,13 @@
+experiment_name: capture_radius_behavior_cloning_time_aligned_belief_dev
+environment_config: capture_radius_pursuit_time_aligned_belief_dev.yaml
+imitation:
+  seed: 521001
+  device: cuda
+  episodes: 240
+  training_obstacle_counts: [0, 3, 5]
+  training_target_speed_scales: [0.45, 0.55]
+  epochs: 30
+  batch_size: 1024
+  learning_rate: 0.0003
+  hidden_dim: 128
+  validation_episodes: 10

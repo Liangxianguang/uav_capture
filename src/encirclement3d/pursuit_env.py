@@ -816,15 +816,16 @@ class CaptureRadiusPursuit3DEnv:
         snapshot = self._belief_snapshot_at(int(packet.timestamp_step))
         if snapshot is not None and int(snapshot.timestamps[receiver]) >= 0:
             prior_covariance = snapshot.covariances[receiver]
-            innovation_covariance = prior_covariance + covariance
-            try:
-                gain = prior_covariance @ np.linalg.inv(innovation_covariance)
-            except np.linalg.LinAlgError:
-                gain = np.zeros((3, 3), dtype=np.float64)
-            position = snapshot.positions[receiver] + gain @ (position - snapshot.positions[receiver])
-            velocity = snapshot.velocities[receiver] + gain @ (velocity - snapshot.velocities[receiver])
-            covariance = (np.eye(3, dtype=np.float64) - gain) @ prior_covariance
-            covariance = 0.5 * (covariance + covariance.T)
+            # The simulator's measurement and process covariance are diagonal
+            # by construction. A per-axis gain is therefore the exact update
+            # for this belief model and avoids dispatching to a platform BLAS
+            # inverse merely to invert a 3 x 3 diagonal matrix.
+            prior_variance = np.maximum(np.diag(prior_covariance), 1e-12)
+            measurement_variance = np.maximum(np.diag(covariance), 1e-12)
+            gain = prior_variance / (prior_variance + measurement_variance)
+            position = snapshot.positions[receiver] + gain * (position - snapshot.positions[receiver])
+            velocity = snapshot.velocities[receiver] + gain * (velocity - snapshot.velocities[receiver])
+            covariance = np.diag((1.0 - gain) * prior_variance)
             confidence = max(confidence, float(snapshot.confidences[receiver]))
         position += velocity * (age_steps * self.dt)
         confidence *= float(self.pursuit["observation_confidence_decay"]) ** age_steps

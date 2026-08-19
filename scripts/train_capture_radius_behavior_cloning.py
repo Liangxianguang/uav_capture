@@ -32,6 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"))
+    parser.add_argument("--episodes", type=int, help="Optional smoke-run override for imitation episodes.")
+    parser.add_argument("--epochs", type=int, help="Optional smoke-run override for optimization epochs.")
     parser.add_argument("--prediction-checkpoint", type=Path, help="Optional frozen GRU predictor checkpoint.")
     parser.add_argument("--prediction-history-length", type=int, default=8)
     parser.add_argument("--prediction-horizon-index", type=int, default=2)
@@ -47,7 +49,7 @@ def load_configuration(args: argparse.Namespace) -> tuple[dict[str, Any], dict[s
         environment_path = args.config.parent / environment_path
     environment = yaml.safe_load(environment_path.read_text(encoding="utf-8"))
     settings = dict(document["imitation"])
-    for name in ("seed", "device"):
+    for name in ("seed", "device", "episodes", "epochs"):
         value = getattr(args, name)
         if value is not None:
             settings[name] = value
