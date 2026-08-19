@@ -30,6 +30,8 @@ results/*
 !results/STAGE4B_VELOCITY_GATE_VALIDATION_SUMMARY.json
 !results/STAGE4B_VELOCITY_GATE_LOCKED_REPORT.md
 !results/STAGE4B_VELOCITY_GATE_LOCKED_SUMMARY.json
+!results/STAGE4C_F1_FORMAL_REPORT.md
+!results/STAGE4C_F1_FORMAL_SUMMARY.json
 
 # Local simulator archives and generated meshes.
 third_party/*.zip
