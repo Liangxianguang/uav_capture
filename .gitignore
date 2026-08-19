@@ -14,6 +14,8 @@ results/*
 !results/PREDICTION_STAGE3_BASELINE_SUMMARY.json
 !results/PREDICTION_GRU_STAGE3_REPORT.md
 !results/PREDICTION_GRU_STAGE3_SUMMARY.json
+!results/PREDICTION_POLICY_STAGE3_PILOT_REPORT.md
+!results/PREDICTION_POLICY_STAGE3_PILOT_SUMMARY.json
 
 # Local simulator archives and generated meshes.
 third_party/*.zip

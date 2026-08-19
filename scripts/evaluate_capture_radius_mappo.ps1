@@ -8,7 +8,10 @@ param(
     [int]$Episodes = 100,
     [ValidateSet("auto", "cuda", "cpu")]
     [string]$Device = "cpu",
-    [switch]$UseCbf
+    [switch]$UseCbf,
+    [string]$PredictionCheckpoint = "",
+    [int]$PredictionHistoryLength = 8,
+    [int]$PredictionHorizonIndex = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +29,13 @@ $Arguments = @(
 )
 if ($UseCbf) {
     $Arguments += "--use-cbf"
+}
+if (-not [string]::IsNullOrWhiteSpace($PredictionCheckpoint)) {
+    $Arguments += @(
+        "--prediction-checkpoint", $PredictionCheckpoint,
+        "--prediction-history-length", $PredictionHistoryLength,
+        "--prediction-horizon-index", $PredictionHorizonIndex
+    )
 }
 & conda run @Arguments
 if ($LASTEXITCODE -ne 0) {

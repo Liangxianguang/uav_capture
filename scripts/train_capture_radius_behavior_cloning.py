@@ -21,6 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from encirclement3d.learning import CentralizedSharedActorCritic
+from encirclement3d.prediction import HistoryTargetPredictor, LearnedPredictionObserver
 from encirclement3d.pursuit_controllers import DynamicEncirclementController, SafetyFilteredPursuitController
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 
@@ -31,6 +32,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"))
+    parser.add_argument("--prediction-checkpoint", type=Path, help="Optional frozen GRU predictor checkpoint.")
+    parser.add_argument("--prediction-history-length", type=int, default=8)
+    parser.add_argument("--prediction-horizon-index", type=int, default=2)
     return parser.parse_args()
 
 
@@ -71,9 +75,27 @@ def select_device(requested: str) -> torch.device:
     return torch.device("cuda" if requested == "auto" and torch.cuda.is_available() else requested)
 
 
+def load_prediction_model(checkpoint_path: Path, device: torch.device) -> HistoryTargetPredictor:
+    resolved = checkpoint_path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Prediction checkpoint does not exist: {resolved}")
+    checkpoint = torch.load(resolved, map_location="cpu", weights_only=True)
+    model_config = checkpoint.get("model")
+    state_dict = checkpoint.get("model_state_dict")
+    if not isinstance(model_config, dict) or not isinstance(state_dict, dict):
+        raise ValueError("Prediction checkpoint must contain model and model_state_dict.")
+    model = HistoryTargetPredictor(**model_config)
+    model.load_state_dict(state_dict, strict=True)
+    return model.to(device).eval()
+
+
 def collect_expert_dataset(
     config: dict[str, Any],
     settings: dict[str, Any],
+    device: torch.device,
+    prediction_model: HistoryTargetPredictor | None = None,
+    prediction_history_length: int = 8,
+    prediction_horizon_index: int = 2,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any], int]:
     seed = int(settings["seed"])
     rng = np.random.default_rng(seed)
@@ -87,10 +109,26 @@ def collect_expert_dataset(
         env = CaptureRadiusPursuit3DEnv(config, obstacle_count=obstacle_count, target_speed_scale=target_speed_scale)
         controller = SafetyFilteredPursuitController(DynamicEncirclementController(env))
         observation = env.reset(seed=seed + episode_index)
+        prediction_observer = (
+            LearnedPredictionObserver(
+                env,
+                prediction_model,
+                device,
+                history_length=prediction_history_length,
+                horizon_index=prediction_horizon_index,
+            )
+            if prediction_model is not None
+            else None
+        )
+        local_observation = (
+            prediction_observer.reset(observation)
+            if prediction_observer is not None
+            else env.policy_observations(observation)
+        )
         if central_state_dim is None:
             central_state_dim = int(env.centralized_state().shape[-1])
         while True:
-            observations.append(env.policy_observations(observation))
+            observations.append(local_observation)
             action = controller.act(observation)
             actions.append(np.asarray(action, dtype=np.float32))
             observation, _reward, terminated, truncated, info = env.step(action)
@@ -107,6 +145,11 @@ def collect_expert_dataset(
                     }
                 )
                 break
+            local_observation = (
+                prediction_observer.observe(observation)
+                if prediction_observer is not None
+                else env.policy_observations(observation)
+            )
     local = np.concatenate(observations, axis=0).astype(np.float32)
     action_values = np.concatenate(actions, axis=0).astype(np.float32)
     manifest = {
@@ -125,6 +168,9 @@ def evaluate_actor(
     seed_offset: int,
     device: torch.device,
     action_scale: float,
+    prediction_model: HistoryTargetPredictor | None = None,
+    prediction_history_length: int = 8,
+    prediction_horizon_index: int = 2,
 ) -> dict[str, float]:
     outcomes: list[dict[str, float | bool]] = []
     policy.eval()
@@ -137,9 +183,25 @@ def evaluate_actor(
                     target_speed_scale=float(experiment["target_speed_scale"]),
                 )
                 observation = env.reset(seed=seed_offset + scenario_index * 10_000 + episode_index)
+                prediction_observer = (
+                    LearnedPredictionObserver(
+                        env,
+                        prediction_model,
+                        device,
+                        history_length=prediction_history_length,
+                        horizon_index=prediction_horizon_index,
+                    )
+                    if prediction_model is not None
+                    else None
+                )
+                local = (
+                    prediction_observer.reset(observation)
+                    if prediction_observer is not None
+                    else env.policy_observations(observation)
+                )
                 while True:
-                    local = torch.as_tensor(env.policy_observations(observation), device=device)
-                    action = torch.tanh(policy.distribution(local).mean).cpu().numpy() * action_scale
+                    local_tensor = torch.as_tensor(local, device=device)
+                    action = torch.tanh(policy.distribution(local_tensor).mean).cpu().numpy() * action_scale
                     observation, _reward, terminated, truncated, info = env.step(action)
                     if terminated or truncated:
                         outcomes.append(
@@ -153,6 +215,11 @@ def evaluate_actor(
                             }
                         )
                         break
+                    local = (
+                        prediction_observer.observe(observation)
+                        if prediction_observer is not None
+                        else env.policy_observations(observation)
+                    )
     return {
         "safe_capture_rate": float(np.mean([row["safe_capture"] for row in outcomes])),
         "capture_rate": float(np.mean([row["capture"] for row in outcomes])),
@@ -167,6 +234,9 @@ def write_artifacts(
     environment: dict[str, Any],
     settings: dict[str, Any],
     device: torch.device,
+    prediction_checkpoint: Path | None = None,
+    prediction_history_length: int | None = None,
+    prediction_horizon_index: int | None = None,
 ) -> None:
     output.joinpath("config.yaml").write_text(
         yaml.safe_dump({"imitation_document": document, "effective_imitation": settings, "environment": environment}),
@@ -186,9 +256,23 @@ def write_artifacts(
         + "\n",
         encoding="utf-8",
     )
+    if prediction_checkpoint is not None:
+        output.joinpath("prediction_protocol.json").write_text(
+            json.dumps(
+                {
+                    "checkpoint": str(prediction_checkpoint.resolve()),
+                    "checkpoint_sha256": hashlib.sha256(prediction_checkpoint.read_bytes()).hexdigest(),
+                    "history_length": int(prediction_history_length) if prediction_history_length is not None else None,
+                    "horizon_index": int(prediction_horizon_index) if prediction_horizon_index is not None else None,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     source_paths = [
         PROJECT_ROOT / "scripts" / "train_capture_radius_behavior_cloning.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "learning.py",
+        PROJECT_ROOT / "src" / "encirclement3d" / "prediction.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_env.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_controllers.py",
     ]
@@ -211,13 +295,33 @@ def train(args: argparse.Namespace) -> None:
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output}")
     output.mkdir(parents=True, exist_ok=True)
     device = select_device(str(settings["device"]))
+    prediction_checkpoint = args.prediction_checkpoint.resolve() if args.prediction_checkpoint is not None else None
+    if args.prediction_history_length <= 0 or args.prediction_horizon_index < 0:
+        raise ValueError("Prediction history length must be positive and horizon index must be non-negative.")
+    prediction_model = load_prediction_model(prediction_checkpoint, device) if prediction_checkpoint is not None else None
     np.random.seed(int(settings["seed"]))
     torch.manual_seed(int(settings["seed"]))
     if device.type == "cuda":
         torch.cuda.manual_seed_all(int(settings["seed"]))
-    write_artifacts(output, document, config, settings, device)
+    write_artifacts(
+        output,
+        document,
+        config,
+        settings,
+        device,
+        prediction_checkpoint=prediction_checkpoint,
+        prediction_history_length=args.prediction_history_length if prediction_checkpoint is not None else None,
+        prediction_horizon_index=args.prediction_horizon_index if prediction_checkpoint is not None else None,
+    )
 
-    local_data, expert_actions, manifest, centralized_state_dim = collect_expert_dataset(config, settings)
+    local_data, expert_actions, manifest, centralized_state_dim = collect_expert_dataset(
+        config,
+        settings,
+        device,
+        prediction_model=prediction_model,
+        prediction_history_length=args.prediction_history_length,
+        prediction_horizon_index=args.prediction_horizon_index,
+    )
     np.savez_compressed(output / "expert_dataset.npz", local_observations=local_data, actions=expert_actions)
     output.joinpath("expert_dataset_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     action_scale = float(config["agents"]["defender_max_speed"]) / np.sqrt(3.0)
@@ -254,6 +358,9 @@ def train(args: argparse.Namespace) -> None:
                 seed_offset=880_000,
                 device=device,
                 action_scale=action_scale,
+                prediction_model=prediction_model,
+                prediction_history_length=args.prediction_history_length,
+                prediction_horizon_index=args.prediction_horizon_index,
             )
             record = {"epoch": epoch + 1, "action_mse": float(np.mean(epoch_losses)), **evaluation}
             history.append(record)
@@ -275,6 +382,9 @@ def train(args: argparse.Namespace) -> None:
         seed_offset=990_000,
         device=device,
         action_scale=action_scale,
+        prediction_model=prediction_model,
+        prediction_history_length=args.prediction_history_length,
+        prediction_horizon_index=args.prediction_horizon_index,
     )
     output.joinpath("evaluation.json").write_text(json.dumps(final_evaluation, indent=2), encoding="utf-8")
     torch.save(
@@ -285,6 +395,9 @@ def train(args: argparse.Namespace) -> None:
             "action_scale": float(action_scale),
             "seed": int(settings["seed"]),
             "algorithm": "behavior_cloning_local_rule_expert",
+            "prediction_checkpoint": str(prediction_checkpoint) if prediction_checkpoint is not None else None,
+            "prediction_history_length": args.prediction_history_length if prediction_checkpoint is not None else None,
+            "prediction_horizon_index": args.prediction_horizon_index if prediction_checkpoint is not None else None,
         },
         output / "checkpoint.pt",
     )

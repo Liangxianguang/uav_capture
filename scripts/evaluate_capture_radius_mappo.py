@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from encirclement3d.learning import CentralizedSharedActorCritic
+from encirclement3d.prediction import HistoryTargetPredictor, LearnedPredictionObserver
 from encirclement3d.pursuit_controllers import PursuitCBFSafetyFilter
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 
@@ -37,6 +38,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episodes", type=int, required=True, help="Episodes per configured scenario.")
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument("--use-cbf", action="store_true", help="Apply the local-information CBF execution filter.")
+    parser.add_argument("--prediction-checkpoint", type=Path, help="Optional frozen GRU predictor checkpoint.")
+    parser.add_argument("--prediction-history-length", type=int, default=8)
+    parser.add_argument("--prediction-horizon-index", type=int, default=2)
     return parser.parse_args()
 
 
@@ -76,6 +80,20 @@ def load_policy(
     return policy.eval(), float(checkpoint["action_scale"]), checkpoint
 
 
+def load_prediction_model(checkpoint_path: Path, device: torch.device) -> HistoryTargetPredictor:
+    resolved = checkpoint_path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Prediction checkpoint does not exist: {resolved}")
+    checkpoint = torch.load(resolved, map_location="cpu", weights_only=True)
+    model_config = checkpoint.get("model")
+    state_dict = checkpoint.get("model_state_dict")
+    if not isinstance(model_config, dict) or not isinstance(state_dict, dict):
+        raise ValueError("Prediction checkpoint must contain model and model_state_dict.")
+    model = HistoryTargetPredictor(**model_config)
+    model.load_state_dict(state_dict, strict=True)
+    return model.to(device).eval()
+
+
 def rollout_episode(
     policy: CentralizedSharedActorCritic,
     config: dict[str, Any],
@@ -86,16 +104,35 @@ def rollout_episode(
     action_scale: float,
     use_cbf: bool,
     record_history: bool,
+    prediction_model: HistoryTargetPredictor | None = None,
+    prediction_history_length: int = 8,
+    prediction_horizon_index: int = 2,
 ) -> tuple[dict[str, Any], CaptureRadiusPursuit3DEnv]:
     env = CaptureRadiusPursuit3DEnv(config, obstacle_count=obstacle_count, target_speed_scale=target_speed_scale)
     observation = env.reset(seed=seed, record_history=record_history)
     safety_filter = PursuitCBFSafetyFilter(env) if use_cbf else None
+    prediction_observer = (
+        LearnedPredictionObserver(
+            env,
+            prediction_model,
+            device,
+            history_length=prediction_history_length,
+            horizon_index=prediction_horizon_index,
+        )
+        if prediction_model is not None
+        else None
+    )
+    local_observation = (
+        prediction_observer.reset(observation)
+        if prediction_observer is not None
+        else env.policy_observations(observation)
+    )
     visible_fractions: list[float] = []
     message_ages: list[float] = []
     final_info: dict[str, Any] = {}
     with torch.no_grad():
         while True:
-            local = torch.as_tensor(env.policy_observations(observation), device=device)
+            local = torch.as_tensor(local_observation, device=device)
             action = torch.tanh(policy.distribution(local).mean).cpu().numpy() * action_scale
             if safety_filter is not None:
                 action, _diagnostics = safety_filter.filter(action, observation)
@@ -104,6 +141,11 @@ def rollout_episode(
             message_ages.append(float(final_info["mean_message_age_steps"]))
             if terminated or truncated:
                 break
+            local_observation = (
+                prediction_observer.observe(observation)
+                if prediction_observer is not None
+                else env.policy_observations(observation)
+            )
     return (
         {
             "seed": seed,
@@ -174,7 +216,13 @@ def save_trajectory(env: CaptureRadiusPursuit3DEnv, path: Path) -> None:
     )
 
 
-def write_artifacts(output: Path, config: dict[str, Any], checkpoint: Path, args: argparse.Namespace) -> None:
+def write_artifacts(
+    output: Path,
+    config: dict[str, Any],
+    checkpoint: Path,
+    args: argparse.Namespace,
+    prediction_checkpoint: Path | None = None,
+) -> None:
     output.joinpath("config.yaml").write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     output.joinpath("evaluation_protocol.json").write_text(
         json.dumps(
@@ -187,6 +235,14 @@ def write_artifacts(output: Path, config: dict[str, Any], checkpoint: Path, args
                 "seed": args.seed,
                 "episodes_per_scenario": args.episodes,
                 "use_local_cbf_execution_filter": bool(args.use_cbf),
+                "prediction_checkpoint": str(prediction_checkpoint.resolve()) if prediction_checkpoint is not None else None,
+                "prediction_checkpoint_sha256": (
+                    hashlib.sha256(prediction_checkpoint.read_bytes()).hexdigest()
+                    if prediction_checkpoint is not None
+                    else None
+                ),
+                "prediction_history_length": args.prediction_history_length if prediction_checkpoint is not None else None,
+                "prediction_horizon_index": args.prediction_horizon_index if prediction_checkpoint is not None else None,
             },
             indent=2,
         ),
@@ -208,6 +264,7 @@ def write_artifacts(output: Path, config: dict[str, Any], checkpoint: Path, args
     source_paths = [
         PROJECT_ROOT / "scripts" / "evaluate_capture_radius_mappo.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "learning.py",
+        PROJECT_ROOT / "src" / "encirclement3d" / "prediction.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_env.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_controllers.py",
         PROJECT_ROOT / "scripts" / "render_capture_radius_trajectory.py",
@@ -228,6 +285,8 @@ def main() -> None:
     args = parse_args()
     if args.episodes <= 0:
         raise ValueError("--episodes must be positive.")
+    if args.prediction_history_length <= 0 or args.prediction_horizon_index < 0:
+        raise ValueError("Prediction history length must be positive and horizon index must be non-negative.")
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     output = args.output
     if output.exists() and any(output.iterdir()):
@@ -235,9 +294,13 @@ def main() -> None:
     checkpoint = args.checkpoint.resolve()
     if not checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
+    prediction_checkpoint = args.prediction_checkpoint.resolve() if args.prediction_checkpoint is not None else None
+    if prediction_checkpoint is not None and not prediction_checkpoint.is_file():
+        raise FileNotFoundError(f"Prediction checkpoint does not exist: {prediction_checkpoint}")
     output.mkdir(parents=True, exist_ok=True)
-    write_artifacts(output, config, checkpoint, args)
     device = select_device(args.device)
+    prediction_model = load_prediction_model(prediction_checkpoint, device) if prediction_checkpoint is not None else None
+    write_artifacts(output, config, checkpoint, args, prediction_checkpoint=prediction_checkpoint)
 
     first_experiment = config["experiments"][0]
     prototype = CaptureRadiusPursuit3DEnv(
@@ -267,6 +330,9 @@ def main() -> None:
                 action_scale=action_scale,
                 use_cbf=bool(args.use_cbf),
                 record_history=episode_index == 0,
+                prediction_model=prediction_model,
+                prediction_history_length=args.prediction_history_length,
+                prediction_horizon_index=args.prediction_horizon_index,
             )
             row["scenario"] = str(experiment["name"])
             rows.append(row)

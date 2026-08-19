@@ -4,7 +4,10 @@ param(
     [string]$Output = "",
     [int]$Seed = 521001,
     [ValidateSet("auto", "cuda", "cpu")]
-    [string]$Device = "cuda"
+    [string]$Device = "cuda",
+    [string]$PredictionCheckpoint = "",
+    [int]$PredictionHistoryLength = 8,
+    [int]$PredictionHorizonIndex = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,6 +22,13 @@ $Arguments = @(
     "scripts/train_capture_radius_behavior_cloning.py", "--config", $Config,
     "--output", $Output, "--seed", $Seed, "--device", $Device
 )
+if (-not [string]::IsNullOrWhiteSpace($PredictionCheckpoint)) {
+    $Arguments += @(
+        "--prediction-checkpoint", $PredictionCheckpoint,
+        "--prediction-history-length", $PredictionHistoryLength,
+        "--prediction-horizon-index", $PredictionHorizonIndex
+    )
+}
 & conda run @Arguments
 if ($LASTEXITCODE -ne 0) {
     throw "Capture-radius behavior cloning failed with exit code $LASTEXITCODE."

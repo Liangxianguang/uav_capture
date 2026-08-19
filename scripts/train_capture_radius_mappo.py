@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from encirclement3d.learning import CentralizedSharedActorCritic
+from encirclement3d.prediction import HistoryTargetPredictor, LearnedPredictionObserver
 from encirclement3d.pursuit_controllers import PursuitCBFSafetyFilter
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 
@@ -39,6 +40,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--total-steps", type=int)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"))
     parser.add_argument("--initialize-from", type=Path, help="Optional behavior-cloning checkpoint for actor warm start.")
+    parser.add_argument("--prediction-checkpoint", type=Path, help="Optional frozen GRU predictor checkpoint.")
+    parser.add_argument("--prediction-history-length", type=int, default=8)
+    parser.add_argument("--prediction-horizon-index", type=int, default=2)
     return parser.parse_args()
 
 
@@ -105,6 +109,20 @@ def cuda_details(device: torch.device) -> dict[str, Any]:
     return details
 
 
+def load_prediction_model(checkpoint_path: Path, device: torch.device) -> HistoryTargetPredictor:
+    resolved = checkpoint_path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Prediction checkpoint does not exist: {resolved}")
+    checkpoint = torch.load(resolved, map_location="cpu", weights_only=True)
+    model_config = checkpoint.get("model")
+    state_dict = checkpoint.get("model_state_dict")
+    if not isinstance(model_config, dict) or not isinstance(state_dict, dict):
+        raise ValueError("Prediction checkpoint must contain model and model_state_dict.")
+    model = HistoryTargetPredictor(**model_config)
+    model.load_state_dict(state_dict, strict=True)
+    return model.to(device).eval()
+
+
 def reset_training_episode(
     env: CaptureRadiusPursuit3DEnv,
     settings: dict[str, Any],
@@ -124,6 +142,9 @@ def evaluate(
     device: torch.device,
     action_scale: float,
     use_safety_filter: bool = False,
+    prediction_model: HistoryTargetPredictor | None = None,
+    prediction_history_length: int = 8,
+    prediction_horizon_index: int = 2,
 ) -> dict[str, float]:
     policy.eval()
     outcomes: list[dict[str, float | bool]] = []
@@ -136,13 +157,29 @@ def evaluate(
                     target_speed_scale=float(experiment["target_speed_scale"]),
                 )
                 observation = env.reset(seed=seed_offset + scenario_index * 10_000 + episode_index)
+                prediction_observer = (
+                    LearnedPredictionObserver(
+                        env,
+                        prediction_model,
+                        device,
+                        history_length=prediction_history_length,
+                        horizon_index=prediction_horizon_index,
+                    )
+                    if prediction_model is not None
+                    else None
+                )
+                local = (
+                    prediction_observer.reset(observation)
+                    if prediction_observer is not None
+                    else env.policy_observations(observation)
+                )
                 safety_filter = PursuitCBFSafetyFilter(env) if use_safety_filter else None
                 while True:
-                    local = torch.as_tensor(env.policy_observations(observation), device=device)
-                    actions = torch.tanh(policy.distribution(local).mean).cpu().numpy() * action_scale
+                    local_tensor = torch.as_tensor(local, device=device)
+                    actions = torch.tanh(policy.distribution(local_tensor).mean).cpu().numpy() * action_scale
                     if safety_filter is not None:
                         actions, _diagnostics = safety_filter.filter(actions, observation)
-                    observation, _reward, terminated, truncated, info = env.step(actions)
+                    next_observation, _reward, terminated, truncated, info = env.step(actions)
                     if terminated or truncated:
                         outcomes.append(
                             {
@@ -155,6 +192,12 @@ def evaluate(
                             }
                         )
                         break
+                    observation = next_observation
+                    local = (
+                        prediction_observer.observe(observation)
+                        if prediction_observer is not None
+                        else env.policy_observations(observation)
+                    )
     return {
         "safe_capture_rate": sum(bool(row["success"]) for row in outcomes) / len(outcomes),
         "capture_rate": sum(bool(row["capture"]) for row in outcomes) / len(outcomes),
@@ -169,11 +212,67 @@ def write_artifacts(
     environment: dict[str, Any],
     settings: dict[str, Any],
     device: torch.device,
+    prediction_checkpoint: Path | None = None,
+    prediction_history_length: int | None = None,
+    prediction_horizon_index: int | None = None,
 ) -> None:
     output.joinpath("config.yaml").write_text(
         yaml.safe_dump(
             {"training_document": document, "effective_training": settings, "environment": environment},
             sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    if prediction_checkpoint is not None:
+        output.joinpath("prediction_protocol.json").write_text(
+            json.dumps(
+                {
+                    "checkpoint": str(prediction_checkpoint.resolve()),
+                    "checkpoint_sha256": hashlib.sha256(prediction_checkpoint.read_bytes()).hexdigest(),
+                    "history_length": int(prediction_history_length) if prediction_history_length is not None else None,
+                    "horizon_index": int(prediction_horizon_index) if prediction_horizon_index is not None else None,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    pip_freeze = subprocess.run(
+        [sys.executable, "-m", "pip", "freeze"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    output.joinpath("environment.txt").write_text(
+        "\n".join(
+            [
+                f"python={sys.version.replace(chr(10), ' ')}",
+                f"platform={platform.platform()}",
+                f"numpy={version('numpy')}",
+                f"torch={version('torch')}",
+                f"tensorboard={version('tensorboard')}",
+                f"device={device}",
+                *[f"{key}={value}" for key, value in cuda_details(device).items()],
+                "",
+                "pip_freeze:",
+                pip_freeze.rstrip(),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    source_paths = [
+        PROJECT_ROOT / "scripts" / "train_capture_radius_mappo.py",
+        PROJECT_ROOT / "src" / "encirclement3d" / "learning.py",
+        PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_env.py",
+        PROJECT_ROOT / "src" / "encirclement3d" / "prediction.py",
+    ]
+    output.joinpath("source_hashes.json").write_text(
+        json.dumps(
+            {
+                str(path.relative_to(PROJECT_ROOT)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in source_paths
+            },
+            indent=2,
         ),
         encoding="utf-8",
     )
@@ -227,42 +326,6 @@ def initialize_actor(
         "source_seed": checkpoint.get("seed"),
         "warm_start_log_std": warm_start_log_std,
     }
-    pip_freeze = subprocess.run([sys.executable, "-m", "pip", "freeze"], capture_output=True, text=True, check=True).stdout
-    output.joinpath("environment.txt").write_text(
-        "\n".join(
-            [
-                f"python={sys.version.replace(chr(10), ' ')}",
-                f"platform={platform.platform()}",
-                f"numpy={version('numpy')}",
-                f"torch={version('torch')}",
-                f"tensorboard={version('tensorboard')}",
-                f"device={device}",
-                *[f"{key}={value}" for key, value in cuda_details(device).items()],
-                "",
-                "pip_freeze:",
-                pip_freeze.rstrip(),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    source_paths = [
-        PROJECT_ROOT / "scripts" / "train_capture_radius_mappo.py",
-        PROJECT_ROOT / "src" / "encirclement3d" / "learning.py",
-        PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_env.py",
-    ]
-    output.joinpath("source_hashes.json").write_text(
-        json.dumps(
-            {
-                str(path.relative_to(PROJECT_ROOT)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in source_paths
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-
 def train(args: argparse.Namespace) -> None:
     document, config, settings = load_configuration(args)
     output = args.output
@@ -270,7 +333,19 @@ def train(args: argparse.Namespace) -> None:
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output}")
     output.mkdir(parents=True, exist_ok=True)
     device = select_device(str(settings["device"]))
-    write_artifacts(output, document, config, settings, device)
+    prediction_checkpoint = args.prediction_checkpoint.resolve() if args.prediction_checkpoint is not None else None
+    if args.prediction_history_length <= 0 or args.prediction_horizon_index < 0:
+        raise ValueError("Prediction history length must be positive and horizon index must be non-negative.")
+    write_artifacts(
+        output,
+        document,
+        config,
+        settings,
+        device,
+        prediction_checkpoint=prediction_checkpoint,
+        prediction_history_length=args.prediction_history_length if prediction_checkpoint is not None else None,
+        prediction_horizon_index=args.prediction_horizon_index if prediction_checkpoint is not None else None,
+    )
 
     seed = int(settings["seed"])
     rng = np.random.default_rng(seed)
@@ -288,7 +363,24 @@ def train(args: argparse.Namespace) -> None:
         target_speed_scale=float(settings["training_target_speed_scales"][0]),
     )
     observation = reset_training_episode(env, settings, rng, seed)
-    local_observation_dim = int(env.policy_observations(observation).shape[-1])
+    prediction_model = load_prediction_model(prediction_checkpoint, device) if prediction_checkpoint is not None else None
+    prediction_observer = (
+        LearnedPredictionObserver(
+            env,
+            prediction_model,
+            device,
+            history_length=args.prediction_history_length,
+            horizon_index=args.prediction_horizon_index,
+        )
+        if prediction_model is not None
+        else None
+    )
+    local_observation = (
+        prediction_observer.reset(observation)
+        if prediction_observer is not None
+        else env.policy_observations(observation)
+    )
+    local_observation_dim = int(local_observation.shape[-1])
     centralized_state_dim = int(env.centralized_state().shape[-1])
     action_scale = float(config["agents"]["defender_max_speed"]) / np.sqrt(3.0)
     policy = CentralizedSharedActorCritic(
@@ -337,7 +429,7 @@ def train(args: argparse.Namespace) -> None:
             policy.train()
 
             for _ in range(min(int(settings["rollout_steps"]), total_steps - steps_completed)):
-                local = env.policy_observations(observation)
+                local = local_observation
                 centralized_state = env.centralized_state()
                 with torch.no_grad():
                     local_tensor = torch.as_tensor(local, device=device)
@@ -362,6 +454,17 @@ def train(args: argparse.Namespace) -> None:
                     current_episode_return = 0.0
                     episode_seed += 1
                     observation = reset_training_episode(env, settings, rng, episode_seed)
+                    local_observation = (
+                        prediction_observer.reset(observation)
+                        if prediction_observer is not None
+                        else env.policy_observations(observation)
+                    )
+                else:
+                    local_observation = (
+                        prediction_observer.observe(observation)
+                        if prediction_observer is not None
+                        else env.policy_observations(observation)
+                    )
 
             with torch.no_grad():
                 next_value = float(
@@ -441,6 +544,9 @@ def train(args: argparse.Namespace) -> None:
                     device=device,
                     action_scale=action_scale,
                     use_safety_filter=bool(settings.get("evaluation_use_cbf", False)),
+                    prediction_model=prediction_model,
+                    prediction_history_length=args.prediction_history_length,
+                    prediction_horizon_index=args.prediction_horizon_index,
                 )
             mean_losses = {name: float(np.mean([item[name] for item in losses])) for name in losses[0]}
             record = {
@@ -474,6 +580,9 @@ def train(args: argparse.Namespace) -> None:
         device=device,
         action_scale=action_scale,
         use_safety_filter=bool(settings.get("evaluation_use_cbf", False)),
+        prediction_model=prediction_model,
+        prediction_history_length=args.prediction_history_length,
+        prediction_horizon_index=args.prediction_horizon_index,
     )
     output.joinpath("evaluation.json").write_text(json.dumps(final_evaluation, indent=2), encoding="utf-8")
     torch.save(
@@ -484,6 +593,9 @@ def train(args: argparse.Namespace) -> None:
             "action_scale": float(action_scale),
             "seed": seed,
             "algorithm": "mappo_ctde",
+            "prediction_checkpoint": str(prediction_checkpoint) if prediction_checkpoint is not None else None,
+            "prediction_horizon_index": args.prediction_horizon_index if prediction_checkpoint is not None else None,
+            "prediction_history_length": args.prediction_history_length if prediction_checkpoint is not None else None,
         },
         output / "checkpoint.pt",
     )

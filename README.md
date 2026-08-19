@@ -129,3 +129,11 @@ summarized in `results/PREDICTION_STAGE3_BASELINE_REPORT.md`.
 The standalone GRU predictor and its locked-test result are documented in
 `results/PREDICTION_GRU_STAGE3_REPORT.md`; this is still an offline prediction
 result and has not yet been counted as a capture-rate improvement.
+
+The first policy-level Stage 3B pilot is documented in
+`results/PREDICTION_POLICY_STAGE3_PILOT_REPORT.md`. It compares no prediction,
+constant-velocity prediction, and frozen GRU prediction with both raw actions
+and the local CBF execution filter. The pilot uses one training seed and 90
+locked episodes per method, so it validates the online interface and ablation
+protocol but is not the final multi-seed claim. Recurrent-MAPPO remains a later
+Stage 3C task.

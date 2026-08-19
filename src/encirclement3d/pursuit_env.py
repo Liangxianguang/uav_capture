@@ -463,6 +463,21 @@ class CaptureRadiusPursuit3DEnv:
             raise RuntimeError("Partial observation encoder emitted a non-finite value.")
         return values
 
+    def prediction_feature_slice(self) -> slice:
+        """Return the four-column prediction block in the actor observation.
+
+        The block is deliberately fixed-width: three relative predicted
+        position values followed by one scalar uncertainty. A learned
+        predictor can replace this block without changing the frozen actor
+        input dimension.
+        """
+        if not bool(self.pursuit["include_prediction_features"]):
+            raise ValueError("Prediction features are disabled in this environment configuration.")
+        start = 3 + 3 + 3 + 2
+        if bool(self.pursuit["include_uncertainty_features"]):
+            start += 4
+        return slice(start, start + 4)
+
     def step(
         self,
         defender_actions: np.ndarray,
