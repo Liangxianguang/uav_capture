@@ -91,6 +91,24 @@ Evaluate a frozen policy on a new output directory:
   -Seed 610001 -Episodes 100 -Device cpu -UseCbf
 ```
 
+Replay one formal F1/F2 checkpoint and export a trajectory plus an animated
+GIF (and a final PNG frame):
+
+```powershell
+python scripts/replay_capture_radius_checkpoint.py `
+  --method f2 `
+  --checkpoint F:/path/to/f2/recurrent_mappo/checkpoint.pt `
+  --condition delayed_measurements `
+  --seed 642002 `
+  --use-cbf `
+  --output-dir results/stage4_visualizations/f2_delayed_seed642002_cbf
+```
+
+The renderer uses a dependency-light axonometric 3D projection, so it also
+works when the local Matplotlib installation cannot create a window. It writes
+`trajectory.npz`, `episode.json`, `capture_*.gif`, and `capture_*.png`; MP4 is
+added automatically when an `ffmpeg` executable is available.
+
 TensorBoard:
 
 ```powershell
