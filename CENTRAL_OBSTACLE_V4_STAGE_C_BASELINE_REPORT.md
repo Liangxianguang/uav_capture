@@ -97,6 +97,27 @@ The aborted local directory `results/central_v4/bc_seed660701` is retained as
 an excluded diagnostic artifact and must not be used as a checkpoint or an
 expert dataset.
 
+## First Corrected BC Run
+
+The corrected run `results/central_v4/bc_seed660701_v4sensor` used the frozen
+sensor contract and completed all 24 BC epochs. Its 320 expert episodes were
+all safe captures with no collisions: cylinder `96/96`, cylinder-plus-box
+`112/112`, and mixed `112/112`. The expert data therefore passes the C3 data
+quality gate.
+
+The learned actor does not yet pass the policy gate. On frozen S2 (20 episodes,
+seeds 660301-660320), raw actions achieved `0/20` cooperative safe captures
+with `20/20` collisions. CBF actions prevented all collisions but achieved
+only `1/20` (5%) cooperative safe captures. This is not a MAPPO initialization
+candidate. The training action MSE was still decreasing but finished at `0.824`
+after 24 epochs, versus `0.699` for the older BC run.
+
+The next experiment is a BC optimization pilot on this same frozen dataset
+distribution: increase fitting time before changing task difficulty, confirm
+S2 raw and CBF results first, then run the three S1 layouts only after S2 is
+stable. MAPPO, S3 random maps, higher target speed, target crossing, and
+execution-dynamics randomization remain blocked until this gate is passed.
+
 ## Required Gate Before MAPPO
 
 1. Generate a new expert dataset and verify its manifest reports high safe
