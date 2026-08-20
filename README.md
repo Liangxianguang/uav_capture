@@ -104,10 +104,12 @@ python scripts/replay_capture_radius_checkpoint.py `
   --output-dir results/stage4_visualizations/f2_delayed_seed642002_cbf
 ```
 
-The renderer uses a dependency-light axonometric 3D projection, so it also
-works when the local Matplotlib installation cannot create a window. It writes
-`trajectory.npz`, `episode.json`, `capture_*.gif`, and `capture_*.png`; MP4 is
-added automatically when an `ffmpeg` executable is available.
+The renderer uses a dependency-light paper-style top-down map with a dark grid,
+solid obstacle footprints, capture-radius rings, labeled defenders, and an
+altitude profile. It writes `trajectory.npz`, `episode.json`,
+`capture_*.gif`, and `capture_*.png`; MP4 is added automatically when an
+`ffmpeg` executable is available. In the GPU Conda environment, install it
+with `conda install -n uav-encirclement-gpu -c conda-forge ffmpeg`.
 
 TensorBoard:
 

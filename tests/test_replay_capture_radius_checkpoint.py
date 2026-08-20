@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
-from scripts.replay_capture_radius_checkpoint import METHOD_CONFIGS, make_config, render_animation
+from scripts.replay_capture_radius_checkpoint import METHOD_CONFIGS, find_ffmpeg, make_config, render_animation
 
 
 def test_replay_renderer_has_f1_and_f2_configs() -> None:
@@ -39,3 +41,8 @@ def test_replay_renderer_exports_gif_and_final_png(tmp_path) -> None:
     assert media["frames"] == 2
     assert (tmp_path / "capture_cbf.gif").is_file()
     assert (tmp_path / "capture_cbf.png").is_file()
+
+
+def test_replay_renderer_can_find_conda_ffmpeg() -> None:
+    resolved = find_ffmpeg()
+    assert resolved is None or Path(resolved).is_file()

@@ -4,6 +4,7 @@ channels:
 dependencies:
   - python=3.11
   - pybullet=3.25
+  - ffmpeg=4.3.1
   - pip
   - pip:
       - --extra-index-url https://download.pytorch.org/whl/cu126

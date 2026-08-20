@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 import yaml
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -69,6 +69,17 @@ def make_config(method: str, condition_name: str) -> tuple[dict[str, Any], dict[
     return config, condition
 
 
+def find_ffmpeg() -> str | None:
+    """Find FFmpeg on PATH or in the active Conda environment."""
+    executable = shutil.which("ffmpeg")
+    if executable:
+        return executable
+    for candidate in (Path(sys.prefix) / "Library" / "bin" / "ffmpeg.exe", Path(sys.prefix) / "bin" / "ffmpeg"):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def render_animation(
     trajectory_path: Path,
     output_dir: Path,
@@ -89,44 +100,157 @@ def render_animation(
     if frame_indices[-1] != len(target) - 1:
         frame_indices = np.append(frame_indices, len(target) - 1)
 
-    colors = ((40, 120, 220), (240, 150, 35), (35, 170, 95), (220, 65, 65))
-    width, height_px = 1000, 760
+    colors = ((32, 205, 245), (255, 174, 54), (123, 231, 94), (192, 130, 255))
+    target_color = (255, 74, 94)
+    width, height_px = 1280, 760
     extent = float(data["world_half_extent"])
     world_height = float(data["world_height"])
-    scale = min(30.0, 0.44 * width / max(1.0, extent * 2.0))
-    def project(point: np.ndarray) -> tuple[int, int]:
-        x, y, z = (float(point[0]), float(point[1]), float(point[2]))
-        return (int(width * 0.50 + scale * 0.82 * (x - y)), int(height_px * 0.60 + scale * (0.30 * (x + y) - 0.95 * z)))
+    capture_radius = float(data["capture_radius"])
+    nearest_distances = np.min(np.linalg.norm(defenders - target[:, None, :], axis=2), axis=1)
+    min_clearance = result.get("min_clearance_m")
+    map_box = (36, 102, 704, 696)
+    panel_box = (730, 102, 1244, 696)
+    map_width = map_box[2] - map_box[0]
+    map_height = map_box[3] - map_box[1]
+    map_scale = min(map_width, map_height) / max(1.0, 2.0 * extent)
+
+    def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        candidates = (
+            "C:/Windows/Fonts/segoeuib.ttf" if bold else "C:/Windows/Fonts/segoeui.ttf",
+            "C:/Windows/Fonts/arialbd.ttf" if bold else "C:/Windows/Fonts/arial.ttf",
+        )
+        for candidate in candidates:
+            try:
+                return ImageFont.truetype(candidate, size)
+            except OSError:
+                continue
+        return ImageFont.load_default()
+
+    f_title, f_subtitle = font(25, True), font(13)
+    f_section, f_metric, f_small = font(15, True), font(18, True), font(12)
+
+    def world_to_map(point: np.ndarray) -> tuple[int, int]:
+        x, y = float(point[0]), float(point[1])
+        px = map_box[0] + (x + extent) / (2.0 * extent) * map_width
+        py = map_box[3] - (y + extent) / (2.0 * extent) * map_height
+        return int(px), int(py)
+
     def draw_frame(index: int) -> Image.Image:
-        image = Image.new("RGB", (width, height_px), (247, 249, 252))
+        image = Image.new("RGBA", (width, height_px), (11, 17, 27, 255))
         draw = ImageDraw.Draw(image, "RGBA")
-        origin = project(np.array([0.0, 0.0, 0.0]))
-        draw.line((origin[0] - 260, origin[1], origin[0] + 260, origin[1]), fill=(180, 190, 200, 150), width=1)
-        draw.line((origin[0], origin[1] - 220, origin[0], origin[1] + 40), fill=(180, 190, 200, 150), width=1)
+        draw.rectangle((0, 0, width, 74), fill=(16, 25, 39, 255))
+        draw.line((0, 74, width, 74), fill=(54, 73, 96, 210), width=1)
+        draw.text((34, 17), "3D COOPERATIVE PURSUIT", font=f_title, fill=(239, 246, 255, 255))
+        draw.text((36, 50), "PARTIALLY OBSERVABLE  /  LOCKED CHECKPOINT REPLAY", font=f_subtitle, fill=(139, 164, 193, 255))
+        draw.text((width - 350, 25), title.upper(), font=f_section, fill=(113, 222, 255, 255))
+
+        draw.rounded_rectangle(map_box, radius=8, fill=(20, 30, 44, 255), outline=(68, 92, 119, 255), width=1)
+        draw.rounded_rectangle(panel_box, radius=8, fill=(20, 30, 44, 255), outline=(68, 92, 119, 255), width=1)
+        grid_color = (101, 125, 151, 90)
+        for coordinate in np.linspace(-extent, extent, 9):
+            a = world_to_map(np.array([coordinate, -extent, 0.0]))
+            b = world_to_map(np.array([coordinate, extent, 0.0]))
+            c = world_to_map(np.array([-extent, coordinate, 0.0]))
+            d = world_to_map(np.array([extent, coordinate, 0.0]))
+            draw.line((a[0], a[1], b[0], b[1]), fill=grid_color, width=1)
+            draw.line((c[0], c[1], d[0], d[1]), fill=grid_color, width=1)
+        origin = world_to_map(np.zeros(3))
+        draw.line((map_box[0], origin[1], map_box[2], origin[1]), fill=(187, 210, 235, 145), width=1)
+        draw.line((origin[0], map_box[1], origin[0], map_box[3]), fill=(187, 210, 235, 145), width=1)
+        draw.text((map_box[2] - 20, origin[1] + 7), "x", font=f_small, fill=(185, 210, 237, 220))
+        draw.text((origin[0] + 8, map_box[1] + 5), "y", font=f_small, fill=(185, 210, 237, 220))
+
         for center, radius, obstacle_height in zip(centers, radii, heights, strict=True):
-            base = project(np.array([center[0], center[1], 0.0]))
-            top = project(np.array([center[0], center[1], obstacle_height]))
-            rx, ry = max(6, int(scale * radius * 0.82)), max(3, int(scale * radius * 0.30))
-            draw.polygon([(base[0]-rx, base[1]), (base[0]+rx, base[1]), (top[0]+rx, top[1]), (top[0]-rx, top[1])], fill=(100, 110, 125, 55), outline=(90, 100, 115, 170))
-            draw.ellipse((top[0]-rx, top[1]-ry, top[0]+rx, top[1]+ry), fill=(110, 120, 135, 90), outline=(80, 90, 105, 180))
+            px, py = world_to_map(np.array([center[0], center[1], 0.0]))
+            obstacle_px = max(8, int(float(radius) * map_scale))
+            shadow = (px + 7, py + 8, px + 2 * obstacle_px + 7, py + 2 * obstacle_px + 8)
+            draw.ellipse(shadow, fill=(35, 47, 62, 255))
+            draw.ellipse((px - obstacle_px, py - obstacle_px, px + obstacle_px, py + obstacle_px), fill=(75, 92, 114, 255), outline=(166, 183, 205, 255), width=2)
+            draw.ellipse((px - obstacle_px + 4, py - obstacle_px + 4, px + obstacle_px - 4, py + obstacle_px - 4), outline=(132, 155, 181, 125), width=1)
+            draw.text((px + obstacle_px + 5, py - 7), f"h={float(obstacle_height):.1f}", font=f_small, fill=(170, 190, 215, 190))
+
         for defender_index in range(defenders.shape[1]):
-            pts = [project(p) for p in defenders[: index + 1, defender_index]]
-            if len(pts) > 1: draw.line(pts, fill=colors[defender_index % len(colors)] + (190,), width=3)
-        target_pts = [project(p) for p in target[: index + 1]]
-        if len(target_pts) > 1: draw.line(target_pts, fill=(20, 20, 20, 210), width=4)
-        target_xy = project(target[index])
-        capture_px = max(8, int(scale * float(data["capture_radius"])))
-        draw.ellipse((target_xy[0]-capture_px, target_xy[1]-max(4, capture_px//3), target_xy[0]+capture_px, target_xy[1]+max(4, capture_px//3)), outline=(235, 180, 20, 210), width=2)
+            points = [world_to_map(point) for point in defenders[: index + 1, defender_index]]
+            if len(points) > 1:
+                draw.line(points, fill=colors[defender_index % len(colors)] + (150,), width=3)
+        target_points = [world_to_map(point) for point in target[: index + 1]]
+        if len(target_points) > 1:
+            draw.line(target_points, fill=target_color + (205,), width=4)
+
+        target_xy = world_to_map(target[index])
+        capture_px = max(10, int(capture_radius * map_scale))
+        ring_color = (91, 235, 190) if result.get("safe_capture_success") and index == len(target) - 1 else (255, 212, 91)
+        draw.ellipse((target_xy[0] - capture_px, target_xy[1] - capture_px, target_xy[0] + capture_px, target_xy[1] + capture_px), outline=ring_color + (240,), width=3)
+        draw.ellipse((target_xy[0] - 16, target_xy[1] - 16, target_xy[0] + 16, target_xy[1] + 16), fill=(255, 255, 255, 28))
+        draw.ellipse((target_xy[0] - 8, target_xy[1] - 8, target_xy[0] + 8, target_xy[1] + 8), fill=target_color + (255,), outline=(255, 235, 240, 255), width=2)
+        draw.line((target_xy[0] - 13, target_xy[1], target_xy[0] + 13, target_xy[1]), fill=(255, 255, 255, 230), width=1)
+        draw.line((target_xy[0], target_xy[1] - 13, target_xy[0], target_xy[1] + 13), fill=(255, 255, 255, 230), width=1)
+        draw.text((target_xy[0] + 13, target_xy[1] - 24), "TARGET", font=f_small, fill=(255, 157, 169, 255))
+
         for defender_index, point in enumerate(defenders[index]):
-            px, py = project(point); r = 7
-            draw.ellipse((px-r, py-r, px+r, py+r), fill=colors[defender_index % len(colors)] + (255,), outline=(255,255,255,255), width=1)
-        tx, ty = target_xy
-        draw.line((tx-8, ty-8, tx+8, ty+8), fill=(15,15,15,255), width=3); draw.line((tx-8, ty+8, tx+8, ty-8), fill=(15,15,15,255), width=3)
-        nearest = float(np.min(np.linalg.norm(defenders[index] - target[index], axis=1)))
-        draw.text((24, 22), title, fill=(20, 30, 45, 255))
-        draw.text((24, 52), f"t = {index * 0.1:.1f} s    nearest distance = {nearest:.2f} m    capture radius = {float(data['capture_radius']):.2f} m", fill=(30, 40, 55, 255))
-        draw.text((width - 220, 24), "blue/orange/green/red: defenders\nblack X: target\ngold ellipse: capture radius", fill=(45, 55, 70, 255))
-        return image
+            px, py = world_to_map(point)
+            color = colors[defender_index % len(colors)]
+            draw.ellipse((px - 13, py - 13, px + 13, py + 13), fill=color + (45,))
+            draw.ellipse((px - 7, py - 7, px + 7, py + 7), fill=color + (255,), outline=(232, 248, 255, 255), width=1)
+            if index > 0:
+                velocity = defenders[index, defender_index, :2] - defenders[index - 1, defender_index, :2]
+                velocity_norm = float(np.linalg.norm(velocity))
+                if velocity_norm > 1e-6:
+                    direction = velocity / velocity_norm
+                    tip = (int(px + direction[0] * 18), int(py - direction[1] * 18))
+                    left = (int(px - direction[1] * 6), int(py - direction[0] * 6))
+                    right = (int(px + direction[1] * 6), int(py + direction[0] * 6))
+                    draw.polygon((tip, left, right), fill=color + (235,))
+            draw.text((px + 12, py + 8), f"D{defender_index + 1}", font=f_small, fill=color + (255,))
+
+        nearest = float(nearest_distances[index])
+        time_seconds = index * 0.1
+        completed = index == len(target) - 1
+        if completed and bool(result.get("safe_capture_success")):
+            status, status_color = "CAPTURE CONFIRMED", (91, 235, 190)
+        elif completed and bool(result.get("collision")):
+            status, status_color = "SAFETY TERMINATED", (255, 108, 120)
+        else:
+            status, status_color = "PURSUIT ACTIVE", (255, 212, 91)
+
+        draw.text((758, 126), "RUN STATUS", font=f_section, fill=(157, 181, 208, 255))
+        draw.rounded_rectangle((756, 153, 1218, 205), radius=7, fill=(30, 51, 61, 255), outline=status_color + (220,), width=1)
+        draw.text((778, 168), status, font=f_metric, fill=status_color + (255,))
+        draw.text((758, 226), f"t = {time_seconds:05.1f} s", font=f_metric, fill=(240, 247, 255, 255))
+        draw.text((758, 257), f"nearest distance     {nearest:5.2f} m", font=f_small, fill=(191, 210, 233, 255))
+        draw.text((758, 280), f"capture radius       {capture_radius:5.2f} m", font=f_small, fill=(191, 210, 233, 255))
+        draw.text((758, 303), f"minimum clearance    {float(min_clearance):5.2f} m" if min_clearance is not None else "minimum clearance    n/a", font=f_small, fill=(191, 210, 233, 255))
+        draw.line((758, 332, 1218, 332), fill=(70, 94, 120, 180), width=1)
+        draw.text((758, 350), "SCENE", font=f_section, fill=(157, 181, 208, 255))
+        draw.text((758, 378), f"defenders             {defenders.shape[1]}", font=f_small, fill=(191, 210, 233, 255))
+        draw.text((758, 401), f"obstacles              {len(centers)}", font=f_small, fill=(191, 210, 233, 255))
+        draw.text((758, 424), f"world                  {2 * extent:.0f} x {2 * extent:.0f} x {world_height:.0f} m", font=f_small, fill=(191, 210, 233, 255))
+
+        chart = (758, 470, 1218, 635)
+        draw.text((758, 448), "ALTITUDE PROFILE", font=f_section, fill=(157, 181, 208, 255))
+        draw.rectangle(chart, fill=(15, 23, 35, 230), outline=(70, 94, 120, 180), width=1)
+        chart_w, chart_h = chart[2] - chart[0], chart[3] - chart[1]
+        for z_value in np.linspace(0.0, world_height, 5):
+            y = chart[3] - int(z_value / max(world_height, 1e-6) * chart_h)
+            draw.line((chart[0], y, chart[2], y), fill=(82, 105, 130, 75), width=1)
+            draw.text((chart[0] + 5, y - 14), f"{z_value:.0f}", font=f_small, fill=(131, 155, 180, 190))
+        for defender_index in range(defenders.shape[1]):
+            altitude_points = []
+            for sample_index, z in enumerate(defenders[: index + 1, defender_index, 2]):
+                x = chart[0] + int(sample_index / max(1, len(target) - 1) * chart_w)
+                y = chart[3] - int(float(z) / max(world_height, 1e-6) * chart_h)
+                altitude_points.append((x, y))
+            if len(altitude_points) > 1:
+                draw.line(altitude_points, fill=colors[defender_index % len(colors)] + (210,), width=2)
+        target_altitudes = []
+        for sample_index, z in enumerate(target[: index + 1, 2]):
+            x = chart[0] + int(sample_index / max(1, len(target) - 1) * chart_w)
+            y = chart[3] - int(float(z) / max(world_height, 1e-6) * chart_h)
+            target_altitudes.append((x, y))
+        if len(target_altitudes) > 1:
+            draw.line(target_altitudes, fill=target_color + (230,), width=2)
+        draw.text((758, 652), "top-down x-y map  |  altitude encoded at right", font=f_small, fill=(118, 145, 173, 220))
+        return image.convert("RGB")
     base_name = output_dir / ("capture_cbf" if result.get("use_cbf") else "capture_raw")
     gif_path = base_name.with_suffix(".gif")
     frames = [draw_frame(int(index)) for index in frame_indices]
@@ -139,7 +263,7 @@ def render_animation(
         "frames": int(len(frame_indices)),
         "fps": int(fps),
     }
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = find_ffmpeg()
     if ffmpeg:
         mp4_path = base_name.with_suffix(".mp4")
         try:
