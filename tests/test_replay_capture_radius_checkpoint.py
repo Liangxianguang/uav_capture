@@ -37,11 +37,23 @@ def test_replay_renderer_exports_gif_and_final_png(tmp_path) -> None:
         world_half_extent=5.0,
         world_height=5.0,
     )
-    media = render_animation(trajectory, tmp_path, "test", fps=2, frame_stride=1, result={"use_cbf": True})
-    assert media["frames"] == 2
-    assert media["capture_freeze_frames"] == 0
+    media = render_animation(
+        trajectory,
+        tmp_path,
+        "test",
+        fps=2,
+        frame_stride=1,
+        result={"use_cbf": True, "safe_capture_success": True},
+    )
+    assert media["simulation_frames"] == 2
+    assert media["frames"] == 6
+    assert media["capture_freeze_frames"] == 4
+    assert media["capture_radius_m"] == 0.8
+    assert media["final_frame_inside_capture_radius"] is True
+    assert len(media["trajectory_sha256"]) == 64
     assert (tmp_path / "capture_cbf.gif").is_file()
     assert (tmp_path / "capture_cbf.png").is_file()
+    assert (tmp_path / "capture_cbf_3d.png").is_file()
 
 
 def test_replay_renderer_can_find_conda_ffmpeg() -> None:
