@@ -46,7 +46,18 @@ def test_central_showcase_is_inside_bounds_and_reachable() -> None:
     assert np.all(env.defender_positions <= env.upper)
 
 
-def test_crossing_metrics_require_trajectory_entry_into_obstacle_zone() -> None:
+def test_s2_reverses_sides_and_requires_target_crossing() -> None:
+    scenario = central_mixed_obstacle_scenario(
+        target_crossing_required=True,
+        defender_side="right",
+    )
+    assert scenario.target_crossing_required is True
+    assert scenario.defender_positions[:, 0].min() > scenario.obstacle_zone_x[1]
+    assert scenario.target_position[0] < scenario.obstacle_zone_x[0]
+    assert scenario.target_escape_direction[0] > 0.0
+
+
+def test_crossing_metrics_distinguish_zone_entry_from_opposite_side_completion() -> None:
     config = load_config()
     env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
     scenario = central_mixed_obstacle_scenario()
@@ -62,8 +73,18 @@ def test_crossing_metrics_require_trajectory_entry_into_obstacle_zone() -> None:
         },
     ]
     metrics = crossing_metrics(env, scenario.obstacle_zone_x)
-    assert metrics["defender_crossing_rate"] == 1.0
+    assert metrics["defender_zone_entry_rate"] == 1.0
+    assert metrics["defender_crossing_rate"] == 0.0
     assert metrics["target_crossed"] is False
+
+    env.history.append(
+        {
+            "defender_positions": scenario.defender_positions.copy() + np.array([9.0, 0.0, 0.0]),
+            "target_position": scenario.target_position.copy(),
+        }
+    )
+    completed = crossing_metrics(env, scenario.obstacle_zone_x)
+    assert completed["defender_crossing_rate"] == 1.0
 
 
 def test_curriculum_sampler_can_select_a_central_mixed_episode() -> None:
@@ -86,5 +107,26 @@ def test_curriculum_sampler_can_select_a_central_mixed_episode() -> None:
     observation, metadata = sample_training_episode(env, settings, np.random.default_rng(123), seed=642004, progress=0.7)
     assert metadata["episode_kind"] == "showcase"
     assert metadata["layout"] == "mixed"
+    assert metadata["defender_side"] == "left"
     assert env.obstacle_count == 3
     assert observation["defender_positions"][:, 0].max() < -2.5
+
+
+def test_curriculum_random_episode_has_showcase_compatible_metadata() -> None:
+    config = load_config()
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
+    settings = {
+        "training_obstacle_counts": [0],
+        "training_target_speed_scales": [0.55],
+        "training_showcase_stages": [
+            {
+                "until_progress": 1.0,
+                "showcase_probability": 0.0,
+            }
+        ],
+    }
+    _observation, metadata = sample_training_episode(
+        env, settings, np.random.default_rng(321), seed=642005, progress=0.7
+    )
+    assert metadata["episode_kind"] == "random"
+    assert metadata["defender_side"] is None

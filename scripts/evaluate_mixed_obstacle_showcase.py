@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=643001)
     parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--initial-side-distance", type=float, default=5.0)
+    parser.add_argument("--scenario", choices=("s1", "s2"), default="s1")
     parser.add_argument("--detection-range", type=float, default=14.0)
     parser.add_argument("--target-speed-scale", type=float, default=0.55)
     parser.add_argument("--use-cbf", action="store_true")
@@ -78,7 +79,11 @@ def main() -> None:
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
     config = build_config(args.method, args.detection_range, args.target_speed_scale)
-    scenario = central_mixed_obstacle_scenario(initial_side_distance=args.initial_side_distance)
+    scenario = central_mixed_obstacle_scenario(
+        initial_side_distance=args.initial_side_distance,
+        target_crossing_required=args.scenario == "s2",
+        defender_side="right" if args.scenario == "s2" else "left",
+    )
     device = select_device(args.device)
     if checkpoint is not None:
         prototype = CaptureRadiusPursuit3DEnv(
@@ -127,6 +132,7 @@ def main() -> None:
                 "base_seed": args.seed,
                 "episode_seeds": [int(row["seed"]) for row in rows],
                 "initial_side_distance_m": args.initial_side_distance,
+                "scenario_kind": args.scenario,
                 "detection_range_m": args.detection_range,
                 "target_speed_scale": args.target_speed_scale,
                 "summary": summary,

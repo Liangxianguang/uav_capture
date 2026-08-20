@@ -31,12 +31,15 @@ def central_mixed_obstacle_scenario(
     initial_side_distance: float = 5.0,
     target_crossing_required: bool = False,
     layout: str = "mixed",
+    defender_side: str = "left",
 ) -> ShowcaseScenario:
     """Return a fixed, solvable S1/S2-style central obstacle layout."""
     if initial_side_distance < 4.0:
         raise ValueError("initial_side_distance must be at least 4.0 m.")
     if layout not in {"open", "cylinder", "cylinder_box", "mixed"}:
         raise ValueError("layout must be one of: open, cylinder, cylinder_box, mixed.")
+    if defender_side not in {"left", "right"}:
+        raise ValueError("defender_side must be either 'left' or 'right'.")
     all_obstacles = (
         CylinderObstacle(
             center_xy=np.array([0.0, 0.0], dtype=np.float64),
@@ -63,22 +66,29 @@ def central_mixed_obstacle_scenario(
     obstacles = all_obstacles[:obstacle_count]
     left_x = -float(initial_side_distance)
     right_x = float(initial_side_distance)
+    defender_x = left_x if defender_side == "left" else right_x
+    target_x = right_x if defender_side == "left" else left_x
+    escape_sign = 1.0 if defender_side == "left" else -1.0
+    # In the ordinary showcase the target escapes away from the defenders.  A
+    # crossing-required scenario reverses that direction so that the target
+    # must also traverse the central obstacle zone and reach the opposite side.
+    target_direction_sign = -escape_sign if target_crossing_required else escape_sign
     defender_positions = np.array(
         [
-            [left_x, -2.4, 2.8],
-            [left_x, -0.8, 3.2],
-            [left_x, 0.8, 3.6],
-            [left_x, 2.4, 4.0],
+            [defender_x, -2.4, 2.8],
+            [defender_x, -0.8, 3.2],
+            [defender_x, 0.8, 3.6],
+            [defender_x, 2.4, 4.0],
         ],
         dtype=np.float64,
     )
-    target_position = np.array([right_x, 0.0, 4.2], dtype=np.float64)
+    target_position = np.array([target_x, 0.0, 4.2], dtype=np.float64)
     return ShowcaseScenario(
-        name=f"central_{layout}_obstacles",
+        name=f"central_{layout}_obstacles_{defender_side}",
         obstacles=obstacles,
         defender_positions=defender_positions,
         target_position=target_position,
-        target_escape_direction=np.array([1.0, 0.12, 0.0], dtype=np.float64),
+        target_escape_direction=np.array([target_direction_sign, 0.12, 0.0], dtype=np.float64),
         obstacle_zone_x=(-2.5, 3.0),
         target_crossing_required=bool(target_crossing_required),
     )
@@ -115,24 +125,34 @@ def sample_training_episode(
     distances = stage.get(
         "initial_side_distances", settings.get("training_showcase_initial_side_distances", [5.0])
     )
+    defender_sides = stage.get("defender_sides", settings.get("training_showcase_defender_sides", ["left"]))
     speeds = stage.get("target_speed_scales", settings.get("training_target_speed_scales", [0.55]))
     if not isinstance(layouts, list) or not layouts:
         raise ValueError("Showcase layouts must be a non-empty list.")
     if not isinstance(distances, list) or not distances:
         raise ValueError("Showcase initial_side_distances must be a non-empty list.")
+    if not isinstance(defender_sides, list) or not defender_sides:
+        raise ValueError("Showcase defender_sides must be a non-empty list.")
     if not isinstance(speeds, list) or not speeds:
         raise ValueError("Showcase target_speed_scales must be a non-empty list.")
     if rng.random() < probability:
         layout = str(rng.choice(layouts))
         side_distance = float(rng.choice(np.asarray(distances, dtype=np.float64)))
         target_speed_scale = float(rng.choice(np.asarray(speeds, dtype=np.float64)))
-        scenario = central_mixed_obstacle_scenario(side_distance, layout=layout)
+        defender_side = str(rng.choice(defender_sides))
+        scenario = central_mixed_obstacle_scenario(
+            side_distance,
+            target_crossing_required=defender_side == "right",
+            layout=layout,
+            defender_side=defender_side,
+        )
         env.obstacle_count = len(scenario.obstacles)
         env.target_speed_scale = target_speed_scale
         observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=False)
         return observation, {
             "episode_kind": "showcase",
             "layout": layout,
+            "defender_side": defender_side,
             "initial_side_distance": side_distance,
             "target_speed_scale": target_speed_scale,
             "progress": progress,
@@ -142,6 +162,7 @@ def sample_training_episode(
     return env.reset(seed=seed), {
         "episode_kind": "random",
         "layout": str(env.pursuit["obstacle_profile"]),
+        "defender_side": None,
         "initial_side_distance": None,
         "target_speed_scale": env.target_speed_scale,
         "progress": progress,
@@ -261,19 +282,42 @@ def crossing_metrics(
     env: CaptureRadiusPursuit3DEnv,
     obstacle_zone_x: tuple[float, float],
 ) -> dict[str, Any]:
-    """Measure whether each trajectory entered the central obstacle zone."""
+    """Measure zone entry and completion of a start-to-opposite-side crossing.
+
+    A trajectory is only marked as ``crossed`` after it reaches beyond the
+    opposite edge of the central zone.  This prevents a short incursion into
+    the zone from being reported as a completed obstacle traversal.
+    """
     if not env.history:
         raise ValueError("Cannot compute crossing metrics without trajectory history.")
     low, high = map(float, obstacle_zone_x)
     defender_trace = np.asarray([frame["defender_positions"] for frame in env.history], dtype=np.float64)
     target_trace = np.asarray([frame["target_position"] for frame in env.history], dtype=np.float64)
-    defender_crossed = np.any((defender_trace[:, :, 0] >= low) & (defender_trace[:, :, 0] <= high), axis=0)
-    target_crossed = bool(np.any((target_trace[:, 0] >= low) & (target_trace[:, 0] <= high)))
+    defender_initial_x = defender_trace[0, :, 0]
+    defender_zone_entered = np.any(
+        (defender_trace[:, :, 0] >= low) & (defender_trace[:, :, 0] <= high), axis=0
+    )
+    defender_crossed = np.where(
+        defender_initial_x <= low,
+        np.any(defender_trace[:, :, 0] > high, axis=0),
+        np.any(defender_trace[:, :, 0] < low, axis=0),
+    )
+    target_initial_x = float(target_trace[0, 0])
+    target_zone_entered = bool(np.any((target_trace[:, 0] >= low) & (target_trace[:, 0] <= high)))
+    target_crossed = bool(
+        np.any(target_trace[:, 0] > high)
+        if target_initial_x <= low
+        else np.any(target_trace[:, 0] < low)
+    )
     return {
         "obstacle_zone_x": [low, high],
+        "defender_zone_entered": defender_zone_entered.astype(bool).tolist(),
         "defender_crossed": defender_crossed.astype(bool).tolist(),
+        "defender_zone_entry_rate": float(np.mean(defender_zone_entered)),
         "defender_crossing_rate": float(np.mean(defender_crossed)),
+        "target_zone_entered": target_zone_entered,
         "target_crossed": target_crossed,
+        "target_zone_entry_rate": float(target_zone_entered),
         "target_crossing_rate": float(target_crossed),
     }
 

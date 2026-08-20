@@ -11,16 +11,19 @@ imitation:
       showcase_probability: 0.35
       layouts: [open, cylinder]
       initial_side_distances: [4.0]
+      defender_sides: [left]
       target_speed_scales: [0.45]
     - until_progress: 0.60
       showcase_probability: 0.55
       layouts: [cylinder, cylinder_box]
       initial_side_distances: [4.0, 4.5]
+      defender_sides: [left]
       target_speed_scales: [0.45, 0.55]
     - until_progress: 1.0
       showcase_probability: 0.70
       layouts: [cylinder_box, mixed]
       initial_side_distances: [4.5, 5.0]
+      defender_sides: [left, right]
       target_speed_scales: [0.45, 0.55]
   epochs: 20
   learning_rate: 0.0003

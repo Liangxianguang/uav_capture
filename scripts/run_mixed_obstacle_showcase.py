@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=642002)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--initial-side-distance", type=float, default=5.0)
+    parser.add_argument("--scenario", choices=("s1", "s2"), default="s1")
     parser.add_argument(
         "--detection-range",
         type=float,
@@ -226,7 +227,11 @@ def main() -> None:
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
     config = build_config(args.method, args.detection_range, args.target_speed_scale)
-    scenario = central_mixed_obstacle_scenario(initial_side_distance=args.initial_side_distance)
+    scenario = central_mixed_obstacle_scenario(
+        initial_side_distance=args.initial_side_distance,
+        target_crossing_required=args.scenario == "s2",
+        defender_side="right" if args.scenario == "s2" else "left",
+    )
     device = select_device(args.device)
     prototype = CaptureRadiusPursuit3DEnv(
         config,
@@ -256,6 +261,8 @@ def main() -> None:
         json.dumps(
             {
                 "name": scenario.name,
+                "scenario_kind": args.scenario,
+                "defender_side": "right" if args.scenario == "s2" else "left",
                 "target_crossing_required": scenario.target_crossing_required,
                 "obstacle_zone_x": list(scenario.obstacle_zone_x),
                 "defender_positions": scenario.defender_positions.tolist(),
