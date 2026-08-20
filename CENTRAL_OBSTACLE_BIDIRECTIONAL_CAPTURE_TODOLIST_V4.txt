@@ -141,10 +141,10 @@ S4：只在 S3 稳定后逐项扩展
 
 阶段 C：建立学习策略基线并决定是否训练
 
-    [ ] C1. 在冻结的 S1、S2 上评估现有 BC checkpoint，分别记录 raw action 和
+    [x] C1. 在冻结的 S1、S2 上评估现有 BC checkpoint，分别记录 raw action 和
         CBF action 的结果，不能把 CBF 的收益全部归因给策略网络。
-    [ ] C2. 若 C1 已达到稳定 Cooperative Safe Capture，则先生成展示并继续 S3
-        泛化；若失败，按 C1-C4 课程重新训练。
+    [x] C2. 旧 BC 在新合同下 raw 为 0%，CBF 仅为 75%-90%，确认任务分布变化；
+        启动不强制目标穿越中央区的 V4 C1-C3 课程重新训练。
     [ ] C3. 用专家轨迹训练 BC，检查训练数据中每级场景的专家安全成功率；低质量
         专家数据不得直接用于 MAPPO 初始化。
     [ ] C4. 以合格 BC 初始化 Recurrent MAPPO + CBF，先完成一个 pilot，再用
@@ -186,8 +186,9 @@ S4：只在 S3 稳定后逐项扩展
     捕获半径成功，不外推为实体捕获或实飞成功。
 
 现在最先做：
-    1. 将 V4 合同落入一个独立 YAML 和 episode 指标，尤其是“至少两架追捕机
-       进入中央区”与独立 Transit；不覆盖已经冻结的 V3 结果。
-    2. 用 rule expert + CBF 验证固定 S2 是否仍能通过新合同；通过后冻结场景。
-    3. 再评估当前 BC checkpoint；只有它在 S1/S2 的失败确认是任务分布变化后，
-       才启动 BC -> MAPPO 的课程训练。
+    1. 用 capture_radius_recurrent_behavior_cloning_central_v4_flee.yaml 生成新的
+       V4 专家轨迹和 BC checkpoint；目标始终按正常逃逸运动，不强制进入或穿越中央区。
+    2. 用冻结 S1（三种单障碍）和 S2（混合障碍）分别评估新 BC 的 raw / CBF；
+       仅在 Cooperative Safe Capture 稳定后，才生成展示并启动 MAPPO pilot。
+    3. 保持 Transit 为独立可通行性测试：它证明地图允许各主体安全通过，不把穿越
+       设为主回合成功条件，也不要求目标捕获后继续移动。
