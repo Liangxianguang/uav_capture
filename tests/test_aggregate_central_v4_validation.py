@@ -33,3 +33,16 @@ def test_aggregate_normalizes_fixed_and_s3_summaries(tmp_path) -> None:
     assert aggregate["S3"]["randomized"]["metrics"]["safe_capture_rate"] == 0.75
     assert aggregate["S3"]["randomized"]["metrics"]["cooperative_safe_capture_rate"] == 0.5
     assert "no locked-test" in render_markdown({"groups": aggregate})
+
+
+def test_aggregate_recovers_capture_rate_from_episode_rows(tmp_path) -> None:
+    fixed = tmp_path / "fixed"
+    fixed.mkdir()
+    (fixed / "summary.json").write_text(
+        json.dumps({"summary": {"episodes": 2, "cooperative_safe_capture_rate": 0.5}}),
+        encoding="utf-8",
+    )
+    (fixed / "episodes.csv").write_text("capture_event\nTrue\nFalse\n", encoding="utf-8")
+
+    aggregate = collect(tmp_path, {"S1": ["fixed"]})
+    assert aggregate["S1"]["fixed"]["metrics"]["capture_rate"] == 0.5

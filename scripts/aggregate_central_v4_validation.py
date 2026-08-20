@@ -9,6 +9,7 @@ independent training seeds or claiming a locked-test result.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,17 @@ def _find_summary(directory: Path) -> Path:
     raise FileNotFoundError(f"No summary.json or evaluation.json in {directory}")
 
 
+def _episode_boolean_rate(path: Path, field: str) -> float | None:
+    if not path.is_file():
+        return None
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows or field not in rows[0]:
+        return None
+    truthy = {"1", "true", "yes"}
+    return sum(str(row[field]).strip().lower() in truthy for row in rows) / len(rows)
+
+
 def collect(root: Path, entries: dict[str, list[str]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for label, directories in entries.items():
@@ -65,6 +77,10 @@ def collect(root: Path, entries: dict[str, list[str]]) -> dict[str, Any]:
             path = root / directory
             summary_path = _find_summary(path)
             metrics = _normalize_metrics(_load_metrics(summary_path))
+            if "capture_rate" not in metrics:
+                capture_rate = _episode_boolean_rate(path / "episodes.csv", "capture_event")
+                if capture_rate is not None:
+                    metrics["capture_rate"] = capture_rate
             methods[directory] = {
                 "summary_path": str(summary_path),
                 "episodes": metrics.get("episodes"),
