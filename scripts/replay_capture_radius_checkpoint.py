@@ -78,6 +78,14 @@ def find_ffmpeg() -> str | None:
     for candidate in (Path(sys.prefix) / "Library" / "bin" / "ffmpeg.exe", Path(sys.prefix) / "bin" / "ffmpeg"):
         if candidate.is_file():
             return str(candidate)
+    try:
+        import imageio_ffmpeg
+
+        bundled = Path(imageio_ffmpeg.get_ffmpeg_exe())
+        if bundled.is_file():
+            return str(bundled)
+    except (ImportError, RuntimeError, OSError):
+        pass
     return None
 
 
