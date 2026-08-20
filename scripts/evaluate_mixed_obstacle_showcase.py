@@ -33,6 +33,7 @@ from run_mixed_obstacle_showcase import (  # noqa: E402
     build_showcase_scenario,
     rollout_showcase,
     rollout_showcase_expert,
+    transit_metrics_from_episode_row,
 )
 
 
@@ -55,6 +56,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--detection-range", type=float, default=14.0)
     parser.add_argument("--target-speed-scale", type=float, default=0.55)
     parser.add_argument("--use-cbf", action="store_true")
+    parser.add_argument(
+        "--reference-episodes",
+        type=Path,
+        help="Reuse policy-independent Transit evidence from the original locked episodes CSV.",
+    )
     parser.add_argument(
         "--locked-test",
         action="store_true",
@@ -130,6 +136,12 @@ def main() -> None:
     checkpoint = args.checkpoint.resolve() if args.checkpoint is not None else None
     if checkpoint is not None and not checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
+    reference_rows: list[dict[str, str]] | None = None
+    if args.reference_episodes is not None:
+        with args.reference_episodes.resolve().open(newline="", encoding="utf-8") as handle:
+            reference_rows = list(csv.DictReader(handle))
+        if len(reference_rows) != args.episodes:
+            raise ValueError("Reference episode count does not match the metric replay.")
     protocol = load_central_capture_protocol(args.protocol_config) if args.protocol_config is not None else None
     if args.locked_test:
         if args.protocol_config is None:
@@ -176,8 +188,20 @@ def main() -> None:
     rows: list[dict[str, object]] = []
     for episode_index in range(args.episodes):
         episode_seed = int(args.seed + episode_index)
+        transit_override = None
+        if reference_rows is not None:
+            reference_row = reference_rows[episode_index]
+            if int(reference_row["seed"]) != episode_seed:
+                raise ValueError("Reference fixed episode seeds do not match the metric replay.")
+            transit_override = transit_metrics_from_episode_row(reference_row)
         if checkpoint is None:
-            row, _env = rollout_showcase_expert(config, scenario, seed=episode_seed, use_cbf=args.use_cbf)
+            row, _env = rollout_showcase_expert(
+                config,
+                scenario,
+                seed=episode_seed,
+                use_cbf=args.use_cbf,
+                transit_override=transit_override,
+            )
             row.update({"method": str(args.baseline), "checkpoint": None, "device": str(device)})
         else:
             row, _env = rollout_showcase(
@@ -188,6 +212,7 @@ def main() -> None:
                 device=device,
                 action_scale=action_scale,
                 use_cbf=args.use_cbf,
+                transit_override=transit_override,
             )
             row.update({"method": args.method, "checkpoint": str(checkpoint), "device": str(device)})
         rows.append(row)
@@ -220,6 +245,9 @@ def main() -> None:
                 ),
                 "detection_range_m": float(config["task"]["pursuit"]["detection_range"]),
                 "target_speed_scale": float(config["experiments"][0]["target_speed_scale"]),
+                "transit_metrics_reused_from": (
+                    str(args.reference_episodes.resolve()) if args.reference_episodes is not None else None
+                ),
                 "summary": summary,
             },
             indent=2,

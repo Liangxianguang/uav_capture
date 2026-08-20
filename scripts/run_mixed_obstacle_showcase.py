@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import copy
 import json
 import sys
@@ -42,6 +43,48 @@ from encirclement3d.showcase import (  # noqa: E402
 )
 from evaluate_capture_radius_mappo import load_policy, save_trajectory, select_device  # noqa: E402
 from replay_capture_radius_checkpoint import METHOD_CONFIGS, render_animation  # noqa: E402
+
+
+TRANSIT_LIST_FIELDS = (
+    "defender_transit_route_feasible",
+    "defender_transit_route_length_m",
+    "defender_transit_min_clearance_m",
+    "defender_transit_goals",
+    "target_transit_goal",
+    "defender_transit_success",
+    "defender_transit_steps",
+    "defender_transit_reasons",
+    "defender_transit_execution_min_clearance_m",
+)
+TRANSIT_BOOL_FIELDS = (
+    "all_defenders_transit_route_feasible",
+    "target_transit_route_feasible",
+    "transit_route_feasible",
+    "all_defenders_transit_success",
+    "target_transit_success",
+    "transit_success",
+)
+TRANSIT_FLOAT_FIELDS = (
+    "transit_grid_step_m",
+    "target_transit_route_length_m",
+    "target_transit_min_clearance_m",
+    "target_transit_execution_min_clearance_m",
+)
+
+
+def transit_metrics_from_episode_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Restore typed, policy-independent Transit evidence from an episode CSV row."""
+
+    transit: dict[str, Any] = {}
+    for field in TRANSIT_LIST_FIELDS:
+        transit[field] = ast.literal_eval(str(row[field]))
+    for field in TRANSIT_BOOL_FIELDS:
+        transit[field] = str(row[field]).strip().lower() in {"1", "true", "yes"}
+    for field in TRANSIT_FLOAT_FIELDS:
+        transit[field] = float(row[field])
+    transit["target_transit_steps"] = int(row["target_transit_steps"])
+    transit["target_transit_reason"] = str(row["target_transit_reason"])
+    return transit
 
 
 def parse_args() -> argparse.Namespace:
@@ -164,6 +207,7 @@ def _finalize_showcase_row(
     final_info: dict[str, Any],
     *,
     target_collision: bool,
+    transit_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     crossing = crossing_metrics(env, scenario.obstacle_zone_x)
     contract = capture_contract_metrics(
@@ -174,8 +218,12 @@ def _finalize_showcase_row(
         required_defender_zone_entries=int(scenario.required_defender_zone_entries),
         require_target_zone_entry=scenario.require_target_zone_entry,
     )
-    transit = transit_route_metrics(env, scenario)
-    transit_execution = transit_execution_metrics(env, scenario)
+    if transit_override is None:
+        transit = transit_route_metrics(env, scenario)
+        transit_execution = transit_execution_metrics(env, scenario)
+    else:
+        transit = transit_override
+        transit_execution = {}
     row.update(crossing)
     row.update(contract)
     row.update(transit)
@@ -196,6 +244,7 @@ def rollout_showcase(
     device: torch.device,
     action_scale: float,
     use_cbf: bool,
+    transit_override: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], CaptureRadiusPursuit3DEnv]:
     env = CaptureRadiusPursuit3DEnv(
         config,
@@ -272,7 +321,14 @@ def rollout_showcase(
         "max_cbf_action_correction_norm": float(max(cbf_corrections)) if cbf_corrections else 0.0,
         "use_cbf": bool(use_cbf),
     }
-    return _finalize_showcase_row(row, env, scenario, final_info, target_collision=target_collision), env
+    return _finalize_showcase_row(
+        row,
+        env,
+        scenario,
+        final_info,
+        target_collision=target_collision,
+        transit_override=transit_override,
+    ), env
 
 
 def rollout_showcase_expert(
@@ -280,6 +336,7 @@ def rollout_showcase_expert(
     scenario: Any,
     seed: int,
     use_cbf: bool,
+    transit_override: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], CaptureRadiusPursuit3DEnv]:
     """Replay the local-information rule expert on the same showcase task."""
     env = CaptureRadiusPursuit3DEnv(
@@ -340,7 +397,14 @@ def rollout_showcase_expert(
         "max_cbf_action_correction_norm": float(max(cbf_corrections)) if cbf_corrections else 0.0,
         "use_cbf": bool(use_cbf),
     }
-    return _finalize_showcase_row(row, env, scenario, final_info, target_collision=target_collision), env
+    return _finalize_showcase_row(
+        row,
+        env,
+        scenario,
+        final_info,
+        target_collision=target_collision,
+        transit_override=transit_override,
+    ), env
 
 
 def main() -> None:

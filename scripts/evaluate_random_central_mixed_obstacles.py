@@ -37,6 +37,7 @@ from run_mixed_obstacle_showcase import (  # noqa: E402
     build_config,
     rollout_showcase,
     rollout_showcase_expert,
+    transit_metrics_from_episode_row,
 )
 
 
@@ -59,6 +60,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episodes", type=int, help="Optional split-size override for smoke runs.")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--use-cbf", action="store_true")
+    parser.add_argument(
+        "--reference-episodes",
+        type=Path,
+        help="Reuse policy-independent Transit evidence from the original locked episodes CSV.",
+    )
     parser.add_argument("--device", choices=("cpu", "cuda", "auto"), default="cpu")
     return parser.parse_args()
 
@@ -260,6 +266,12 @@ def main() -> None:
     checkpoint = args.checkpoint.resolve() if args.checkpoint is not None else None
     if checkpoint is not None and not checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
+    reference_rows: list[dict[str, str]] | None = None
+    if args.reference_episodes is not None:
+        with args.reference_episodes.resolve().open(newline="", encoding="utf-8") as handle:
+            reference_rows = list(csv.DictReader(handle))
+        if len(reference_rows) != episodes:
+            raise ValueError("Reference episode count does not match the S3 metric replay.")
 
     policy: Any = None
     action_scale: float | None = None
@@ -291,9 +303,23 @@ def main() -> None:
                 validation_env.reset(seed=int(spec["episode_seed"])),
                 device,
             )
+        transit_override = None
+        if reference_rows is not None:
+            reference_row = reference_rows[episode_index]
+            if (
+                int(reference_row["episode_index"]) != episode_index
+                or int(reference_row["episode_seed"]) != int(spec["episode_seed"])
+                or int(reference_row["layout_seed"]) != int(spec["layout_seed"])
+            ):
+                raise ValueError("Reference S3 episode/layout seeds do not match the metric replay.")
+            transit_override = transit_metrics_from_episode_row(reference_row)
         if checkpoint is None:
             row, _env = rollout_showcase_expert(
-                config, scenario, seed=int(spec["episode_seed"]), use_cbf=bool(args.use_cbf)
+                config,
+                scenario,
+                seed=int(spec["episode_seed"]),
+                use_cbf=bool(args.use_cbf),
+                transit_override=transit_override,
             )
         else:
             assert action_scale is not None
@@ -305,6 +331,7 @@ def main() -> None:
                 device=device,
                 action_scale=action_scale,
                 use_cbf=bool(args.use_cbf),
+                transit_override=transit_override,
             )
         metadata = scenario_metadata(scenario)
         row.update(
@@ -387,6 +414,9 @@ def main() -> None:
                 "condition_table_size": int(scenes[0]["spec"]["condition_table_size"]),
                 "wall_orientation_contract": "axis_aligned_0_or_90_degrees",
                 "task_contract": "central_encounter_capture_and_independent_transit",
+                "transit_metrics_reused_from": (
+                    str(args.reference_episodes.resolve()) if args.reference_episodes is not None else None
+                ),
             },
             indent=2,
         ),
