@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=642002)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--initial-side-distance", type=float, default=5.0)
-    parser.add_argument("--scenario", choices=("s1", "s2"), default="s1")
+    parser.add_argument("--scenario", choices=("s1", "s2", "s2_cross"), default="s1")
     parser.add_argument(
         "--detection-range",
         type=float,
@@ -71,6 +71,24 @@ def build_config(method: str, detection_range: float, target_speed_scale: float)
         }
     ]
     return config
+
+
+def build_showcase_scenario(scenario_kind: str, initial_side_distance: float) -> Any:
+    """Return a fixed scenario with an explicit crossing contract.
+
+    ``s2`` reverses which side the defenders occupy while retaining an
+    evading target.  ``s2_cross`` is intentionally separate because requiring
+    the target to cross toward the pursuers is a harder task whose feasibility
+    must be validated independently.
+    """
+    if scenario_kind not in {"s1", "s2", "s2_cross"}:
+        raise ValueError(f"Unknown showcase scenario: {scenario_kind}")
+    defender_side = "left" if scenario_kind == "s1" else "right"
+    return central_mixed_obstacle_scenario(
+        initial_side_distance=initial_side_distance,
+        target_crossing_required=scenario_kind == "s2_cross",
+        defender_side=defender_side,
+    )
 
 
 def rollout_showcase(
@@ -227,11 +245,7 @@ def main() -> None:
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
     config = build_config(args.method, args.detection_range, args.target_speed_scale)
-    scenario = central_mixed_obstacle_scenario(
-        initial_side_distance=args.initial_side_distance,
-        target_crossing_required=args.scenario == "s2",
-        defender_side="right" if args.scenario == "s2" else "left",
-    )
+    scenario = build_showcase_scenario(args.scenario, args.initial_side_distance)
     device = select_device(args.device)
     prototype = CaptureRadiusPursuit3DEnv(
         config,
@@ -262,7 +276,7 @@ def main() -> None:
             {
                 "name": scenario.name,
                 "scenario_kind": args.scenario,
-                "defender_side": "right" if args.scenario == "s2" else "left",
+                "defender_side": "left" if args.scenario == "s1" else "right",
                 "target_crossing_required": scenario.target_crossing_required,
                 "obstacle_zone_x": list(scenario.obstacle_zone_x),
                 "defender_positions": scenario.defender_positions.tolist(),

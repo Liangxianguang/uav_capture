@@ -57,6 +57,12 @@ def test_s2_reverses_sides_and_requires_target_crossing() -> None:
     assert scenario.target_escape_direction[0] > 0.0
 
 
+def test_reversed_defender_side_keeps_an_evading_target_by_default() -> None:
+    scenario = central_mixed_obstacle_scenario(defender_side="right")
+    assert scenario.target_crossing_required is False
+    assert scenario.target_escape_direction[0] < 0.0
+
+
 def test_crossing_metrics_distinguish_zone_entry_from_opposite_side_completion() -> None:
     config = load_config()
     env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
@@ -108,6 +114,7 @@ def test_curriculum_sampler_can_select_a_central_mixed_episode() -> None:
     assert metadata["episode_kind"] == "showcase"
     assert metadata["layout"] == "mixed"
     assert metadata["defender_side"] == "left"
+    assert metadata["target_crossing_required"] is False
     assert env.obstacle_count == 3
     assert observation["defender_positions"][:, 0].max() < -2.5
 
@@ -130,3 +137,4 @@ def test_curriculum_random_episode_has_showcase_compatible_metadata() -> None:
     )
     assert metadata["episode_kind"] == "random"
     assert metadata["defender_side"] is None
+    assert metadata["target_crossing_required"] is None

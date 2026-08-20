@@ -22,9 +22,13 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
-from encirclement3d.showcase import central_mixed_obstacle_scenario  # noqa: E402
 from evaluate_capture_radius_mappo import load_policy, select_device  # noqa: E402
-from run_mixed_obstacle_showcase import build_config, rollout_showcase, rollout_showcase_expert  # noqa: E402
+from run_mixed_obstacle_showcase import (  # noqa: E402
+    build_config,
+    build_showcase_scenario,
+    rollout_showcase,
+    rollout_showcase_expert,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=643001)
     parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--initial-side-distance", type=float, default=5.0)
-    parser.add_argument("--scenario", choices=("s1", "s2"), default="s1")
+    parser.add_argument("--scenario", choices=("s1", "s2", "s2_cross"), default="s1")
     parser.add_argument("--detection-range", type=float, default=14.0)
     parser.add_argument("--target-speed-scale", type=float, default=0.55)
     parser.add_argument("--use-cbf", action="store_true")
@@ -79,11 +83,7 @@ def main() -> None:
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
     config = build_config(args.method, args.detection_range, args.target_speed_scale)
-    scenario = central_mixed_obstacle_scenario(
-        initial_side_distance=args.initial_side_distance,
-        target_crossing_required=args.scenario == "s2",
-        defender_side="right" if args.scenario == "s2" else "left",
-    )
+    scenario = build_showcase_scenario(args.scenario, args.initial_side_distance)
     device = select_device(args.device)
     if checkpoint is not None:
         prototype = CaptureRadiusPursuit3DEnv(

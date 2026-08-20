@@ -127,6 +127,7 @@ def sample_training_episode(
     )
     defender_sides = stage.get("defender_sides", settings.get("training_showcase_defender_sides", ["left"]))
     speeds = stage.get("target_speed_scales", settings.get("training_target_speed_scales", [0.55]))
+    target_crossing_probability = float(stage.get("target_crossing_probability", 0.0))
     if not isinstance(layouts, list) or not layouts:
         raise ValueError("Showcase layouts must be a non-empty list.")
     if not isinstance(distances, list) or not distances:
@@ -135,6 +136,8 @@ def sample_training_episode(
         raise ValueError("Showcase defender_sides must be a non-empty list.")
     if not isinstance(speeds, list) or not speeds:
         raise ValueError("Showcase target_speed_scales must be a non-empty list.")
+    if not 0.0 <= target_crossing_probability <= 1.0:
+        raise ValueError("target_crossing_probability must lie in [0, 1].")
     if rng.random() < probability:
         layout = str(rng.choice(layouts))
         side_distance = float(rng.choice(np.asarray(distances, dtype=np.float64)))
@@ -142,7 +145,9 @@ def sample_training_episode(
         defender_side = str(rng.choice(defender_sides))
         scenario = central_mixed_obstacle_scenario(
             side_distance,
-            target_crossing_required=defender_side == "right",
+            target_crossing_required=bool(
+                defender_side == "right" and rng.random() < target_crossing_probability
+            ),
             layout=layout,
             defender_side=defender_side,
         )
@@ -153,6 +158,7 @@ def sample_training_episode(
             "episode_kind": "showcase",
             "layout": layout,
             "defender_side": defender_side,
+            "target_crossing_required": scenario.target_crossing_required,
             "initial_side_distance": side_distance,
             "target_speed_scale": target_speed_scale,
             "progress": progress,
@@ -163,6 +169,7 @@ def sample_training_episode(
         "episode_kind": "random",
         "layout": str(env.pursuit["obstacle_profile"]),
         "defender_side": None,
+        "target_crossing_required": None,
         "initial_side_distance": None,
         "target_speed_scale": env.target_speed_scale,
         "progress": progress,
