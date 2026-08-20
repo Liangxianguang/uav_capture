@@ -7,6 +7,7 @@ def test_showcase_summary_reports_crossing_and_capture_separately() -> None:
     rows = [
         {
             "safe_capture_success": True,
+            "capture_event": True,
             "safe_capture_in_pursuit": True,
             "cooperative_safe_capture": True,
             "showcase_success": True,
@@ -27,6 +28,7 @@ def test_showcase_summary_reports_crossing_and_capture_separately() -> None:
         },
         {
             "safe_capture_success": False,
+            "capture_event": True,
             "safe_capture_in_pursuit": False,
             "cooperative_safe_capture": False,
             "showcase_success": False,
@@ -48,6 +50,7 @@ def test_showcase_summary_reports_crossing_and_capture_separately() -> None:
     ]
     result = summarize(rows)
     assert result["safe_capture_rate"] == 0.5
+    assert result["capture_rate"] == 1.0
     assert result["safe_capture_in_pursuit_rate"] == 0.5
     assert result["cooperative_safe_capture_rate"] == 0.5
     assert result["mean_defender_zone_entry_count"] == 2.0

@@ -64,6 +64,7 @@ def summarize(rows: list[dict[str, object]]) -> dict[str, float | int | None]:
     return {
         "episodes": len(rows),
         "safe_capture_rate": float(np.mean([bool(row["safe_capture_success"]) for row in rows])),
+        "capture_rate": float(np.mean([bool(row["capture_event"]) for row in rows])),
         "safe_capture_in_pursuit_rate": float(np.mean([bool(row["safe_capture_in_pursuit"]) for row in rows])),
         "cooperative_safe_capture_rate": float(
             np.mean([bool(row.get("cooperative_safe_capture", row["safe_capture_in_pursuit"])) for row in rows])
