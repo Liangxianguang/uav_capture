@@ -35,6 +35,26 @@ def load_config() -> dict:
     )
 
 
+def test_v4_flee_curricula_match_the_frozen_sensor_and_motion_contract() -> None:
+    protocol = load_v4_protocol()
+    for path, section in (
+        ("capture_radius_recurrent_behavior_cloning_central_v4_flee.yaml", "imitation"),
+        ("capture_radius_recurrent_mappo_central_v4_flee.yaml", "training"),
+    ):
+        document = yaml.safe_load((PROJECT_ROOT / "configs" / path).read_text(encoding="utf-8"))
+        environment_path = PROJECT_ROOT / "configs" / document["environment_config"]
+        environment = yaml.safe_load(environment_path.read_text(encoding="utf-8"))
+        settings = document[section]
+        assert environment["task"]["pursuit"]["detection_range"] == protocol.detection_range
+        assert environment["task"]["pursuit"]["obstacle_profile"] == "mixed"
+        for stage in settings["training_showcase_stages"]:
+            assert stage["target_crossing_probability"] == 0.0
+            assert stage["target_motion_modes"] == ["flee_persistence"]
+            assert stage["defender_sides"] == ["left"]
+            assert stage["initial_side_distances"] == [protocol.initial_side_distance]
+            assert stage["required_defender_zone_entries"] == protocol.required_defender_zone_entries
+
+
 def test_central_showcase_contains_all_required_obstacle_shapes() -> None:
     scenario = central_mixed_obstacle_scenario()
     assert {obstacle.shape for obstacle in scenario.obstacles} == {"cylinder", "box", "wall"}

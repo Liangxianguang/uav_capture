@@ -1,5 +1,5 @@
 experiment_name: capture_radius_recurrent_behavior_cloning_central_v4_flee
-environment_config: capture_radius_pursuit_time_aligned_uncertainty_dev.yaml
+environment_config: capture_radius_pursuit_central_v4_flee.yaml
 
 # V4 training distribution: the target always follows normal fleeing dynamics.
 # Passing through the central zone is never an episode requirement.

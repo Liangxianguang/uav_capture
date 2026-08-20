@@ -1,5 +1,5 @@
 experiment_name: capture_radius_recurrent_mappo_central_v4_flee
-environment_config: capture_radius_pursuit_time_aligned_uncertainty_dev.yaml
+environment_config: capture_radius_pursuit_central_v4_flee.yaml
 
 # Use only after the matching V4 behavior-cloning checkpoint passes S1/S2.
 # The target remains an evader; target_crossing_probability is explicitly zero.

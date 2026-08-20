@@ -81,6 +81,22 @@ faster targets, and target crossing are deferred until a fixed-scene policy is
 validated. Only a passing V4 BC checkpoint may initialize the matching MAPPO
 pilot configuration.
 
+## Training-Configuration Audit
+
+An initial V4 BC collection run was stopped before optimization because its
+expert manifest reported only `32.5%` safe capture despite zero collisions.
+The run had inherited the source development configuration's `7.5 m` detection
+range, while the frozen V4 expert feasibility result uses `14.0 m`. A controlled
+20-episode cylinder check with the same expert and the frozen range restored
+`20/20` safe captures and zero collisions.
+
+The formal V4 BC and MAPPO configurations now both reference
+`configs/capture_radius_pursuit_central_v4_flee.yaml`, which records the
+frozen `14.0 m` range, mixed obstacle profile, V4 world and agent settings.
+The aborted local directory `results/central_v4/bc_seed660701` is retained as
+an excluded diagnostic artifact and must not be used as a checkpoint or an
+expert dataset.
+
 ## Required Gate Before MAPPO
 
 1. Generate a new expert dataset and verify its manifest reports high safe
