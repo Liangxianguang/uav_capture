@@ -82,7 +82,7 @@ def collect(root: Path, entries: dict[str, list[str]]) -> dict[str, Any]:
                 if capture_rate is not None:
                     metrics["capture_rate"] = capture_rate
             methods[directory] = {
-                "summary_path": str(summary_path),
+                "summary_path": str(summary_path.relative_to(root)),
                 "episodes": metrics.get("episodes"),
                 "metrics": {key: metrics.get(key) for key in METRIC_KEYS if key in metrics},
             }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from scripts.aggregate_central_v4_validation import collect, render_markdown
 
@@ -32,6 +33,7 @@ def test_aggregate_normalizes_fixed_and_s3_summaries(tmp_path) -> None:
     assert aggregate["S1"]["fixed"]["metrics"]["cooperative_safe_capture_rate"] == 1.0
     assert aggregate["S3"]["randomized"]["metrics"]["safe_capture_rate"] == 0.75
     assert aggregate["S3"]["randomized"]["metrics"]["cooperative_safe_capture_rate"] == 0.5
+    assert Path(aggregate["S3"]["randomized"]["summary_path"]).parts == ("randomized", "summary.json")
     assert "no locked-test" in render_markdown({"groups": aggregate})
 
 

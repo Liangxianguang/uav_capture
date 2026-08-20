@@ -1,0 +1,463 @@
+{
+  "evaluation_type": "central_v4_d1_validation_aggregate",
+  "not_a_locked_test": true,
+  "statistical_unit": "evaluation_artifact",
+  "groups": {
+    "S1": {
+      "expert_s1_cylinder_raw_20": {
+        "summary_path": "expert_s1_cylinder_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 0.0,
+          "cooperative_safe_capture_rate": 0.0,
+          "capture_rate": 0.0,
+          "collision_rate": 1.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": null,
+          "mean_min_clearance_m": -0.11639010131111309,
+          "worst_min_clearance_m": -0.14176608829951776
+        }
+      },
+      "expert_s1_cylinder_cbf_20": {
+        "summary_path": "expert_s1_cylinder_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.38,
+          "mean_min_clearance_m": 0.48606063203347627,
+          "worst_min_clearance_m": 0.4794187564464448
+        }
+      },
+      "expert_s1_box_raw_20": {
+        "summary_path": "expert_s1_box_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.9050000000000002,
+          "mean_min_clearance_m": 0.32196988388068015,
+          "worst_min_clearance_m": 0.3197209813238907
+        }
+      },
+      "expert_s1_box_cbf_20": {
+        "summary_path": "expert_s1_box_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.9,
+          "mean_min_clearance_m": 0.46759373642149715,
+          "worst_min_clearance_m": 0.46684644933637354
+        }
+      },
+      "expert_s1_wall_raw_20": {
+        "summary_path": "expert_s1_wall_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.9,
+          "mean_min_clearance_m": 0.3100762329084785,
+          "worst_min_clearance_m": 0.3071753145032996
+        }
+      },
+      "expert_s1_wall_cbf_20": {
+        "summary_path": "expert_s1_wall_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.9050000000000002,
+          "mean_min_clearance_m": 0.46899112866504017,
+          "worst_min_clearance_m": 0.46615900865254956
+        }
+      },
+      "bc_s3_retained_seed661201_s1_cylinder_raw_20": {
+        "summary_path": "bc_s3_retained_seed661201_s1_cylinder_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.46,
+          "mean_min_clearance_m": 0.4045253679755955,
+          "worst_min_clearance_m": 0.16532406458995608
+        }
+      },
+      "bc_s3_retained_seed661201_s1_cylinder_cbf_20": {
+        "summary_path": "bc_s3_retained_seed661201_s1_cylinder_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.4200000000000004,
+          "mean_min_clearance_m": 0.5622396133853905,
+          "worst_min_clearance_m": 0.4989897418299074
+        }
+      },
+      "bc_s3_retained_seed661201_s1_box_raw_20": {
+        "summary_path": "bc_s3_retained_seed661201_s1_box_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.995,
+          "mean_min_clearance_m": 0.35627093324379616,
+          "worst_min_clearance_m": 0.2628109120659349
+        }
+      },
+      "bc_s3_retained_seed661201_s1_box_cbf_20": {
+        "summary_path": "bc_s3_retained_seed661201_s1_box_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.995,
+          "mean_min_clearance_m": 0.468061657085845,
+          "worst_min_clearance_m": 0.43467281125788804
+        }
+      },
+      "bc_s3_retained_seed661201_s1_wall_raw_20": {
+        "summary_path": "bc_s3_retained_seed661201_s1_wall_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.96,
+          "mean_min_clearance_m": 0.26305401182611704,
+          "worst_min_clearance_m": 0.15719680972445815
+        }
+      },
+      "bc_s3_retained_seed661201_s1_wall_cbf_20": {
+        "summary_path": "bc_s3_retained_seed661201_s1_wall_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.92,
+          "mean_min_clearance_m": 0.3973850620835767,
+          "worst_min_clearance_m": 0.3812208403557854
+        }
+      },
+      "mappo_s3_retained_seed661301_pilot_s1_cylinder_raw_20": {
+        "summary_path": "mappo_s3_retained_seed661301_pilot_s1_cylinder_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 0.95,
+          "cooperative_safe_capture_rate": 0.95,
+          "capture_rate": 1.0,
+          "collision_rate": 0.05,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.710526315789474,
+          "mean_min_clearance_m": 0.19101012600264006,
+          "worst_min_clearance_m": -0.023438015301140536
+        }
+      },
+      "mappo_s3_retained_seed661301_pilot_s1_cylinder_cbf_20": {
+        "summary_path": "mappo_s3_retained_seed661301_pilot_s1_cylinder_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.46,
+          "mean_min_clearance_m": 0.5414325133947158,
+          "worst_min_clearance_m": 0.48759381466834106
+        }
+      },
+      "mappo_s3_retained_seed661301_pilot_s1_box_raw_20": {
+        "summary_path": "mappo_s3_retained_seed661301_pilot_s1_box_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.995,
+          "mean_min_clearance_m": 0.2653418091975742,
+          "worst_min_clearance_m": 0.05710607234612153
+        }
+      },
+      "mappo_s3_retained_seed661301_pilot_s1_box_cbf_20": {
+        "summary_path": "mappo_s3_retained_seed661301_pilot_s1_box_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.975,
+          "mean_min_clearance_m": 0.43457956399491715,
+          "worst_min_clearance_m": 0.3869508755177933
+        }
+      },
+      "mappo_s3_retained_seed661301_pilot_s1_wall_raw_20": {
+        "summary_path": "mappo_s3_retained_seed661301_pilot_s1_wall_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 0.95,
+          "cooperative_safe_capture_rate": 0.95,
+          "capture_rate": 0.95,
+          "collision_rate": 0.05,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.9263157894736844,
+          "mean_min_clearance_m": 0.15705967196243595,
+          "worst_min_clearance_m": -0.019610240672260748
+        }
+      },
+      "mappo_s3_retained_seed661301_pilot_s1_wall_cbf_20": {
+        "summary_path": "mappo_s3_retained_seed661301_pilot_s1_wall_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 0.9,
+          "cooperative_safe_capture_rate": 0.9,
+          "capture_rate": 0.9,
+          "collision_rate": 0.1,
+          "boundary_violation_rate": 0.1,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 2.966666666666667,
+          "mean_min_clearance_m": 0.3835823042618024,
+          "worst_min_clearance_m": 0.36103630124693165
+        }
+      }
+    },
+    "S2": {
+      "expert_s2_v4_raw_20": {
+        "summary_path": "expert_s2_v4_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 0.0,
+          "cooperative_safe_capture_rate": 0.0,
+          "capture_rate": 0.0,
+          "collision_rate": 1.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": null,
+          "mean_min_clearance_m": -0.12489514046714692,
+          "worst_min_clearance_m": -0.14156592332658535
+        }
+      },
+      "expert_s2_v4_cbf_20_frozen": {
+        "summary_path": "expert_s2_v4_cbf_20_frozen\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.5550000000000006,
+          "mean_min_clearance_m": 0.47573013835776445,
+          "worst_min_clearance_m": 0.4631679016209653
+        }
+      },
+      "bc_s3_retained_seed661201_s2_raw_20": {
+        "summary_path": "bc_s3_retained_seed661201_s2_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 0.5,
+          "cooperative_safe_capture_rate": 0.5,
+          "capture_rate": 0.5,
+          "collision_rate": 0.5,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.94,
+          "mean_min_clearance_m": 0.012245659461818669,
+          "worst_min_clearance_m": -0.2648526918143037
+        }
+      },
+      "bc_s3_retained_seed661201_s2_cbf_20": {
+        "summary_path": "bc_s3_retained_seed661201_s2_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.8150000000000004,
+          "mean_min_clearance_m": 0.5362364933081545,
+          "worst_min_clearance_m": 0.49080999880909437
+        }
+      },
+      "mappo_s3_retained_seed661301_pilot_s2_raw_20": {
+        "summary_path": "mappo_s3_retained_seed661301_pilot_s2_raw_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.2800000000000002,
+          "mean_min_clearance_m": 0.2451199485041907,
+          "worst_min_clearance_m": 0.05459345921309211
+        }
+      },
+      "mappo_s3_retained_seed661301_pilot_s2_cbf_20": {
+        "summary_path": "mappo_s3_retained_seed661301_pilot_s2_cbf_20\\summary.json",
+        "episodes": 20,
+        "metrics": {
+          "safe_capture_rate": 1.0,
+          "cooperative_safe_capture_rate": 1.0,
+          "capture_rate": 1.0,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.275,
+          "mean_min_clearance_m": 0.488309837299526,
+          "worst_min_clearance_m": 0.45834255263571677
+        }
+      }
+    },
+    "S3": {
+      "s3_validation_expert_raw_40": {
+        "summary_path": "s3_validation_expert_raw_40\\summary.json",
+        "episodes": 40,
+        "metrics": {
+          "safe_capture_rate": 0.05,
+          "cooperative_safe_capture_rate": 0.05,
+          "capture_rate": 0.05,
+          "collision_rate": 0.95,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 3.25,
+          "mean_min_clearance_m": -0.1997031116679353,
+          "worst_min_clearance_m": -0.4716377344833673
+        }
+      },
+      "s3_validation_expert_cbf_40": {
+        "summary_path": "s3_validation_expert_cbf_40\\summary.json",
+        "episodes": 40,
+        "metrics": {
+          "safe_capture_rate": 0.875,
+          "cooperative_safe_capture_rate": 0.875,
+          "capture_rate": 0.875,
+          "collision_rate": 0.05,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 4.522857142857143,
+          "mean_min_clearance_m": 0.3540941341686796,
+          "worst_min_clearance_m": -0.017408664752844638
+        }
+      },
+      "s3_validation_bc_retained_raw_40": {
+        "summary_path": "s3_validation_bc_retained_raw_40\\summary.json",
+        "episodes": 40,
+        "metrics": {
+          "safe_capture_rate": 0.075,
+          "cooperative_safe_capture_rate": 0.075,
+          "capture_rate": 0.1,
+          "collision_rate": 0.925,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 4.033333333333333,
+          "mean_min_clearance_m": -0.07822254966893434,
+          "worst_min_clearance_m": -0.404601582247338
+        }
+      },
+      "s3_validation_bc_retained_cbf_40": {
+        "summary_path": "s3_validation_bc_retained_cbf_40\\summary.json",
+        "episodes": 40,
+        "metrics": {
+          "safe_capture_rate": 0.85,
+          "cooperative_safe_capture_rate": 0.85,
+          "capture_rate": 0.85,
+          "collision_rate": 0.025,
+          "boundary_violation_rate": 0.025,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 8.070588235294117,
+          "mean_min_clearance_m": 0.38740835614490626,
+          "worst_min_clearance_m": 0.30115029420364703
+        }
+      },
+      "s3_validation_mappo_retained_raw_40": {
+        "summary_path": "s3_validation_mappo_retained_raw_40\\summary.json",
+        "episodes": 40,
+        "metrics": {
+          "safe_capture_rate": 0.125,
+          "cooperative_safe_capture_rate": 0.125,
+          "capture_rate": 0.125,
+          "collision_rate": 0.875,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 4.119999999999999,
+          "mean_min_clearance_m": -0.08782718441499582,
+          "worst_min_clearance_m": -0.36961307282187383
+        }
+      },
+      "s3_validation_mappo_retained_cbf_40": {
+        "summary_path": "s3_validation_mappo_retained_cbf_40\\summary.json",
+        "episodes": 40,
+        "metrics": {
+          "safe_capture_rate": 0.75,
+          "cooperative_safe_capture_rate": 0.75,
+          "capture_rate": 0.75,
+          "collision_rate": 0.0,
+          "boundary_violation_rate": 0.0,
+          "transit_success_rate": 1.0,
+          "mean_capture_time_seconds": 6.5133333333333345,
+          "mean_min_clearance_m": 0.37852887631343823,
+          "worst_min_clearance_m": 0.17010790334023063
+        }
+      }
+    }
+  }
+}
