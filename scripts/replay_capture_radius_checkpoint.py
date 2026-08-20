@@ -94,6 +94,16 @@ def render_animation(
     centers = np.asarray(data["obstacle_centers_xy"], dtype=np.float64)
     radii = np.asarray(data["obstacle_radii"], dtype=np.float64)
     heights = np.asarray(data["obstacle_heights"], dtype=np.float64)
+    shapes = (
+        np.asarray(data["obstacle_shapes"]).astype(str)
+        if "obstacle_shapes" in data.files
+        else np.full(len(centers), "cylinder", dtype="U16")
+    )
+    half_extents = (
+        np.asarray(data["obstacle_half_extents_xy"], dtype=np.float64)
+        if "obstacle_half_extents_xy" in data.files
+        else np.repeat(radii[:, None], 2, axis=1)
+    )
     if frame_stride <= 0 or fps <= 0:
         raise ValueError("fps and frame-stride must be positive.")
     frame_indices = np.arange(0, len(target), frame_stride, dtype=np.int64)
@@ -160,14 +170,48 @@ def render_animation(
         draw.text((map_box[2] - 20, origin[1] + 7), "x", font=f_small, fill=(185, 210, 237, 220))
         draw.text((origin[0] + 8, map_box[1] + 5), "y", font=f_small, fill=(185, 210, 237, 220))
 
-        for center, radius, obstacle_height in zip(centers, radii, heights, strict=True):
+        for center, radius, obstacle_height, shape, half_extent in zip(
+            centers, radii, heights, shapes, half_extents, strict=True
+        ):
             px, py = world_to_map(np.array([center[0], center[1], 0.0]))
-            obstacle_px = max(8, int(float(radius) * map_scale))
-            shadow = (px + 7, py + 8, px + 2 * obstacle_px + 7, py + 2 * obstacle_px + 8)
-            draw.ellipse(shadow, fill=(35, 47, 62, 255))
-            draw.ellipse((px - obstacle_px, py - obstacle_px, px + obstacle_px, py + obstacle_px), fill=(75, 92, 114, 255), outline=(166, 183, 205, 255), width=2)
-            draw.ellipse((px - obstacle_px + 4, py - obstacle_px + 4, px + obstacle_px - 4, py + obstacle_px - 4), outline=(132, 155, 181, 125), width=1)
-            draw.text((px + obstacle_px + 5, py - 7), f"h={float(obstacle_height):.1f}", font=f_small, fill=(170, 190, 215, 190))
+            if shape == "cylinder":
+                half_x, half_y = float(radius), float(radius)
+            else:
+                half_x, half_y = float(half_extent[0]), float(half_extent[1])
+            half_px_x = max(8, int(half_x * map_scale))
+            half_px_y = max(6, int(half_y * map_scale))
+            shadow = (px - half_px_x + 7, py - half_px_y + 8, px + half_px_x + 7, py + half_px_y + 8)
+            draw.rectangle(shadow, fill=(35, 47, 62, 255))
+            if shape == "cylinder":
+                draw.ellipse(
+                    (px - half_px_x, py - half_px_y, px + half_px_x, py + half_px_y),
+                    fill=(75, 92, 114, 255),
+                    outline=(166, 183, 205, 255),
+                    width=2,
+                )
+                draw.ellipse(
+                    (px - half_px_x + 4, py - half_px_y + 4, px + half_px_x - 4, py + half_px_y - 4),
+                    outline=(132, 155, 181, 220),
+                    width=1,
+                )
+            else:
+                draw.rectangle(
+                    (px - half_px_x, py - half_px_y, px + half_px_x, py + half_px_y),
+                    fill=(91, 108, 130, 255),
+                    outline=(190, 205, 222, 255),
+                    width=2,
+                )
+                draw.line(
+                    (px - half_px_x, py - half_px_y, px + half_px_x, py - half_px_y),
+                    fill=(222, 231, 242, 230),
+                    width=2,
+                )
+            draw.text(
+                (px + half_px_x + 5, py - 12),
+                f"{shape} h={float(obstacle_height):.1f}",
+                font=f_small,
+                fill=(170, 190, 215, 220),
+            )
 
         for defender_index in range(defenders.shape[1]):
             points = [world_to_map(point) for point in defenders[: index + 1, defender_index]]

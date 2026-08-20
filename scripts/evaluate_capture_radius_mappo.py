@@ -235,6 +235,16 @@ def save_trajectory(env: CaptureRadiusPursuit3DEnv, path: Path) -> None:
         obstacle_centers_xy=np.asarray([item.center_xy for item in env.obstacles], dtype=np.float64),
         obstacle_radii=np.asarray([item.radius for item in env.obstacles], dtype=np.float64),
         obstacle_heights=np.asarray([item.height for item in env.obstacles], dtype=np.float64),
+        obstacle_shapes=np.asarray([str(item.shape) for item in env.obstacles], dtype="U16"),
+        obstacle_half_extents_xy=np.asarray(
+            [
+                item.half_extents_xy
+                if item.half_extents_xy is not None
+                else np.array([item.radius, item.radius], dtype=np.float64)
+                for item in env.obstacles
+            ],
+            dtype=np.float64,
+        ),
         capture_radius=float(env.pursuit["capture_radius"]),
         capturing_defender_id=(-1 if env.capturing_defender_id is None else int(env.capturing_defender_id)),
         world_half_extent=float(env.world["half_extent_xy"]),

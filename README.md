@@ -111,6 +111,23 @@ altitude profile. It writes `trajectory.npz`, `episode.json`,
 `ffmpeg` executable is available. In the GPU Conda environment, install it
 with `conda install -n uav-encirclement-gpu -c conda-forge ffmpeg`.
 
+Run the controlled central mixed-obstacle showcase with a frozen checkpoint:
+
+```powershell
+python scripts/run_mixed_obstacle_showcase.py `
+  --method f2 `
+  --checkpoint F:/path/to/f2/recurrent_mappo/checkpoint.pt `
+  --seed 642002 `
+  --initial-side-distance 5.0 `
+  --use-cbf `
+  --output-dir results/showcase/central_mixed_seed642002_cbf
+```
+
+The showcase starts defenders and target on opposite sides of a fixed central
+layout containing a cylinder, box, and wall. It validates the initial map,
+exports the exact obstacle shapes and dimensions, and records obstacle-zone
+crossing metrics separately from the ordinary Safe Capture result.
+
 TensorBoard:
 
 ```powershell
