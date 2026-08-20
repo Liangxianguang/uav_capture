@@ -22,4 +22,4 @@ def test_aggregate_normalizes_fixed_and_s3_summaries(tmp_path) -> None:
     aggregate = collect(tmp_path, {"S1": ["fixed"], "S3": ["randomized"], "S2": []})
     assert aggregate["S1"]["fixed"]["metrics"]["cooperative_safe_capture_rate"] == 1.0
     assert aggregate["S3"]["randomized"]["metrics"]["safe_capture_rate"] == 0.75
-    assert "not a locked-test" in render_markdown({"groups": aggregate})
+    assert "not a locked test" in render_markdown({"groups": aggregate})
