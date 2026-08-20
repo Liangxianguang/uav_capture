@@ -132,6 +132,10 @@ def test_s3_summary_groups_layout_and_observation_conditions() -> None:
             "capture_time_seconds": 4.0,
             "mean_visible_fraction": 0.8,
             "mean_observation_age_steps": 1.0,
+            "mean_defender_path_length_m": 8.0,
+            "total_defender_path_length_m": 32.0,
+            "mean_cbf_action_correction_norm": 0.2,
+            "max_cbf_action_correction_norm": 0.5,
             "termination_reason": "safe_capture",
             "defender_side": "left",
             "obstacle_count": 3,
@@ -158,6 +162,10 @@ def test_s3_summary_groups_layout_and_observation_conditions() -> None:
             "capture_time_seconds": None,
             "mean_visible_fraction": 0.5,
             "mean_observation_age_steps": 3.0,
+            "mean_defender_path_length_m": 12.0,
+            "total_defender_path_length_m": 48.0,
+            "mean_cbf_action_correction_norm": 0.4,
+            "max_cbf_action_correction_norm": 0.8,
             "termination_reason": "timeout",
             "defender_side": "right",
             "obstacle_count": 5,
@@ -172,3 +180,6 @@ def test_s3_summary_groups_layout_and_observation_conditions() -> None:
     assert summary["by_defender_side"]["left"]["episodes"] == 1
     assert summary["by_obstacle_count"]["5"]["episodes"] == 1
     assert summary["by_observation_condition"]["delayed_noisy"]["termination_reasons"] == {"timeout": 1}
+    assert summary["overall"]["mean_defender_path_length_m"] == 10.0
+    assert summary["overall"]["mean_cbf_action_correction_norm"] == pytest.approx(0.3)
+    assert summary["overall"]["max_cbf_action_correction_norm"] == 0.8

@@ -213,6 +213,9 @@ def rollout_showcase(
     visible_fractions: list[float] = []
     message_ages: list[float] = []
     observation_ages: list[float] = []
+    cbf_corrections: list[float] = []
+    path_lengths = np.zeros(env.n_defenders, dtype=np.float64)
+    previous_positions = env.defender_positions.copy()
     final_info: dict[str, Any] = {}
     target_collision = False
     with torch.no_grad():
@@ -224,8 +227,13 @@ def rollout_showcase(
                 distribution = policy.distribution(local)
             action = torch.tanh(distribution.mean).cpu().numpy() * action_scale
             if safety_filter is not None:
-                action, _diagnostics = safety_filter.filter(action, observation)
+                action, diagnostics = safety_filter.filter(action, observation)
+                cbf_corrections.append(float(diagnostics.action_correction_norm))
+            else:
+                cbf_corrections.append(0.0)
             observation, _reward, terminated, truncated, final_info = env.step(action, record_history=True)
+            path_lengths += np.linalg.norm(env.defender_positions - previous_positions, axis=1)
+            previous_positions = env.defender_positions.copy()
             visible_fractions.append(float(final_info["target_visible_fraction"]))
             message_ages.append(float(final_info["mean_message_age_steps"]))
             observation_ages.append(float(final_info["mean_observation_age_steps"]))
@@ -257,6 +265,11 @@ def rollout_showcase(
         "mean_visible_fraction": float(np.mean(visible_fractions)) if visible_fractions else 0.0,
         "mean_message_age_steps": float(np.mean(message_ages)) if message_ages else 0.0,
         "mean_observation_age_steps": float(np.mean(observation_ages)) if observation_ages else 0.0,
+        "defender_path_length_m": path_lengths.tolist(),
+        "mean_defender_path_length_m": float(np.mean(path_lengths)),
+        "total_defender_path_length_m": float(np.sum(path_lengths)),
+        "mean_cbf_action_correction_norm": float(np.mean(cbf_corrections)) if cbf_corrections else 0.0,
+        "max_cbf_action_correction_norm": float(max(cbf_corrections)) if cbf_corrections else 0.0,
         "use_cbf": bool(use_cbf),
     }
     return _finalize_showcase_row(row, env, scenario, final_info, target_collision=target_collision), env
@@ -280,11 +293,18 @@ def rollout_showcase_expert(
     visible_fractions: list[float] = []
     message_ages: list[float] = []
     observation_ages: list[float] = []
+    cbf_corrections: list[float] = []
+    path_lengths = np.zeros(env.n_defenders, dtype=np.float64)
+    previous_positions = env.defender_positions.copy()
     final_info: dict[str, Any] = {}
     target_collision = False
     while True:
         action = controller.act(observation)
+        diagnostics = getattr(controller, "last_diagnostics", None)
+        cbf_corrections.append(float(diagnostics.action_correction_norm) if diagnostics is not None else 0.0)
         observation, _reward, terminated, truncated, final_info = env.step(action, record_history=True)
+        path_lengths += np.linalg.norm(env.defender_positions - previous_positions, axis=1)
+        previous_positions = env.defender_positions.copy()
         visible_fractions.append(float(final_info["target_visible_fraction"]))
         message_ages.append(float(final_info["mean_message_age_steps"]))
         observation_ages.append(float(final_info["mean_observation_age_steps"]))
@@ -313,6 +333,11 @@ def rollout_showcase_expert(
         "mean_visible_fraction": float(np.mean(visible_fractions)) if visible_fractions else 0.0,
         "mean_message_age_steps": float(np.mean(message_ages)) if message_ages else 0.0,
         "mean_observation_age_steps": float(np.mean(observation_ages)) if observation_ages else 0.0,
+        "defender_path_length_m": path_lengths.tolist(),
+        "mean_defender_path_length_m": float(np.mean(path_lengths)),
+        "total_defender_path_length_m": float(np.sum(path_lengths)),
+        "mean_cbf_action_correction_norm": float(np.mean(cbf_corrections)) if cbf_corrections else 0.0,
+        "max_cbf_action_correction_norm": float(max(cbf_corrections)) if cbf_corrections else 0.0,
         "use_cbf": bool(use_cbf),
     }
     return _finalize_showcase_row(row, env, scenario, final_info, target_collision=target_collision), env

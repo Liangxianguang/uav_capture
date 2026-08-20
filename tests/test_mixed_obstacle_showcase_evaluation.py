@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from scripts.evaluate_mixed_obstacle_showcase import summarize
 
 
@@ -25,6 +27,10 @@ def test_showcase_summary_reports_crossing_and_capture_separately() -> None:
             "capture_time_seconds": 7.0,
             "mean_visible_fraction": 0.8,
             "mean_observation_age_steps": 1.0,
+            "mean_defender_path_length_m": 8.0,
+            "total_defender_path_length_m": 32.0,
+            "mean_cbf_action_correction_norm": 0.2,
+            "max_cbf_action_correction_norm": 0.5,
         },
         {
             "safe_capture_success": False,
@@ -46,6 +52,10 @@ def test_showcase_summary_reports_crossing_and_capture_separately() -> None:
             "capture_time_seconds": None,
             "mean_visible_fraction": 0.9,
             "mean_observation_age_steps": 2.0,
+            "mean_defender_path_length_m": 10.0,
+            "total_defender_path_length_m": 40.0,
+            "mean_cbf_action_correction_norm": 0.4,
+            "max_cbf_action_correction_norm": 0.7,
         },
     ]
     result = summarize(rows)
@@ -60,3 +70,6 @@ def test_showcase_summary_reports_crossing_and_capture_separately() -> None:
     assert result["transit_success_rate"] == 1.0
     assert result["defender_obstacle_crossing_rate"] == 1.0
     assert result["boundary_violation_rate"] == 0.0
+    assert result["mean_defender_path_length_m"] == 9.0
+    assert result["mean_cbf_action_correction_norm"] == pytest.approx(0.3)
+    assert result["max_cbf_action_correction_norm"] == 0.7

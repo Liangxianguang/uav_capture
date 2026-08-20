@@ -218,6 +218,18 @@ def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "mean_capture_time_seconds": float(np.mean(capture_times)) if capture_times else None,
             "mean_visible_fraction": float(np.mean([float(row["mean_visible_fraction"]) for row in subset])),
             "mean_observation_age_steps": float(np.mean([float(row["mean_observation_age_steps"]) for row in subset])),
+            "mean_defender_path_length_m": float(
+                np.mean([float(row.get("mean_defender_path_length_m", 0.0)) for row in subset])
+            ),
+            "mean_total_defender_path_length_m": float(
+                np.mean([float(row.get("total_defender_path_length_m", 0.0)) for row in subset])
+            ),
+            "mean_cbf_action_correction_norm": float(
+                np.mean([float(row.get("mean_cbf_action_correction_norm", 0.0)) for row in subset])
+            ),
+            "max_cbf_action_correction_norm": float(
+                max(float(row.get("max_cbf_action_correction_norm", 0.0)) for row in subset)
+            ),
             "termination_reasons": dict(sorted(Counter(str(row["termination_reason"]) for row in subset).items())),
         }
 

@@ -106,6 +106,18 @@ def summarize(rows: list[dict[str, object]]) -> dict[str, float | int | None]:
         "mean_capture_time_seconds": float(np.mean(capture_times)) if capture_times else None,
         "mean_visible_fraction": float(np.mean([float(row["mean_visible_fraction"]) for row in rows])),
         "mean_observation_age_steps": float(np.mean([float(row["mean_observation_age_steps"]) for row in rows])),
+        "mean_defender_path_length_m": float(
+            np.mean([float(row.get("mean_defender_path_length_m", 0.0)) for row in rows])
+        ),
+        "mean_total_defender_path_length_m": float(
+            np.mean([float(row.get("total_defender_path_length_m", 0.0)) for row in rows])
+        ),
+        "mean_cbf_action_correction_norm": float(
+            np.mean([float(row.get("mean_cbf_action_correction_norm", 0.0)) for row in rows])
+        ),
+        "max_cbf_action_correction_norm": float(
+            max(float(row.get("max_cbf_action_correction_norm", 0.0)) for row in rows)
+        ),
     }
 
 
