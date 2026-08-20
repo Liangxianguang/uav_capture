@@ -7,7 +7,8 @@ import yaml
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 from encirclement3d.showcase import random_central_mixed_obstacle_scenario, scenario_metadata
-from scripts.evaluate_random_central_mixed_obstacles import episode_spec, load_protocol, summarize_rows
+from scripts.evaluate_random_central_mixed_obstacles import config_for_spec, episode_spec, load_protocol, summarize_rows
+from encirclement3d.observation_encoding import policy_observations
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +57,7 @@ def test_s3_random_layout_supports_both_start_sides_and_axis_aligned_walls() -> 
 def test_s3_protocol_has_disjoint_reproducible_motion_and_layout_seed_blocks() -> None:
     protocol = load_protocol(PROJECT_ROOT / "configs" / "central_random_mixed_obstacle_s3_protocol.yaml")
     assert protocol["s3"]["target_crossing_required"] is False
+    assert protocol["s3"]["required_defender_zone_entries"] == 2
     specs = {
         split: [episode_spec(protocol, split, index) for index in range(3)]
         for split in ("train", "validation", "locked_test")
@@ -83,6 +85,20 @@ def test_s3_protocol_has_disjoint_reproducible_motion_and_layout_seed_blocks() -
         ("right", "nominal"): 48,
         ("right", "delayed_noisy"): 48,
     }
+
+
+def test_s3_v4_environment_override_preserves_shape_aware_actor_contract() -> None:
+    protocol = load_protocol(PROJECT_ROOT / "configs" / "central_random_mixed_obstacle_s3_protocol.yaml")
+    spec = episode_spec(protocol, "validation", 0)
+    config = config_for_spec(
+        "f2",
+        spec,
+        PROJECT_ROOT / "configs" / "capture_radius_pursuit_central_v4_flee.yaml",
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=float(spec["target_speed_scale"]))
+    observation = env.reset(seed=int(spec["episode_seed"]))
+    assert config["task"]["policy_obstacle_geometry"] == "shape_extents_and_type"
+    assert policy_observations(env, observation).shape == (4, 63)
 
 
 def test_s3_summary_groups_layout_and_observation_conditions() -> None:

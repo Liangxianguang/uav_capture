@@ -50,6 +50,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--baseline", choices=("dynamic_encirclement",))
     parser.add_argument("--protocol", type=Path, default=DEFAULT_PROTOCOL)
+    parser.add_argument(
+        "--environment-config",
+        type=Path,
+        help="Optional environment YAML. Use the V4 YAML for shape-aware V4 checkpoints.",
+    )
     parser.add_argument("--split", choices=REQUIRED_SPLITS, required=True)
     parser.add_argument("--episodes", type=int, help="Optional split-size override for smoke runs.")
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -139,13 +144,24 @@ def episode_spec(protocol: dict[str, Any], split: str, episode_index: int) -> di
     }
 
 
-def config_for_spec(method: str, spec: dict[str, Any]) -> dict[str, Any]:
-    config = build_config(
-        method,
-        float(spec["pursuit_overrides"]["detection_range"]),
-        float(spec["target_speed_scale"]),
-        target_crossing_required=bool(spec["target_crossing_required"]),
-    )
+def config_for_spec(
+    method: str,
+    spec: dict[str, Any],
+    environment_config: Path | None = None,
+) -> dict[str, Any]:
+    """Construct one S3 rollout environment while preserving a checkpoint contract."""
+    if environment_config is None:
+        config = build_config(
+            method,
+            float(spec["pursuit_overrides"]["detection_range"]),
+            float(spec["target_speed_scale"]),
+            target_crossing_required=bool(spec["target_crossing_required"]),
+        )
+    else:
+        config = yaml.safe_load(environment_config.read_text(encoding="utf-8"))
+        if not isinstance(config, dict) or not isinstance(config.get("task"), dict):
+            raise ValueError("--environment-config must contain a valid pursuit environment mapping.")
+        config = copy.deepcopy(config)
     pursuit = config["task"]["pursuit"]
     pursuit.update(copy.deepcopy(spec["pursuit_overrides"]))
     pursuit["target_motion_mode"] = str(spec["target_motion_mode"])
@@ -210,6 +226,9 @@ def main() -> None:
         raise ValueError("Provide exactly one of --checkpoint or --baseline.")
     protocol_path = args.protocol.resolve()
     protocol = load_protocol(protocol_path)
+    environment_config = args.environment_config.resolve() if args.environment_config is not None else None
+    if environment_config is not None and not environment_config.is_file():
+        raise FileNotFoundError(f"Environment config does not exist: {environment_config}")
     episodes = int(args.episodes) if args.episodes is not None else int(protocol["episodes_per_split"][args.split])
     if episodes <= 0:
         raise ValueError("episodes must be positive.")
@@ -228,7 +247,7 @@ def main() -> None:
     scenes: list[dict[str, Any]] = []
     for episode_index in range(episodes):
         spec = episode_spec(protocol, args.split, episode_index)
-        config = config_for_spec(args.method, spec)
+        config = config_for_spec(args.method, spec, environment_config)
         validation_env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=float(spec["target_speed_scale"]))
         scenario = random_central_mixed_obstacle_scenario(
             validation_env,
@@ -238,6 +257,7 @@ def main() -> None:
             target_crossing_required=bool(spec["target_crossing_required"]),
             obstacle_count_range=(int(spec["obstacle_count"]), int(spec["obstacle_count"])),
             max_attempts=int(protocol["s3"].get("max_sampling_attempts", 500)),
+            required_defender_zone_entries=int(protocol["s3"].get("required_defender_zone_entries", 1)),
         )
         if bool(scenario.target_crossing_required):
             # Keep the rollout environment and the scenario protocol aligned;
@@ -330,6 +350,7 @@ def main() -> None:
                 "evaluation_type": "randomized_central_mixed_obstacle_s3",
                 "not_a_locked_test": True,
                 "protocol": str(protocol_path),
+                "environment_config": str(environment_config) if environment_config is not None else None,
                 "split": args.split,
                 "episodes": episodes,
                 "method": args.method if checkpoint is not None else args.baseline,

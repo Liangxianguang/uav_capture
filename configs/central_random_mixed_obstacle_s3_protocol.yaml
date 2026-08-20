@@ -11,6 +11,7 @@ episodes_per_split:
   locked_test: 100
 s3:
   target_crossing_required: false
+  required_defender_zone_entries: 2
   obstacle_count_range: [3, 5]
   initial_side_distances: [6.0, 6.5, 7.0, 7.5]
   defender_sides: [left, right]
