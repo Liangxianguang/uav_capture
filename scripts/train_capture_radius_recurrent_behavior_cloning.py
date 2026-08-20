@@ -116,6 +116,46 @@ def observe(
     return observer.reset(observation) if reset else observer.observe(observation)
 
 
+def expert_episode_quality(
+    final_info: dict[str, Any],
+    defender_zone_entered: np.ndarray,
+    episode_metadata: dict[str, Any],
+    settings: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply the configured expert-data acceptance contract to one rollout.
+
+    Failed expert rollouts are useful diagnostics but poor imitation labels:
+    retaining their final collision or timeout actions teaches the actor to
+    reproduce behavior that the task explicitly rejects.  This helper keeps
+    the policy contract explicit and records every rejected attempt.
+    """
+    entered = np.asarray(defender_zone_entered, dtype=bool)
+    if entered.ndim != 1:
+        raise ValueError("defender_zone_entered must be a one-dimensional boolean vector.")
+    configured_entries = episode_metadata.get("required_defender_zone_entries")
+    if configured_entries is None:
+        configured_entries = settings.get("training_required_defender_zone_entries", 1)
+    required_entries = int(configured_entries)
+    if not 1 <= required_entries <= entered.size:
+        raise ValueError("Expert rollout required_defender_zone_entries is invalid.")
+    safe_capture = bool(final_info.get("safe_capture_success", False))
+    entry_count = int(np.sum(entered))
+    cooperative_requirement_met = bool(entry_count >= required_entries)
+    require_safe_capture = bool(settings.get("expert_require_safe_capture", False))
+    require_cooperative_capture = bool(settings.get("expert_require_cooperative_safe_capture", False))
+    accepted = bool(
+        (not require_safe_capture or safe_capture)
+        and (not require_cooperative_capture or (safe_capture and cooperative_requirement_met))
+    )
+    return {
+        "accepted": accepted,
+        "safe_capture_success": safe_capture,
+        "defender_zone_entry_count": entry_count,
+        "required_defender_zone_entries": required_entries,
+        "cooperative_requirement_met": cooperative_requirement_met,
+    }
+
+
 def collect_expert_dataset(
     config: dict[str, Any],
     settings: dict[str, Any],
@@ -131,14 +171,27 @@ def collect_expert_dataset(
     reset_frames: list[bool] = []
     episode_rows: list[dict[str, Any]] = []
     centralized_state_dim: int | None = None
-    for episode_index in range(int(settings["episodes"])):
+    requested_episodes = int(settings["episodes"])
+    maximum_attempts_per_episode = int(settings.get("expert_max_attempts_per_episode", 1))
+    if maximum_attempts_per_episode <= 0:
+        raise ValueError("expert_max_attempts_per_episode must be positive.")
+    accepted_episodes = 0
+    total_attempts = 0
+    rejected_rows: list[dict[str, Any]] = []
+    while accepted_episodes < requested_episodes:
+        if total_attempts >= requested_episodes * maximum_attempts_per_episode:
+            raise RuntimeError(
+                "Unable to collect the requested number of accepted expert episodes within "
+                "expert_max_attempts_per_episode. Inspect rejected_expert_episodes in the manifest."
+            )
+        rollout_seed = seed + total_attempts
         env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
         observation, episode_metadata = sample_training_episode(
             env,
             settings,
             rng,
-            seed=seed + episode_index,
-            progress=episode_index / max(int(settings["episodes"]) - 1, 1),
+            seed=rollout_seed,
+            progress=accepted_episodes / max(requested_episodes - 1, 1),
         )
         controller = SafetyFilteredPursuitController(DynamicEncirclementController(env))
         observer = (
@@ -155,36 +208,64 @@ def collect_expert_dataset(
         local = observe(env, observer, observation, reset=True)
         if centralized_state_dim is None:
             centralized_state_dim = int(env.centralized_state().shape[-1])
-        episode_start = len(local_frames)
+        rollout_local_frames: list[np.ndarray] = []
+        rollout_action_frames: list[np.ndarray] = []
+        rollout_reset_frames: list[bool] = []
+        obstacle_zone_x = episode_metadata.get("obstacle_zone_x")
+        defender_zone_entered = np.zeros(env.n_defenders, dtype=bool)
+        if obstacle_zone_x is not None:
+            low, high = (float(value) for value in obstacle_zone_x)
+            defender_zone_entered |= (env.defender_positions[:, 0] >= low) & (env.defender_positions[:, 0] <= high)
         while True:
-            local_frames.append(local)
-            reset_frames.append(len(local_frames) - 1 == episode_start)
+            rollout_local_frames.append(local)
+            rollout_reset_frames.append(len(rollout_local_frames) == 1)
             action = np.asarray(controller.act(observation), dtype=np.float32)
-            action_frames.append(action)
+            rollout_action_frames.append(action)
             observation, _reward, terminated, truncated, info = env.step(action)
+            if obstacle_zone_x is not None:
+                defender_zone_entered |= (env.defender_positions[:, 0] >= low) & (env.defender_positions[:, 0] <= high)
             if terminated or truncated:
-                episode_rows.append(
-                    {
-                        "episode": episode_index,
-                        "seed": seed + episode_index,
-                        "obstacle_count": int(env.obstacle_count),
-                        "target_speed_scale": float(env.target_speed_scale),
-                        "safe_capture_success": bool(info["safe_capture_success"]),
-                        "collision": bool(info["collision"]),
-                        "steps": int(env.step_count),
-                        **episode_metadata,
-                    }
-                )
+                quality = expert_episode_quality(info, defender_zone_entered, episode_metadata, settings)
+                row = {
+                    "episode": accepted_episodes if bool(quality["accepted"]) else None,
+                    "attempt": total_attempts,
+                    "seed": rollout_seed,
+                    "obstacle_count": int(env.obstacle_count),
+                    "target_speed_scale": float(env.target_speed_scale),
+                    "collision": bool(info["collision"]),
+                    "steps": int(env.step_count),
+                    "termination_reason": str(info["termination_reason"]),
+                    **episode_metadata,
+                    **quality,
+                }
+                if bool(quality["accepted"]):
+                    local_frames.extend(rollout_local_frames)
+                    action_frames.extend(rollout_action_frames)
+                    reset_frames.extend(rollout_reset_frames)
+                    episode_rows.append(row)
+                    accepted_episodes += 1
+                else:
+                    rejected_rows.append(row)
                 break
             local = observe(env, observer, observation)
+        total_attempts += 1
     local_values = np.asarray(local_frames, dtype=np.float32)
     action_values = np.asarray(action_frames, dtype=np.float32)
     reset_values = np.asarray(reset_frames, dtype=np.float32)
     manifest = {
         "episodes": episode_rows,
+        "rejected_expert_episodes": rejected_rows,
         "frame_count": int(local_values.shape[0]),
         "expert_safe_capture_rate": float(np.mean([row["safe_capture_success"] for row in episode_rows])),
         "expert_collision_rate": float(np.mean([row["collision"] for row in episode_rows])),
+        "expert_cooperative_requirement_rate": float(
+            np.mean([row["cooperative_requirement_met"] for row in episode_rows])
+        ),
+        "requested_episodes": requested_episodes,
+        "accepted_episodes": len(episode_rows),
+        "rejected_episodes": len(rejected_rows),
+        "collection_attempts": total_attempts,
+        "expert_rejection_rate": float(len(rejected_rows) / max(total_attempts, 1)),
     }
     return local_values, action_values, reset_values, manifest, int(centralized_state_dim)
 
@@ -398,6 +479,17 @@ def main() -> None:
             args.prediction_history_length,
             args.prediction_horizon_index,
         )
+        maximum_rejection_rate = float(settings.get("expert_max_rejection_rate", 1.0))
+        if not 0.0 <= maximum_rejection_rate <= 1.0:
+            raise ValueError("expert_max_rejection_rate must lie in [0, 1].")
+        if float(manifest["expert_rejection_rate"]) > maximum_rejection_rate:
+            output.joinpath("expert_dataset_manifest.json").write_text(
+                json.dumps(manifest, indent=2), encoding="utf-8"
+            )
+            raise RuntimeError(
+                "Expert rejection rate exceeds expert_max_rejection_rate; training is stopped before "
+                "writing a dataset or checkpoint. See expert_dataset_manifest.json for rejected rollouts."
+            )
         usable_frames = (local_data.shape[0] // args.sequence_length) * args.sequence_length
         if usable_frames == 0:
             raise RuntimeError("Expert trajectory dataset is shorter than one recurrent sequence.")

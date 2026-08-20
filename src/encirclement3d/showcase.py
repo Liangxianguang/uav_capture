@@ -479,6 +479,16 @@ def sample_training_episode(
     """
     if not 0.0 <= progress <= 1.0:
         raise ValueError("training progress must lie in [0, 1].")
+    # A MAPPO environment is reused across episodes. Restore its frozen base
+    # sensing contract before applying the current curriculum-stage overrides,
+    # so a late noisy stage cannot leak into an earlier or fallback episode.
+    base_pursuit = getattr(env, "_training_base_pursuit", None)
+    if base_pursuit is None:
+        base_pursuit = dict(env.pursuit)
+        setattr(env, "_training_base_pursuit", base_pursuit)
+    env.pursuit.clear()
+    env.pursuit.update(base_pursuit)
+
     stage: dict[str, Any] = {}
     stages = settings.get("training_showcase_stages", [])
     if stages:
@@ -513,6 +523,7 @@ def sample_training_episode(
         )
     )
     target_crossing_probability = float(stage.get("target_crossing_probability", 0.0))
+    pursuit_overrides = stage.get("pursuit_overrides", {})
     required_defender_zone_entries = int(
         stage.get("required_defender_zone_entries", settings.get("training_required_defender_zone_entries", 1))
     )
@@ -532,10 +543,19 @@ def sample_training_episode(
         raise ValueError("target_crossing_probability must lie in [0, 1].")
     if not 0.0 <= randomized_probability <= 1.0:
         raise ValueError("randomized_central_probability must lie in [0, 1].")
+    if not isinstance(pursuit_overrides, dict):
+        raise ValueError("pursuit_overrides must be a mapping when provided.")
+    unknown_pursuit_keys = sorted(set(pursuit_overrides).difference(env.pursuit))
+    if unknown_pursuit_keys:
+        raise ValueError(
+            "pursuit_overrides contains unknown pursuit setting(s): "
+            + ", ".join(unknown_pursuit_keys)
+        )
     if not 1 <= required_defender_zone_entries <= env.n_defenders:
         raise ValueError("required_defender_zone_entries must lie in [1, n_defenders].")
     if len(randomized_obstacle_count_range) != 2 or not 3 <= randomized_obstacle_count_range[0] <= randomized_obstacle_count_range[1]:
         raise ValueError("randomized_obstacle_count_range must satisfy 3 <= low <= high.")
+    env.pursuit.update(pursuit_overrides)
     if rng.random() < randomized_probability:
         side_distance = float(rng.choice(np.asarray(distances, dtype=np.float64)))
         defender_side = str(rng.choice(defender_sides))
@@ -571,6 +591,8 @@ def sample_training_episode(
             "target_speed_scale": target_speed_scale,
             "target_motion_mode": target_motion_mode,
             "required_defender_zone_entries": required_defender_zone_entries,
+            "obstacle_zone_x": list(scenario.obstacle_zone_x),
+            "pursuit_overrides": dict(pursuit_overrides),
             "progress": progress,
         }
     if rng.random() < probability:
@@ -606,6 +628,8 @@ def sample_training_episode(
             "target_speed_scale": target_speed_scale,
             "target_motion_mode": target_motion_mode,
             "required_defender_zone_entries": required_defender_zone_entries,
+            "obstacle_zone_x": list(scenario.obstacle_zone_x),
+            "pursuit_overrides": dict(pursuit_overrides),
             "progress": progress,
         }
     env.obstacle_count = int(rng.choice(np.asarray(settings["training_obstacle_counts"], dtype=np.int64)))
@@ -622,6 +646,8 @@ def sample_training_episode(
         "target_speed_scale": env.target_speed_scale,
         "target_motion_mode": str(env.pursuit["target_motion_mode"]),
         "required_defender_zone_entries": None,
+        "obstacle_zone_x": None,
+        "pursuit_overrides": dict(pursuit_overrides),
         "progress": progress,
     }
 

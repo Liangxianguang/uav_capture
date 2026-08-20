@@ -61,6 +61,25 @@ def test_v4_flee_curricula_match_the_frozen_sensor_and_motion_contract() -> None
             assert stage["required_defender_zone_entries"] == protocol.required_defender_zone_entries
 
 
+def test_v4_s3_progressive_bc_curriculum_matches_the_capture_contract() -> None:
+    document = yaml.safe_load(
+        (PROJECT_ROOT / "configs" / "capture_radius_recurrent_behavior_cloning_central_v4_s3_progressive.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    environment = yaml.safe_load(
+        (PROJECT_ROOT / "configs" / document["environment_config"]).read_text(encoding="utf-8")
+    )
+    settings = document["imitation"]
+    assert environment["task"]["policy_obstacle_geometry"] == "shape_extents_and_type"
+    assert settings["expert_require_safe_capture"] is True
+    assert settings["expert_require_cooperative_safe_capture"] is True
+    assert all(stage["target_crossing_probability"] == 0.0 for stage in settings["training_showcase_stages"])
+    assert all(stage["required_defender_zone_entries"] == 2 for stage in settings["training_showcase_stages"])
+    assert any(stage["defender_sides"] == ["left", "right"] for stage in settings["training_showcase_stages"])
+    assert settings["training_showcase_stages"][-1]["randomized_obstacle_count_range"] == [3, 5]
+
+
 def test_central_showcase_contains_all_required_obstacle_shapes() -> None:
     scenario = central_mixed_obstacle_scenario()
     assert {obstacle.shape for obstacle in scenario.obstacles} == {"cylinder", "box", "wall"}
