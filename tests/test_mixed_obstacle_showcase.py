@@ -6,6 +6,7 @@ import numpy as np
 import yaml
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
+from encirclement3d.observation_encoding import policy_observations
 from encirclement3d.showcase import (
     capture_contract_metrics,
     central_capture_v4_scenario,
@@ -46,6 +47,8 @@ def test_v4_flee_curricula_match_the_frozen_sensor_and_motion_contract() -> None
         environment = yaml.safe_load(environment_path.read_text(encoding="utf-8"))
         settings = document[section]
         assert settings["action_scale_mode"] == "full_range"
+        assert environment["task"]["policy_obstacle_geometry"] == "shape_extents_and_type"
+        assert environment["task"]["policy_obstacle_geometry"] == protocol.policy_obstacle_geometry
         assert environment["task"]["pursuit"]["detection_range"] == protocol.detection_range
         assert environment["task"]["pursuit"]["obstacle_profile"] == "mixed"
         for stage in settings["training_showcase_stages"]:
@@ -113,6 +116,19 @@ def test_v4_fixed_scene_freezes_opposite_sides_central_obstacles_and_separation(
         half_x = obstacle.radius if obstacle.half_extents_xy is None else obstacle.half_extents_xy[0]
         assert obstacle.center_xy[0] - half_x >= protocol.obstacle_zone_x[0]
         assert obstacle.center_xy[0] + half_x <= protocol.obstacle_zone_x[1]
+
+
+def test_v4_shape_aware_observation_distinguishes_cylinder_box_and_wall() -> None:
+    config_path = PROJECT_ROOT / "configs" / "capture_radius_pursuit_central_v4_flee.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    protocol = load_v4_protocol()
+    scenario = central_capture_v4_scenario(protocol)
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=3, target_speed_scale=protocol.target_speed_scale)
+    observation = prepare_showcase_episode(env, scenario, seed=protocol.motion_seed)
+    encoded = policy_observations(env, observation)
+    assert encoded.shape == (env.n_defenders, 63)
+    shapes = encoded[0, -15:].reshape(3, 5)[:, 2:]
+    assert {tuple(row.astype(int)) for row in shapes} == {(1, 0, 0), (0, 1, 0), (0, 0, 1)}
 
 
 def test_s2_reverses_sides_and_requires_target_crossing() -> None:

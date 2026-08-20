@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from encirclement3d.learning import CentralizedSharedActorCritic, RecurrentCentralizedSharedActorCritic
+from encirclement3d.observation_encoding import policy_observations
 from encirclement3d.prediction import HistoryTargetPredictor, LearnedPredictionObserver
 from encirclement3d.pursuit_controllers import PursuitCBFSafetyFilter
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
@@ -69,7 +70,7 @@ def load_policy(
     device: torch.device,
 ) -> tuple[CentralizedSharedActorCritic | RecurrentCentralizedSharedActorCritic, float, dict[str, Any]]:
     checkpoint = safe_load_checkpoint(checkpoint_path, device)
-    local_dim = int(env.policy_observations(observation).shape[-1])
+    local_dim = int(policy_observations(env, observation).shape[-1])
     state_dim = int(env.centralized_state().shape[-1])
     if int(checkpoint.get("local_observation_dim", -1)) != local_dim:
         raise ValueError("Checkpoint observation dimension does not match the selected environment YAML.")
@@ -133,7 +134,7 @@ def rollout_episode(
     local_observation = (
         prediction_observer.reset(observation)
         if prediction_observer is not None
-        else env.policy_observations(observation)
+        else policy_observations(env, observation)
     )
     actor_hidden = (
         policy.initial_actor_hidden(env.n_defenders, device=device)
@@ -163,7 +164,7 @@ def rollout_episode(
             local_observation = (
                 prediction_observer.observe(observation)
                 if prediction_observer is not None
-                else env.policy_observations(observation)
+                else policy_observations(env, observation)
             )
     return (
         {

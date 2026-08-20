@@ -21,6 +21,7 @@ dynamics:
 task:
   slot_tracking_gain: 2.5
   cbf_gamma: 0.25
+  policy_obstacle_geometry: shape_extents_and_type
   pursuit:
     capture_radius: 0.80
     spawn_distance: 4.80

@@ -58,6 +58,7 @@ class CentralCaptureProtocol:
     detection_range: float
     target_speed_scale: float
     target_motion_mode: str
+    policy_obstacle_geometry: str
 
 
 def load_central_capture_protocol(path: str | Path) -> CentralCaptureProtocol:
@@ -100,6 +101,7 @@ def load_central_capture_protocol(path: str | Path) -> CentralCaptureProtocol:
             detection_range=float(runtime["detection_range"]),
             target_speed_scale=float(runtime["target_speed_scale"]),
             target_motion_mode=str(runtime["target_motion_mode"]),
+            policy_obstacle_geometry=str(runtime["policy_obstacle_geometry"]),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError(f"Invalid central capture protocol: {error}") from error
@@ -125,6 +127,8 @@ def load_central_capture_protocol(path: str | Path) -> CentralCaptureProtocol:
         raise ValueError("Protocol runtime detection_range and target_speed_scale must be positive.")
     if protocol.target_motion_mode not in {"flee_persistence", "s_curve"}:
         raise ValueError("Protocol target_motion_mode is unsupported.")
+    if protocol.policy_obstacle_geometry not in {"legacy", "shape_extents_and_type"}:
+        raise ValueError("Protocol policy_obstacle_geometry is unsupported.")
     return protocol
 
 
@@ -146,9 +150,11 @@ def validate_central_capture_protocol_environment(
         ("world.minimum_altitude", float(env.world["minimum_altitude"]), protocol.minimum_altitude),
         ("pursuit.capture_radius", float(env.pursuit["capture_radius"]), protocol.capture_radius),
         ("pursuit.safety_margin", float(env.pursuit["safety_margin"]), protocol.safety_margin),
+        ("task.policy_obstacle_geometry", str(env.task.get("policy_obstacle_geometry", "legacy")), protocol.policy_obstacle_geometry),
     )
     for field, actual, required in expected:
-        if not np.isclose(actual, required):
+        matches = bool(np.isclose(actual, required)) if isinstance(required, float) else actual == required
+        if not matches:
             raise ValueError(f"V4 protocol mismatch for {field}: expected {required}, got {actual}.")
     if env.n_defenders < protocol.required_defender_zone_entries:
         raise ValueError("V4 protocol requires more defender zone entries than the environment provides.")

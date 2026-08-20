@@ -26,6 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from encirclement3d.learning import RecurrentCentralizedSharedActorCritic
+from encirclement3d.observation_encoding import policy_observations
 from encirclement3d.prediction import HistoryTargetPredictor, LearnedPredictionObserver
 from encirclement3d.pursuit_controllers import PursuitCBFSafetyFilter
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
@@ -133,7 +134,7 @@ def local_features(
     reset: bool = False,
 ) -> np.ndarray:
     if observer is None:
-        return env.policy_observations(observation)
+        return policy_observations(env, observation)
     return observer.reset(observation) if reset else observer.observe(observation)
 
 
@@ -289,6 +290,7 @@ def write_artifacts(
     source_paths = [
         PROJECT_ROOT / "scripts" / "train_capture_radius_recurrent_mappo.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "learning.py",
+        PROJECT_ROOT / "src" / "encirclement3d" / "observation_encoding.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "prediction.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_env.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "showcase.py",

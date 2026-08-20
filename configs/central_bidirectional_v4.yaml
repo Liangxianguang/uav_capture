@@ -45,6 +45,7 @@ runtime:
   detection_range: 14.0
   target_speed_scale: 0.45
   target_motion_mode: flee_persistence
+  policy_obstacle_geometry: shape_extents_and_type
 
 evaluation:
   fixed_s1_episodes_per_layout: 20

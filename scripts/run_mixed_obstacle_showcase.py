@@ -18,6 +18,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
+from encirclement3d.observation_encoding import policy_observations  # noqa: E402
 from encirclement3d.pursuit_controllers import (  # noqa: E402
     DynamicEncirclementController,
     PursuitCBFSafetyFilter,
@@ -103,6 +104,7 @@ def build_config(
                 "target_motion_mode": protocol.target_motion_mode,
             }
         )
+        config["task"]["policy_obstacle_geometry"] = protocol.policy_obstacle_geometry
     if target_crossing_required:
         # A crossing target still avoids obstacles, but its deliberate transit
         # intent must outweigh the normal "flee away from pursuers" bias.
@@ -202,7 +204,7 @@ def rollout_showcase(
     )
     observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=True)
     safety_filter = PursuitCBFSafetyFilter(env) if use_cbf else None
-    local_observation = env.policy_observations(observation)
+    local_observation = policy_observations(env, observation)
     actor_hidden = (
         policy.initial_actor_hidden(env.n_defenders, device=device)
         if hasattr(policy, "initial_actor_hidden")
@@ -235,7 +237,7 @@ def rollout_showcase(
                 break
             if terminated or truncated:
                 break
-            local_observation = env.policy_observations(observation)
+            local_observation = policy_observations(env, observation)
     target_clearance = target_min_clearance(env)
     safe_capture = bool(final_info.get("safe_capture_success", False)) and not target_collision
     row = {

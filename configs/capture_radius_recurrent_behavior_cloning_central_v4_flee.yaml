@@ -6,7 +6,7 @@ environment_config: capture_radius_pursuit_central_v4_flee.yaml
 imitation:
   seed: 660701
   device: cuda
-  episodes: 320
+  episodes: 640
   training_obstacle_counts: [3]
   training_target_speed_scales: [0.45]
   training_target_motion_modes: [flee_persistence]
@@ -25,7 +25,7 @@ imitation:
     - until_progress: 0.65
       showcase_probability: 1.0
       randomized_central_probability: 0.0
-      layouts: [cylinder_box]
+      layouts: [cylinder, box, wall, cylinder_box]
       initial_side_distances: [5.5]
       defender_sides: [left]
       target_speed_scales: [0.45]
@@ -35,7 +35,7 @@ imitation:
     - until_progress: 1.0
       showcase_probability: 1.0
       randomized_central_probability: 0.0
-      layouts: [mixed]
+      layouts: [cylinder, box, wall, cylinder_box, mixed]
       initial_side_distances: [5.5]
       defender_sides: [left]
       target_speed_scales: [0.45]
