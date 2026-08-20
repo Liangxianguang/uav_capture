@@ -27,6 +27,7 @@ from encirclement3d.showcase import (  # noqa: E402
     central_mixed_obstacle_scenario,
     crossing_metrics,
     prepare_showcase_episode,
+    scenario_metadata,
     target_min_clearance,
 )
 from evaluate_capture_radius_mappo import load_policy, save_trajectory, select_device  # noqa: E402
@@ -273,25 +274,7 @@ def main() -> None:
     (output_dir / "episode.json").write_text(json.dumps(row, indent=2), encoding="utf-8")
     (output_dir / "scenario.json").write_text(
         json.dumps(
-            {
-                "name": scenario.name,
-                "scenario_kind": args.scenario,
-                "defender_side": "left" if args.scenario == "s1" else "right",
-                "target_crossing_required": scenario.target_crossing_required,
-                "obstacle_zone_x": list(scenario.obstacle_zone_x),
-                "defender_positions": scenario.defender_positions.tolist(),
-                "target_position": scenario.target_position.tolist(),
-                "obstacles": [
-                    {
-                        "shape": obstacle.shape,
-                        "center_xy": obstacle.center_xy.tolist(),
-                        "radius": float(obstacle.radius),
-                        "height": float(obstacle.height),
-                        "half_extents_xy": None if obstacle.half_extents_xy is None else obstacle.half_extents_xy.tolist(),
-                    }
-                    for obstacle in scenario.obstacles
-                ],
-            },
+            {"scenario_kind": args.scenario, **scenario_metadata(scenario)},
             indent=2,
         ),
         encoding="utf-8",

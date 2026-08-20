@@ -25,6 +25,8 @@ class ShowcaseScenario:
     target_escape_direction: np.ndarray
     obstacle_zone_x: tuple[float, float]
     target_crossing_required: bool = False
+    defender_side: str = "left"
+    layout_seed: int | None = None
 
 
 def central_mixed_obstacle_scenario(
@@ -91,7 +93,170 @@ def central_mixed_obstacle_scenario(
         target_escape_direction=np.array([target_direction_sign, 0.12, 0.0], dtype=np.float64),
         obstacle_zone_x=(-2.5, 3.0),
         target_crossing_required=bool(target_crossing_required),
+        defender_side=defender_side,
     )
+
+
+def _opposite_side_positions(initial_side_distance: float, defender_side: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if initial_side_distance < 4.0:
+        raise ValueError("initial_side_distance must be at least 4.0 m.")
+    if defender_side not in {"left", "right"}:
+        raise ValueError("defender_side must be either 'left' or 'right'.")
+    defender_x = -float(initial_side_distance) if defender_side == "left" else float(initial_side_distance)
+    target_x = -defender_x
+    escape_sign = 1.0 if defender_side == "left" else -1.0
+    return (
+        np.array(
+            [
+                [defender_x, -2.4, 2.8],
+                [defender_x, -0.8, 3.2],
+                [defender_x, 0.8, 3.6],
+                [defender_x, 2.4, 4.0],
+            ],
+            dtype=np.float64,
+        ),
+        np.array([target_x, 0.0, 4.2], dtype=np.float64),
+        np.array([escape_sign, 0.12, 0.0], dtype=np.float64),
+    )
+
+
+def _random_central_obstacle(
+    rng: np.random.Generator,
+    shape: str,
+    obstacle_zone_x: tuple[float, float],
+) -> CylinderObstacle:
+    """Sample one axis-aligned central obstacle with a physically recorded orientation.
+
+    The current collision model handles axis-aligned boxes exactly.  Therefore
+    a wall orientation means either 0 or 90 degrees in the x-y plane; arbitrary
+    yaw is intentionally deferred until collision, clearance, sensing, and
+    rendering all support it consistently.
+    """
+    if shape not in {"cylinder", "box", "wall"}:
+        raise ValueError(f"Unsupported S3 obstacle shape: {shape}")
+    height = float(rng.uniform(3.8, 6.2))
+    half_extents_xy: np.ndarray | None = None
+    if shape == "cylinder":
+        radius = float(rng.uniform(0.72, 1.08))
+        half_x = half_y = radius
+    elif shape == "box":
+        half_extents_xy = rng.uniform(0.70, 1.25, size=2).astype(np.float64)
+        radius = float(np.max(half_extents_xy))
+        half_x, half_y = map(float, half_extents_xy)
+    else:
+        long_extent = float(rng.uniform(1.65, 2.35))
+        short_extent = float(rng.uniform(0.28, 0.42))
+        half_extents_xy = (
+            np.array([long_extent, short_extent], dtype=np.float64)
+            if bool(rng.integers(0, 2))
+            else np.array([short_extent, long_extent], dtype=np.float64)
+        )
+        radius = short_extent
+        half_x, half_y = map(float, half_extents_xy)
+    x_low, x_high = map(float, obstacle_zone_x)
+    center_x = float(rng.uniform(x_low + half_x + 0.15, x_high - half_x - 0.15))
+    center_y = float(rng.uniform(-6.0 + half_y, 6.0 - half_y))
+    return CylinderObstacle(
+        center_xy=np.array([center_x, center_y], dtype=np.float64),
+        radius=radius,
+        height=height,
+        shape=shape,
+        half_extents_xy=half_extents_xy,
+    )
+
+
+def random_central_mixed_obstacle_scenario(
+    env: CaptureRadiusPursuit3DEnv,
+    layout_seed: int,
+    initial_side_distance: float = 5.0,
+    defender_side: str = "left",
+    obstacle_count_range: tuple[int, int] = (3, 5),
+    max_attempts: int = 500,
+) -> ShowcaseScenario:
+    """Sample a reproducible, valid S3 map with cylinder/box/wall obstacles.
+
+    Every accepted map contains each required geometry at least once, stays in
+    the central zone, clears all spawn positions, and has a conservative route
+    for every defender to the target's initial side.  The seed fully determines
+    the accepted layout, including any rejected candidate maps.
+    """
+    if layout_seed < 0:
+        raise ValueError("layout_seed must be non-negative.")
+    minimum_count, maximum_count = map(int, obstacle_count_range)
+    if minimum_count < 3 or maximum_count < minimum_count:
+        raise ValueError("S3 obstacle_count_range must satisfy 3 <= minimum <= maximum.")
+    if max_attempts <= 0:
+        raise ValueError("max_attempts must be positive.")
+    defender_positions, target_position, target_escape_direction = _opposite_side_positions(
+        initial_side_distance, defender_side
+    )
+    obstacle_zone_x = (-2.5, 3.0)
+    protected_points = np.vstack([defender_positions, target_position[None, :]])
+    rng = np.random.default_rng(layout_seed)
+    for _ in range(max_attempts):
+        obstacle_count = int(rng.integers(minimum_count, maximum_count + 1))
+        shapes = ["cylinder", "box", "wall"]
+        rng.shuffle(shapes)
+        shapes.extend(str(rng.choice(["cylinder", "box", "wall"])) for _ in range(obstacle_count - 3))
+        obstacles: list[CylinderObstacle] = []
+        for shape in shapes:
+            for _candidate_attempt in range(100):
+                candidate = _random_central_obstacle(rng, shape, obstacle_zone_x)
+                if not env._obstacle_clear_of_points(candidate, protected_points):
+                    continue
+                if any(env._obstacle_horizontal_separation(candidate, current) < 0.70 for current in obstacles):
+                    continue
+                obstacles.append(candidate)
+                break
+            else:
+                break
+        if len(obstacles) != obstacle_count:
+            continue
+        scenario = ShowcaseScenario(
+            name=f"s3_random_central_mixed_{layout_seed}",
+            obstacles=tuple(obstacles),
+            defender_positions=defender_positions,
+            target_position=target_position,
+            target_escape_direction=target_escape_direction,
+            obstacle_zone_x=obstacle_zone_x,
+            defender_side=defender_side,
+            layout_seed=int(layout_seed),
+        )
+        try:
+            validate_showcase_scenario(env, scenario)
+        except ValueError:
+            continue
+        return scenario
+    raise RuntimeError(f"Unable to sample a valid S3 map after {max_attempts} attempts (seed={layout_seed}).")
+
+
+def scenario_metadata(scenario: ShowcaseScenario) -> dict[str, Any]:
+    """Return JSON-safe geometry and protocol metadata for a showcase scenario."""
+    return {
+        "name": scenario.name,
+        "layout_seed": scenario.layout_seed,
+        "defender_side": scenario.defender_side,
+        "target_crossing_required": scenario.target_crossing_required,
+        "obstacle_zone_x": list(scenario.obstacle_zone_x),
+        "defender_positions": scenario.defender_positions.tolist(),
+        "target_position": scenario.target_position.tolist(),
+        "target_escape_direction": scenario.target_escape_direction.tolist(),
+        "obstacles": [
+            {
+                "shape": obstacle.shape,
+                "center_xy": obstacle.center_xy.tolist(),
+                "radius": float(obstacle.radius),
+                "height": float(obstacle.height),
+                "half_extents_xy": None if obstacle.half_extents_xy is None else obstacle.half_extents_xy.tolist(),
+                "orientation_degrees": (
+                    0.0
+                    if obstacle.half_extents_xy is None or obstacle.half_extents_xy[0] >= obstacle.half_extents_xy[1]
+                    else 90.0
+                ),
+            }
+            for obstacle in scenario.obstacles
+        ],
+    }
 
 
 def sample_training_episode(
@@ -241,13 +406,9 @@ def validate_showcase_scenario(env: CaptureRadiusPursuit3DEnv, scenario: Showcas
     for obstacle in scenario.obstacles:
         if any(env._obstacle_clearance(position, obstacle) < float(env.pursuit["safety_margin"]) + float(env.agents["drone_radius"]) for position in all_positions):
             raise ValueError("Showcase obstacle is too close to an initial agent position.")
-    if not _planar_route_exists(
-        env,
-        np.mean(scenario.defender_positions, axis=0),
-        scenario.target_position,
-        scenario.obstacles,
-    ):
-        raise ValueError("Showcase map has no conservative route from defenders to target.")
+    for defender_index, defender_position in enumerate(scenario.defender_positions):
+        if not _planar_route_exists(env, defender_position, scenario.target_position, scenario.obstacles):
+            raise ValueError(f"Showcase map has no conservative route for defender {defender_index}.")
 
 
 def prepare_showcase_episode(
