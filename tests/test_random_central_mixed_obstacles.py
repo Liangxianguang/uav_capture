@@ -65,10 +65,22 @@ def test_s3_protocol_has_disjoint_reproducible_motion_and_layout_seed_blocks() -
     assert len(episode_seeds) == 9
     assert len(layout_seeds) == 9
     assert episode_seeds.isdisjoint(layout_seeds)
-    validation_specs = [episode_spec(protocol, "validation", index) for index in range(6)]
+    validation_specs = [episode_spec(protocol, "validation", index) for index in range(192)]
     assert {spec["defender_side"] for spec in validation_specs} == {"left", "right"}
     assert {spec["obstacle_count"] for spec in validation_specs} == {3, 4, 5}
     assert {spec["observation_condition"] for spec in validation_specs} == {"nominal", "delayed_noisy"}
+    assert {spec["target_speed_scale"] for spec in validation_specs} == {0.45, 0.55}
+    assert {spec["target_motion_mode"] for spec in validation_specs} == {"flee_persistence", "s_curve"}
+    side_observation_counts = {}
+    for spec in validation_specs:
+        key = (spec["defender_side"], spec["observation_condition"])
+        side_observation_counts[key] = side_observation_counts.get(key, 0) + 1
+    assert side_observation_counts == {
+        ("left", "nominal"): 48,
+        ("left", "delayed_noisy"): 48,
+        ("right", "nominal"): 48,
+        ("right", "delayed_noisy"): 48,
+    }
 
 
 def test_s3_summary_groups_layout_and_observation_conditions() -> None:

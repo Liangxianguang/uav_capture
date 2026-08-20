@@ -139,28 +139,28 @@ S4：鲁棒性压力测试
 
 阶段 A：冻结定义与代码接口
 
-    [ ] A1. 固定世界边界、捕获半径、障碍安全膨胀和中央区域范围；
-    [ ] A2. 固定 Cylinder/Box/Wall 的统一几何记录格式；
-    [ ] A3. 完成 spawn validity、obstacle overlap、boundary 和 route feasibility 检查；
-    [ ] A4. 让 trajectory.npz 保存障碍物形状、尺寸、中心和方向；
-    [ ] A5. 让 episode.json 保存 scenario、seed、side、crossing requirement 和终止原因；
-    [ ] A6. 为随机回合和 showcase 回合提供一致的 metadata 字段。
+    [x] A1. 固定世界边界、捕获半径、障碍安全膨胀和中央区域范围；
+    [x] A2. 固定 Cylinder/Box/Wall 的统一几何记录格式；
+    [x] A3. 完成 spawn validity、obstacle overlap、boundary 和 route feasibility 检查；
+    [x] A4. 让 trajectory.npz 保存障碍物形状、尺寸、中心和方向；
+    [x] A5. 让 episode.json 保存 scenario、seed、side、crossing requirement 和终止原因；
+    [x] A6. 为随机回合和 showcase 回合提供一致的 metadata 字段。
 
 阶段 B：先验证 S1，不急于重训
 
-    [ ] B1. 用现有 F2 + CBF 跑 S1 的 20 回合分布探针；
-    [ ] B2. 检查 4 架无人机是否进入中央区并完成对侧穿越；
-    [ ] B3. 检查目标是否持续移动、无障碍碰撞、无越界；
-    [ ] B4. 输出一条成功轨迹、一条失败轨迹及对应 JSON/CSV；
-    [ ] B5. 若 S1 仍稳定失败，先定位几何、观测范围和 CBF 问题。
+    [x] B1. 用现有 F2 + CBF 跑 S1 的 20 回合分布探针；
+    [x] B2. 检查 4 架无人机是否进入中央区并完成对侧穿越；
+    [x] B3. 检查目标是否持续移动、无障碍碰撞、无越界；
+    [x] B4. 输出一条成功轨迹、一条失败轨迹及对应 JSON/CSV；
+    [x] B5. 已识别 S1 既有 checkpoint 的分布外失败，并通过课程试验得到改进但未稳定的 MAPPO。
 
 阶段 C：实现并验证 S2
 
-    [ ] C1. 支持 defender_side=left/right；
-    [ ] C2. 先验证反向 S2 的安全捕获和无人机绕障；
-    [ ] C3. 使用“到达对侧”而不是“进入中央区”作为 crossing 指标；
+    [x] C1. 支持 defender_side=left/right；
+    [x] C2. 已由 Dynamic Encirclement + CBF 在 20 回合 S2 中验证安全捕获和无人机绕障；
+    [x] C3. 使用“到达对侧”而不是“进入中央区”作为 crossing 指标；
     [ ] C4. 单独运行 S2-CROSS 的 rule expert 可解性检查；
-    [ ] C5. 再评估现有 checkpoint，记录分布外失败，不直接宣称鲁棒。
+    [x] C5. 已记录现有 checkpoint 在固定 S2 的反向起点失效，不将其宣称为鲁棒。
 
 阶段 D：课程式训练（仅在 C 阶段证明需要时启动）
 
@@ -173,11 +173,11 @@ S4：鲁棒性压力测试
 
 阶段 E：实现 S3 随机中央障碍
 
-    [ ] E1. 随机化障碍物数量、位置、尺寸和墙体方向；
-    [ ] E2. 每张地图保证至少一条满足安全间隙的路线；
-    [ ] E3. 生成固定 train/validation/test seed 清单；
-    [ ] E4. 输出按布局、方向、目标速度和可观测性分组的结果；
-    [ ] E5. 与固定 S1/S2 结果并列报告，避免只挑最好看的场景。
+    [x] E1. 随机化障碍物数量、位置、尺寸和墙体方向（当前碰撞模型下为 0/90 度轴对齐墙体）；
+    [x] E2. 每张地图保证至少一条满足安全间隙的路线；
+    [x] E3. 生成固定 train/validation/test seed 清单；
+    [x] E4. 输出按布局、方向、目标速度和可观测性分组的结果；
+    [x] E5. 已完成 validation 专家/当前 MAPPO 对比报告；locked-test 与多 seed 训练仍待后续阶段。
 
 阶段 F：正式评估与媒体
 

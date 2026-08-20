@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import copy
 import csv
+import itertools
 import json
 import sys
 from collections import Counter, defaultdict
@@ -88,29 +89,38 @@ def episode_spec(protocol: dict[str, Any], split: str, episode_index: int) -> di
     settings = protocol["s3"]
     episode_seed = int(protocol["seed_blocks"][split]) + int(episode_index)
     layout_seed = int(protocol["seed_blocks"][split]) + 1_000_000 + int(episode_index)
-    # The geometry itself is random under layout_seed.  Discrete condition
-    # factors are cycled instead, so every split covers both start sides,
-    # obstacle counts, target behavior, and observation conditions without a
-    # lucky or unlucky random imbalance in a small validation block.
     minimum_count, maximum_count = (int(value) for value in settings["obstacle_count_range"])
-    obstacle_count = minimum_count + episode_index % (maximum_count - minimum_count + 1)
-    observation_condition = dict(settings["observation_conditions"][episode_index % len(settings["observation_conditions"])])
+    conditions = list(
+        itertools.product(
+            range(minimum_count, maximum_count + 1),
+            settings["defender_sides"],
+            settings["initial_side_distances"],
+            settings["target_speed_scales"],
+            settings["target_motion_modes"],
+            settings["observation_conditions"],
+        )
+    )
+    # The full factorial table is shuffled once per split, then indexed by
+    # episode.  Unlike synchronized modulo counters, this prevents the
+    # direction, sensing condition, and target behavior from becoming aliases
+    # of each other while remaining fully reproducible.
+    order = np.random.default_rng(int(protocol["seed_blocks"][split]) + 2_000_000).permutation(len(conditions))
+    obstacle_count, defender_side, initial_side_distance, target_speed_scale, target_motion_mode, observation_condition = (
+        conditions[int(order[episode_index % len(order)])]
+    )
+    observation_condition = dict(observation_condition)
     return {
         "episode_seed": episode_seed,
         "layout_seed": layout_seed,
-        "defender_side": str(settings["defender_sides"][episode_index % len(settings["defender_sides"])]),
-        "initial_side_distance": float(
-            settings["initial_side_distances"][episode_index % len(settings["initial_side_distances"])]
-        ),
-        "target_speed_scale": float(
-            settings["target_speed_scales"][(episode_index // len(settings["defender_sides"])) % len(settings["target_speed_scales"])]
-        ),
-        "target_motion_mode": str(
-            settings["target_motion_modes"][(episode_index * 3 + 1) % len(settings["target_motion_modes"])]
-        ),
+        "defender_side": str(defender_side),
+        "initial_side_distance": float(initial_side_distance),
+        "target_speed_scale": float(target_speed_scale),
+        "target_motion_mode": str(target_motion_mode),
         "observation_condition": str(observation_condition["name"]),
         "pursuit_overrides": dict(observation_condition["pursuit_overrides"]),
-        "obstacle_count": obstacle_count,
+        "obstacle_count": int(obstacle_count),
+        "condition_index": int(order[episode_index % len(order)]),
+        "condition_table_size": len(conditions),
     }
 
 
@@ -227,6 +237,7 @@ def main() -> None:
                 "target_speed_scale": float(spec["target_speed_scale"]),
                 "target_motion_mode": str(spec["target_motion_mode"]),
                 "observation_condition": str(spec["observation_condition"]),
+                "condition_index": int(spec["condition_index"]),
                 "obstacle_count": len(scenario.obstacles),
                 "layout_signature": layout_signature(metadata),
                 "method": args.method if checkpoint is not None else str(args.baseline),
@@ -260,6 +271,7 @@ def main() -> None:
                 "use_cbf": bool(args.use_cbf),
                 "device": str(device),
                 "separate_episode_and_layout_seeds": True,
+                "condition_table_size": int(scenes[0]["spec"]["condition_table_size"]),
                 "wall_orientation_contract": "axis_aligned_0_or_90_degrees",
             },
             indent=2,
