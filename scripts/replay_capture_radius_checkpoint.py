@@ -225,6 +225,14 @@ def render_animation(
         capture_px = max(10, int(capture_radius * map_scale))
         ring_color = (91, 235, 190) if result.get("safe_capture_success") and index == len(target) - 1 else (255, 212, 91)
         draw.ellipse((target_xy[0] - capture_px, target_xy[1] - capture_px, target_xy[0] + capture_px, target_xy[1] + capture_px), outline=ring_color + (240,), width=3)
+        # This is a display-only pulse. The solid ring above remains the fixed
+        # physical capture radius used by the environment success predicate.
+        pulse_radius = capture_px + 6 + int(4.0 * (0.5 + 0.5 * np.sin(index * 0.55)))
+        draw.ellipse(
+            (target_xy[0] - pulse_radius, target_xy[1] - pulse_radius, target_xy[0] + pulse_radius, target_xy[1] + pulse_radius),
+            outline=ring_color + (95,),
+            width=1,
+        )
         draw.ellipse((target_xy[0] - 16, target_xy[1] - 16, target_xy[0] + 16, target_xy[1] + 16), fill=(255, 255, 255, 28))
         draw.ellipse((target_xy[0] - 8, target_xy[1] - 8, target_xy[0] + 8, target_xy[1] + 8), fill=target_color + (255,), outline=(255, 235, 240, 255), width=2)
         draw.line((target_xy[0] - 13, target_xy[1], target_xy[0] + 13, target_xy[1]), fill=(255, 255, 255, 230), width=1)
@@ -298,13 +306,20 @@ def render_animation(
     base_name = output_dir / ("capture_cbf" if result.get("use_cbf") else "capture_raw")
     gif_path = base_name.with_suffix(".gif")
     frames = [draw_frame(int(index)) for index in frame_indices]
+    capture_freeze_frames = 0
+    if bool(result.get("safe_capture_success")):
+        # Keep the capture confirmation readable after the final motion frame.
+        capture_freeze_frames = max(1, int(round(1.75 * fps)))
+        frames.extend([frames[-1].copy() for _ in range(capture_freeze_frames)])
     frames[0].save(gif_path, save_all=True, append_images=frames[1:], duration=max(1, int(1000 / fps)), loop=0, optimize=False)
     final_png_path = base_name.with_suffix(".png")
     frames[-1].save(final_png_path)
     media: dict[str, Any] = {
         "gif": str(gif_path),
         "png": str(final_png_path),
-        "frames": int(len(frame_indices)),
+        "simulation_frames": int(len(frame_indices)),
+        "capture_freeze_frames": int(capture_freeze_frames),
+        "frames": int(len(frames)),
         "fps": int(fps),
     }
     ffmpeg = find_ffmpeg()

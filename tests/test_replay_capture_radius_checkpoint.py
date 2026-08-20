@@ -39,6 +39,7 @@ def test_replay_renderer_exports_gif_and_final_png(tmp_path) -> None:
     )
     media = render_animation(trajectory, tmp_path, "test", fps=2, frame_stride=1, result={"use_cbf": True})
     assert media["frames"] == 2
+    assert media["capture_freeze_frames"] == 0
     assert (tmp_path / "capture_cbf.gif").is_file()
     assert (tmp_path / "capture_cbf.png").is_file()
 
