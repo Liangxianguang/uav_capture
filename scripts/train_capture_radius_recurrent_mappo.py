@@ -19,6 +19,7 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
 import torch
+import torch.nn.functional as functional
 import yaml
 from torch.utils.tensorboard import SummaryWriter
 
@@ -88,6 +89,56 @@ def action_scale_for_settings(config: dict[str, Any], settings: dict[str, Any]) 
     if mode == "full_range":
         return max_speed
     raise ValueError("action_scale_mode must be 'per_axis_safe' or 'full_range'.")
+
+
+def load_behavior_cloning_regularizer_dataset(
+    dataset_path: Path,
+    *,
+    sequence_length: int,
+    local_observation_dim: int,
+    defender_count: int,
+    action_scale: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+    """Load an audited recurrent expert dataset used to constrain PPO drift."""
+    resolved = dataset_path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Behavior-cloning regularizer dataset does not exist: {resolved}")
+    with np.load(resolved) as archive:
+        required = {"local_observations", "actions", "reset_masks"}
+        missing = sorted(required.difference(archive.files))
+        if missing:
+            raise ValueError(f"Behavior-cloning regularizer dataset is missing: {', '.join(missing)}")
+        local_observations = np.asarray(archive["local_observations"], dtype=np.float32)
+        actions = np.asarray(archive["actions"], dtype=np.float32)
+        reset_masks = np.asarray(archive["reset_masks"], dtype=np.float32)
+    expected_local = (sequence_length, defender_count, local_observation_dim)
+    if local_observations.ndim != 4 or tuple(local_observations.shape[1:]) != expected_local:
+        raise ValueError(
+            "Behavior-cloning regularizer observations must have shape "
+            f"[sequences, {sequence_length}, {defender_count}, {local_observation_dim}]."
+        )
+    if actions.shape != (*local_observations.shape[:3], 3):
+        raise ValueError("Behavior-cloning regularizer actions have incompatible shape.")
+    if reset_masks.shape != local_observations.shape[:2]:
+        raise ValueError("Behavior-cloning regularizer reset masks have incompatible shape.")
+    if not np.isfinite(local_observations).all() or not np.isfinite(actions).all() or not np.isfinite(reset_masks).all():
+        raise ValueError("Behavior-cloning regularizer dataset must contain finite values.")
+    if float(np.max(np.abs(actions))) > action_scale + 1e-5:
+        raise ValueError("Behavior-cloning regularizer actions exceed the configured action scale.")
+    return (
+        local_observations,
+        actions,
+        reset_masks,
+        {
+            "dataset": str(resolved),
+            "dataset_sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+            "sequences": int(local_observations.shape[0]),
+            "sequence_length": int(sequence_length),
+            "local_observation_dim": int(local_observation_dim),
+            "defender_count": int(defender_count),
+            "action_scale": float(action_scale),
+        },
+    )
 
 
 def cuda_details(device: torch.device) -> dict[str, Any]:
@@ -379,6 +430,45 @@ def main() -> None:
     )
     if initialization is not None:
         output.joinpath("initialization.json").write_text(json.dumps(initialization, indent=2), encoding="utf-8")
+    behavior_cloning_coefficient = float(settings.get("behavior_cloning_coefficient", 0.0))
+    if behavior_cloning_coefficient < 0.0:
+        raise ValueError("behavior_cloning_coefficient must be non-negative.")
+    behavior_cloning_data: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None = None
+    if behavior_cloning_coefficient > 0.0:
+        configured_dataset = settings.get("behavior_cloning_dataset")
+        if not configured_dataset:
+            raise ValueError("behavior_cloning_dataset is required when behavior_cloning_coefficient is positive.")
+        dataset_path = Path(str(configured_dataset))
+        if not dataset_path.is_absolute():
+            dataset_path = args.config.parent / dataset_path
+        local_sequences, action_sequences, reset_sequences, regularization_metadata = load_behavior_cloning_regularizer_dataset(
+            dataset_path,
+            sequence_length=args.sequence_length,
+            local_observation_dim=local_observation_dim,
+            defender_count=env.n_defenders,
+            action_scale=action_scale,
+        )
+        behavior_cloning_data = (
+            torch.as_tensor(local_sequences, device=device),
+            torch.as_tensor(action_sequences, device=device),
+            torch.as_tensor(reset_sequences, device=device),
+        )
+        output.joinpath("behavior_cloning_regularization.json").write_text(
+            json.dumps(
+                {
+                    **regularization_metadata,
+                    "coefficient": behavior_cloning_coefficient,
+                    "sequence_batch_size": int(settings.get("behavior_cloning_sequence_batch_size", settings["minibatch_size"])),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    behavior_cloning_sequence_batch_size = int(
+        settings.get("behavior_cloning_sequence_batch_size", settings["minibatch_size"])
+    )
+    if behavior_cloning_sequence_batch_size <= 0:
+        raise ValueError("behavior_cloning_sequence_batch_size must be positive.")
     optimizer = torch.optim.Adam(policy.parameters(), lr=float(settings["learning_rate"]), eps=1e-5)
     writer = SummaryWriter(log_dir=str(output / "tensorboard"), flush_secs=10)
     writer.add_text("Config/effective_training", yaml.safe_dump(settings, sort_keys=False), 0)
@@ -501,12 +591,51 @@ def main() -> None:
                     surrogate_b = torch.clamp(ratio, 1.0 - float(settings["clip_ratio"]), 1.0 + float(settings["clip_ratio"])) * advantage_batch[indices]
                     policy_loss = -torch.minimum(surrogate_a, surrogate_b).mean()
                     value_loss = 0.5 * (return_batch[indices] - predicted_values).pow(2).mean()
-                    loss = policy_loss + float(settings["value_coefficient"]) * value_loss - float(settings["entropy_coefficient"]) * entropy
+                    behavior_cloning_loss = torch.zeros((), device=device)
+                    if behavior_cloning_data is not None:
+                        regularizer_local, regularizer_actions, regularizer_resets = behavior_cloning_data
+                        regularizer_indices = torch.randint(
+                            regularizer_local.shape[0],
+                            (behavior_cloning_sequence_batch_size,),
+                            device=device,
+                        )
+                        regularizer_hidden = policy.initial_actor_hidden(
+                            env.n_defenders,
+                            batch_size=behavior_cloning_sequence_batch_size,
+                            device=device,
+                        )
+                        _regularizer_log_probabilities, _regularizer_entropy, regularizer_means = (
+                            policy.evaluate_actions_sequence(
+                                regularizer_local[regularizer_indices],
+                                regularizer_hidden,
+                                regularizer_resets[regularizer_indices],
+                                regularizer_actions[regularizer_indices],
+                                action_scale,
+                            )
+                        )
+                        behavior_cloning_loss = functional.mse_loss(
+                            torch.tanh(regularizer_means) * action_scale,
+                            regularizer_actions[regularizer_indices],
+                        )
+                    loss = (
+                        policy_loss
+                        + float(settings["value_coefficient"]) * value_loss
+                        - float(settings["entropy_coefficient"]) * entropy
+                        + behavior_cloning_coefficient * behavior_cloning_loss
+                    )
                     optimizer.zero_grad()
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(policy.parameters(), float(settings["max_gradient_norm"]))
                     optimizer.step()
-                    losses.append({"total": float(loss.detach()), "policy": float(policy_loss.detach()), "value": float(value_loss.detach()), "entropy": float(entropy.detach())})
+                    losses.append(
+                        {
+                            "total": float(loss.detach()),
+                            "policy": float(policy_loss.detach()),
+                            "value": float(value_loss.detach()),
+                            "entropy": float(entropy.detach()),
+                            "behavior_cloning": float(behavior_cloning_loss.detach()),
+                        }
+                    )
 
             evaluation_ran = update_index % int(settings["evaluation_interval"]) == 0 or steps_completed >= total_steps
             if evaluation_ran:

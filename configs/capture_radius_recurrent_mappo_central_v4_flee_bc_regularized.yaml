@@ -1,0 +1,66 @@
+experiment_name: capture_radius_recurrent_mappo_central_v4_flee_bc_regularized
+environment_config: capture_radius_pursuit_central_v4_flee.yaml
+
+# Controlled C4 retry after the unregularized pilot lost the safe BC behavior
+# on fixed mixed obstacles. PPO still optimizes rewards; this auxiliary term
+# samples the audited V4 rule-expert sequences to limit catastrophic drift.
+training:
+  seed: 660701
+  device: cuda
+  total_steps: 65536
+  rollout_steps: 1024
+  epochs: 4
+  minibatch_size: 8
+  learning_rate: 0.00005
+  action_scale_mode: full_range
+  evaluation_episodes: 10
+  evaluation_interval: 4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_ratio: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.003
+  max_gradient_norm: 0.5
+  hidden_dim: 128
+  torch_num_threads: 1
+  deterministic_algorithms: true
+  behavior_cloning_dataset: ../results/central_v4/bc_shapeaware_seed660701/expert_sequence_dataset.npz
+  behavior_cloning_coefficient: 1.0
+  behavior_cloning_sequence_batch_size: 16
+  training_obstacle_counts: [3]
+  training_target_speed_scales: [0.45]
+  training_target_motion_modes: [flee_persistence]
+  training_required_defender_zone_entries: 2
+  training_showcase_stages:
+    - until_progress: 0.30
+      showcase_probability: 1.0
+      randomized_central_probability: 0.0
+      layouts: [cylinder]
+      initial_side_distances: [5.5]
+      defender_sides: [left]
+      target_speed_scales: [0.45]
+      target_motion_modes: [flee_persistence]
+      target_crossing_probability: 0.0
+      required_defender_zone_entries: 2
+    - until_progress: 0.65
+      showcase_probability: 1.0
+      randomized_central_probability: 0.0
+      layouts: [cylinder, box, wall, cylinder_box]
+      initial_side_distances: [5.5]
+      defender_sides: [left]
+      target_speed_scales: [0.45]
+      target_motion_modes: [flee_persistence]
+      target_crossing_probability: 0.0
+      required_defender_zone_entries: 2
+    - until_progress: 1.0
+      showcase_probability: 1.0
+      randomized_central_probability: 0.0
+      layouts: [cylinder, box, wall, cylinder_box, mixed]
+      initial_side_distances: [5.5]
+      defender_sides: [left]
+      target_speed_scales: [0.45]
+      target_motion_modes: [flee_persistence]
+      target_crossing_probability: 0.0
+      required_defender_zone_entries: 2
+  warm_start_log_std: -2.2
+  evaluation_use_cbf: true
