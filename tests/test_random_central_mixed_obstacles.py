@@ -3,11 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 import yaml
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 from encirclement3d.showcase import random_central_mixed_obstacle_scenario, scenario_metadata
-from scripts.evaluate_random_central_mixed_obstacles import config_for_spec, episode_spec, load_protocol, summarize_rows
+from scripts.evaluate_random_central_mixed_obstacles import (
+    config_for_spec,
+    episode_spec,
+    load_protocol,
+    resolved_episode_count,
+    summarize_rows,
+)
 from encirclement3d.observation_encoding import policy_observations
 
 
@@ -85,6 +92,10 @@ def test_s3_protocol_has_disjoint_reproducible_motion_and_layout_seed_blocks() -
         ("right", "nominal"): 48,
         ("right", "delayed_noisy"): 48,
     }
+    assert resolved_episode_count(protocol, "locked_test", None) == 100
+    assert resolved_episode_count(protocol, "locked_test", 100) == 100
+    with pytest.raises(ValueError, match="exactly 100 episodes"):
+        resolved_episode_count(protocol, "locked_test", 40)
 
 
 def test_s3_v4_environment_override_preserves_shape_aware_actor_contract() -> None:

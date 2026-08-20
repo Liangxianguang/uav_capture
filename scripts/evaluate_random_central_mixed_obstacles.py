@@ -100,6 +100,16 @@ def load_protocol(path: Path) -> dict[str, Any]:
     return document
 
 
+def resolved_episode_count(protocol: dict[str, Any], split: str, override: int | None) -> int:
+    configured = int(protocol["episodes_per_split"][split])
+    if split == "locked_test" and override is not None and int(override) != configured:
+        raise ValueError(f"Locked test requires exactly {configured} episodes; got {override}.")
+    episodes = int(override) if override is not None else configured
+    if episodes <= 0:
+        raise ValueError("episodes must be positive.")
+    return episodes
+
+
 def episode_spec(protocol: dict[str, Any], split: str, episode_index: int) -> dict[str, Any]:
     settings = protocol["s3"]
     episode_seed = int(protocol["seed_blocks"][split]) + int(episode_index)
@@ -229,9 +239,7 @@ def main() -> None:
     environment_config = args.environment_config.resolve() if args.environment_config is not None else None
     if environment_config is not None and not environment_config.is_file():
         raise FileNotFoundError(f"Environment config does not exist: {environment_config}")
-    episodes = int(args.episodes) if args.episodes is not None else int(protocol["episodes_per_split"][args.split])
-    if episodes <= 0:
-        raise ValueError("episodes must be positive.")
+    episodes = resolved_episode_count(protocol, args.split, args.episodes)
     output_dir = args.output_dir.resolve()
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
@@ -347,8 +355,14 @@ def main() -> None:
     output_dir.joinpath("evaluation_metadata.json").write_text(
         json.dumps(
             {
-                "evaluation_type": "randomized_central_mixed_obstacle_s3",
-                "not_a_locked_test": True,
+                "evaluation_type": (
+                    "randomized_central_mixed_obstacle_s3_locked_test"
+                    if args.split == "locked_test"
+                    else "randomized_central_mixed_obstacle_s3_validation"
+                ),
+                "not_a_locked_test": args.split != "locked_test",
+                "locked_test": args.split == "locked_test",
+                "seed_block": int(protocol["seed_blocks"][args.split]),
                 "protocol": str(protocol_path),
                 "environment_config": str(environment_config) if environment_config is not None else None,
                 "split": args.split,

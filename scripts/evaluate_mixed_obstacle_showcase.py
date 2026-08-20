@@ -55,8 +55,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--detection-range", type=float, default=14.0)
     parser.add_argument("--target-speed-scale", type=float, default=0.55)
     parser.add_argument("--use-cbf", action="store_true")
+    parser.add_argument(
+        "--locked-test",
+        action="store_true",
+        help="Mark and validate a frozen V4 S1/S2 locked-test run.",
+    )
     parser.add_argument("--device", choices=("cpu", "cuda", "auto"), default="cpu")
     return parser.parse_args()
+
+
+def load_locked_test_contract(path: Path) -> tuple[int, int]:
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        seed = int(document["seed_blocks"]["locked_test"])
+        episodes = int(document["evaluation"]["locked_test_episodes"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("V4 protocol must define locked-test seed and episode count.") from error
+    if seed < 0 or episodes <= 0:
+        raise ValueError("V4 locked-test seed and episode count must be valid.")
+    return seed, episodes
 
 
 def summarize(rows: list[dict[str, object]]) -> dict[str, float | int | None]:
@@ -101,11 +118,20 @@ def main() -> None:
     checkpoint = args.checkpoint.resolve() if args.checkpoint is not None else None
     if checkpoint is not None and not checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
+    protocol = load_central_capture_protocol(args.protocol_config) if args.protocol_config is not None else None
+    if args.locked_test:
+        if args.protocol_config is None:
+            raise ValueError("--locked-test requires --protocol-config.")
+        locked_seed, locked_episodes = load_locked_test_contract(args.protocol_config)
+        if args.seed != locked_seed or args.episodes != locked_episodes:
+            raise ValueError(
+                f"Locked test requires seed={locked_seed} and episodes={locked_episodes}; "
+                f"got seed={args.seed}, episodes={args.episodes}."
+            )
     output_dir = args.output_dir.resolve()
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    protocol = load_central_capture_protocol(args.protocol_config) if args.protocol_config is not None else None
     scenario = build_showcase_scenario(
         args.scenario,
         args.initial_side_distance,
@@ -162,8 +188,13 @@ def main() -> None:
     output_dir.joinpath("summary.json").write_text(
         json.dumps(
             {
-                "evaluation_type": "controlled_showcase_distribution_probe",
-                "not_a_locked_test": True,
+                "evaluation_type": (
+                    "central_v4_fixed_locked_test"
+                    if args.locked_test
+                    else "controlled_showcase_distribution_probe"
+                ),
+                "not_a_locked_test": not args.locked_test,
+                "locked_test": bool(args.locked_test),
                 "method": args.method if checkpoint is not None else args.baseline,
                 "checkpoint": str(checkpoint) if checkpoint is not None else None,
                 "use_cbf": bool(args.use_cbf),

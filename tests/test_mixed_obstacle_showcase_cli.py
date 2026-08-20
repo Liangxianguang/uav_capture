@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from encirclement3d.showcase import load_central_capture_protocol
+from scripts.evaluate_mixed_obstacle_showcase import load_locked_test_contract
 from scripts.run_mixed_obstacle_showcase import build_showcase_scenario
 
 
@@ -44,3 +45,9 @@ def test_v4_s2_requires_and_uses_the_frozen_protocol() -> None:
     assert scenario.target_crossing_required is False
     assert scenario.defender_positions[:, 0].max() == -protocol.initial_side_distance
     assert scenario.target_position[0] == protocol.initial_side_distance
+
+
+def test_v4_locked_test_contract_is_explicit() -> None:
+    seed, episodes = load_locked_test_contract(PROJECT_ROOT / "configs" / "central_bidirectional_v4.yaml")
+    assert seed == 660501
+    assert episodes == 100
