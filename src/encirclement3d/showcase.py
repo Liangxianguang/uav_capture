@@ -292,6 +292,17 @@ def sample_training_episode(
     )
     defender_sides = stage.get("defender_sides", settings.get("training_showcase_defender_sides", ["left"]))
     speeds = stage.get("target_speed_scales", settings.get("training_target_speed_scales", [0.55]))
+    target_motion_modes = stage.get("target_motion_modes", settings.get("training_target_motion_modes", ["flee_persistence"]))
+    randomized_probability = float(
+        stage.get("randomized_central_probability", settings.get("training_randomized_central_probability", 0.0))
+    )
+    randomized_obstacle_count_range = tuple(
+        int(value)
+        for value in stage.get(
+            "randomized_obstacle_count_range",
+            settings.get("training_randomized_obstacle_count_range", [3, 5]),
+        )
+    )
     target_crossing_probability = float(stage.get("target_crossing_probability", 0.0))
     if not isinstance(layouts, list) or not layouts:
         raise ValueError("Showcase layouts must be a non-empty list.")
@@ -301,13 +312,49 @@ def sample_training_episode(
         raise ValueError("Showcase defender_sides must be a non-empty list.")
     if not isinstance(speeds, list) or not speeds:
         raise ValueError("Showcase target_speed_scales must be a non-empty list.")
+    if not isinstance(target_motion_modes, list) or not target_motion_modes:
+        raise ValueError("Showcase target_motion_modes must be a non-empty list.")
     if not 0.0 <= target_crossing_probability <= 1.0:
         raise ValueError("target_crossing_probability must lie in [0, 1].")
+    if not 0.0 <= randomized_probability <= 1.0:
+        raise ValueError("randomized_central_probability must lie in [0, 1].")
+    if len(randomized_obstacle_count_range) != 2 or not 3 <= randomized_obstacle_count_range[0] <= randomized_obstacle_count_range[1]:
+        raise ValueError("randomized_obstacle_count_range must satisfy 3 <= low <= high.")
+    if rng.random() < randomized_probability:
+        side_distance = float(rng.choice(np.asarray(distances, dtype=np.float64)))
+        defender_side = str(rng.choice(defender_sides))
+        target_speed_scale = float(rng.choice(np.asarray(speeds, dtype=np.float64)))
+        target_motion_mode = str(rng.choice(target_motion_modes))
+        layout_seed = int(seed) + 1_000_000 + int(rng.integers(0, 100_000))
+        scenario = random_central_mixed_obstacle_scenario(
+            env,
+            layout_seed=layout_seed,
+            initial_side_distance=side_distance,
+            defender_side=defender_side,
+            obstacle_count_range=randomized_obstacle_count_range,
+        )
+        env.obstacle_count = len(scenario.obstacles)
+        env.target_speed_scale = target_speed_scale
+        env.pursuit["target_motion_mode"] = target_motion_mode
+        observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=False)
+        return observation, {
+            "episode_kind": "randomized_showcase",
+            "layout": "random_mixed",
+            "layout_seed": layout_seed,
+            "obstacle_count": len(scenario.obstacles),
+            "defender_side": defender_side,
+            "target_crossing_required": False,
+            "initial_side_distance": side_distance,
+            "target_speed_scale": target_speed_scale,
+            "target_motion_mode": target_motion_mode,
+            "progress": progress,
+        }
     if rng.random() < probability:
         layout = str(rng.choice(layouts))
         side_distance = float(rng.choice(np.asarray(distances, dtype=np.float64)))
         target_speed_scale = float(rng.choice(np.asarray(speeds, dtype=np.float64)))
         defender_side = str(rng.choice(defender_sides))
+        target_motion_mode = str(rng.choice(target_motion_modes))
         scenario = central_mixed_obstacle_scenario(
             side_distance,
             target_crossing_required=bool(
@@ -318,25 +365,33 @@ def sample_training_episode(
         )
         env.obstacle_count = len(scenario.obstacles)
         env.target_speed_scale = target_speed_scale
+        env.pursuit["target_motion_mode"] = target_motion_mode
         observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=False)
         return observation, {
             "episode_kind": "showcase",
             "layout": layout,
             "defender_side": defender_side,
             "target_crossing_required": scenario.target_crossing_required,
+            "layout_seed": None,
+            "obstacle_count": len(scenario.obstacles),
             "initial_side_distance": side_distance,
             "target_speed_scale": target_speed_scale,
+            "target_motion_mode": target_motion_mode,
             "progress": progress,
         }
     env.obstacle_count = int(rng.choice(np.asarray(settings["training_obstacle_counts"], dtype=np.int64)))
     env.target_speed_scale = float(rng.choice(np.asarray(settings["training_target_speed_scales"], dtype=np.float64)))
+    env.pursuit["target_motion_mode"] = str(rng.choice(target_motion_modes))
     return env.reset(seed=seed), {
         "episode_kind": "random",
         "layout": str(env.pursuit["obstacle_profile"]),
         "defender_side": None,
         "target_crossing_required": None,
+        "layout_seed": None,
+        "obstacle_count": int(env.obstacle_count),
         "initial_side_distance": None,
         "target_speed_scale": env.target_speed_scale,
+        "target_motion_mode": str(env.pursuit["target_motion_mode"]),
         "progress": progress,
     }
 

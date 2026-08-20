@@ -1,0 +1,40 @@
+experiment_name: capture_radius_recurrent_behavior_cloning_s3_bidirectional_pilot
+environment_config: capture_radius_pursuit_showcase_mixed_curriculum.yaml
+imitation:
+  seed: 650101
+  device: cuda
+  episodes: 240
+  training_obstacle_counts: [0, 3, 5]
+  training_target_speed_scales: [0.45, 0.55]
+  training_target_motion_modes: [flee_persistence, s_curve]
+  training_showcase_stages:
+    - until_progress: 0.20
+      showcase_probability: 0.35
+      randomized_central_probability: 0.00
+      layouts: [open, cylinder]
+      initial_side_distances: [4.0, 4.5]
+      defender_sides: [left]
+      target_speed_scales: [0.45]
+      target_motion_modes: [flee_persistence]
+    - until_progress: 0.50
+      showcase_probability: 0.45
+      randomized_central_probability: 0.10
+      layouts: [cylinder, cylinder_box]
+      initial_side_distances: [4.5, 5.0]
+      defender_sides: [left, right]
+      target_speed_scales: [0.45, 0.55]
+      target_motion_modes: [flee_persistence, s_curve]
+      randomized_obstacle_count_range: [3, 4]
+    - until_progress: 1.0
+      showcase_probability: 0.40
+      randomized_central_probability: 0.40
+      layouts: [cylinder_box, mixed]
+      initial_side_distances: [5.5, 6.0, 6.5]
+      defender_sides: [left, right]
+      target_speed_scales: [0.45, 0.55]
+      target_motion_modes: [flee_persistence, s_curve]
+      randomized_obstacle_count_range: [3, 5]
+  epochs: 24
+  learning_rate: 0.0003
+  hidden_dim: 128
+  validation_episodes: 10
