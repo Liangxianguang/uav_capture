@@ -158,7 +158,11 @@ S4：只在 S3 稳定后逐项扩展
 
 阶段 D：泛化评估
 
-    [ ] D1. 在 S1、S2、S3 validation 上比较 rule expert、BC、BC->MAPPO 的 raw/CBF。
+    [~] D1. 在 S1、S2、S3 validation 上比较 rule expert、BC、BC->MAPPO 的 raw/CBF。
+        当前 S3 retained-BC validation 已完成：CBF 为 34/40 (85.0%) Cooperative
+        Safe Capture，raw 为 3/40 (7.5%) 且碰撞 37/40；因此只作为 policy+CBF
+        候选，D1 仍需补齐 retained-MAPPO 和完整 S1 分组。详见
+        CENTRAL_V4_S3_RETENTION_VALIDATION_REPORT.md。
     [ ] D2. 固定模型和超参数后，在 locked-test 上用 3 个独立训练 seed 做最终评估。
     [ ] D3. 报告 Cooperative Safe Capture Rate、普通 Capture Rate、Target Zone Entry、
         Pursuer Zone Entry Count、独立 Transit Success、碰撞率、边界违规率、
