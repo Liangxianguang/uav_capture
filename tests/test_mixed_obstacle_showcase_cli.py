@@ -5,6 +5,7 @@ from pathlib import Path
 from encirclement3d.showcase import load_central_capture_protocol
 from scripts.evaluate_mixed_obstacle_showcase import load_locked_test_contract
 from scripts.run_mixed_obstacle_showcase import build_showcase_scenario, transit_metrics_from_episode_row
+from encirclement3d.showcase import scenario_from_metadata, scenario_metadata
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -83,3 +84,11 @@ def test_locked_metric_replay_restores_typed_transit_evidence() -> None:
     assert restored["transit_success"] is False
     assert restored["target_transit_steps"] == 14
     assert restored["target_transit_execution_min_clearance_m"] == 0.599
+
+
+def test_frozen_s3_scene_round_trips_without_resampling() -> None:
+    original = build_showcase_scenario("v4_s2", 5.5, protocol=load_central_capture_protocol(
+        PROJECT_ROOT / "configs" / "central_bidirectional_v4.yaml"
+    ))
+    restored = scenario_from_metadata(scenario_metadata(original))
+    assert scenario_metadata(restored) == scenario_metadata(original)

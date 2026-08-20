@@ -208,6 +208,7 @@ def _finalize_showcase_row(
     *,
     target_collision: bool,
     transit_override: dict[str, Any] | None = None,
+    validate_scenario: bool = True,
 ) -> dict[str, Any]:
     crossing = crossing_metrics(env, scenario.obstacle_zone_x)
     contract = capture_contract_metrics(
@@ -245,13 +246,16 @@ def rollout_showcase(
     action_scale: float,
     use_cbf: bool,
     transit_override: dict[str, Any] | None = None,
+    validate_scenario: bool = True,
 ) -> tuple[dict[str, Any], CaptureRadiusPursuit3DEnv]:
     env = CaptureRadiusPursuit3DEnv(
         config,
         obstacle_count=len(scenario.obstacles),
         target_speed_scale=float(config["experiments"][0]["target_speed_scale"]),
     )
-    observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=True)
+    observation = prepare_showcase_episode(
+        env, scenario, seed=seed, record_history=True, validate_scenario=validate_scenario
+    )
     safety_filter = PursuitCBFSafetyFilter(env) if use_cbf else None
     local_observation = policy_observations(env, observation)
     actor_hidden = (
@@ -328,6 +332,7 @@ def rollout_showcase(
         final_info,
         target_collision=target_collision,
         transit_override=transit_override,
+        validate_scenario=validate_scenario,
     ), env
 
 
@@ -337,6 +342,7 @@ def rollout_showcase_expert(
     seed: int,
     use_cbf: bool,
     transit_override: dict[str, Any] | None = None,
+    validate_scenario: bool = True,
 ) -> tuple[dict[str, Any], CaptureRadiusPursuit3DEnv]:
     """Replay the local-information rule expert on the same showcase task."""
     env = CaptureRadiusPursuit3DEnv(
@@ -344,7 +350,9 @@ def rollout_showcase_expert(
         obstacle_count=len(scenario.obstacles),
         target_speed_scale=float(config["experiments"][0]["target_speed_scale"]),
     )
-    observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=True)
+    observation = prepare_showcase_episode(
+        env, scenario, seed=seed, record_history=True, validate_scenario=validate_scenario
+    )
     base_controller = DynamicEncirclementController(env)
     controller: Any = SafetyFilteredPursuitController(base_controller) if use_cbf else base_controller
     visible_fractions: list[float] = []
@@ -404,6 +412,7 @@ def rollout_showcase_expert(
         final_info,
         target_collision=target_collision,
         transit_override=transit_override,
+        validate_scenario=validate_scenario,
     ), env
 
 

@@ -30,6 +30,7 @@ from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
 from encirclement3d.showcase import (  # noqa: E402
     configure_target_crossing_episode,
     random_central_mixed_obstacle_scenario,
+    scenario_from_metadata,
     scenario_metadata,
 )
 from evaluate_capture_radius_mappo import load_policy, select_device  # noqa: E402
@@ -64,6 +65,11 @@ def parse_args() -> argparse.Namespace:
         "--reference-episodes",
         type=Path,
         help="Reuse policy-independent Transit evidence from the original locked episodes CSV.",
+    )
+    parser.add_argument(
+        "--reference-scenes",
+        type=Path,
+        help="Restore frozen S3 geometry from the original locked scenes.jsonl.",
     )
     parser.add_argument("--device", choices=("cpu", "cuda", "auto"), default="cpu")
     return parser.parse_args()
@@ -272,6 +278,15 @@ def main() -> None:
             reference_rows = list(csv.DictReader(handle))
         if len(reference_rows) != episodes:
             raise ValueError("Reference episode count does not match the S3 metric replay.")
+    reference_scenes: list[dict[str, Any]] | None = None
+    if args.reference_scenes is not None:
+        reference_scenes = [
+            json.loads(line)
+            for line in args.reference_scenes.resolve().read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if len(reference_scenes) != episodes:
+            raise ValueError("Reference scene count does not match the S3 metric replay.")
 
     policy: Any = None
     action_scale: float | None = None
@@ -281,16 +296,24 @@ def main() -> None:
         spec = episode_spec(protocol, args.split, episode_index)
         config = config_for_spec(args.method, spec, environment_config)
         validation_env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=float(spec["target_speed_scale"]))
-        scenario = random_central_mixed_obstacle_scenario(
-            validation_env,
-            layout_seed=int(spec["layout_seed"]),
-            initial_side_distance=float(spec["initial_side_distance"]),
-            defender_side=str(spec["defender_side"]),
-            target_crossing_required=bool(spec["target_crossing_required"]),
-            obstacle_count_range=(int(spec["obstacle_count"]), int(spec["obstacle_count"])),
-            max_attempts=int(protocol["s3"].get("max_sampling_attempts", 500)),
-            required_defender_zone_entries=int(protocol["s3"].get("required_defender_zone_entries", 1)),
-        )
+        if reference_scenes is None:
+            scenario = random_central_mixed_obstacle_scenario(
+                validation_env,
+                layout_seed=int(spec["layout_seed"]),
+                initial_side_distance=float(spec["initial_side_distance"]),
+                defender_side=str(spec["defender_side"]),
+                target_crossing_required=bool(spec["target_crossing_required"]),
+                obstacle_count_range=(int(spec["obstacle_count"]), int(spec["obstacle_count"])),
+                max_attempts=int(protocol["s3"].get("max_sampling_attempts", 500)),
+                required_defender_zone_entries=int(protocol["s3"].get("required_defender_zone_entries", 1)),
+            )
+            validate_scenario = True
+        else:
+            scene_record = reference_scenes[episode_index]
+            if int(scene_record["episode_index"]) != episode_index:
+                raise ValueError("Reference S3 scene indices do not match the metric replay.")
+            scenario = scenario_from_metadata(scene_record["scenario"])
+            validate_scenario = False
         if bool(scenario.target_crossing_required):
             # Keep the rollout environment and the scenario protocol aligned;
             # config_for_spec already applies the same values to its policy
@@ -320,6 +343,7 @@ def main() -> None:
                 seed=int(spec["episode_seed"]),
                 use_cbf=bool(args.use_cbf),
                 transit_override=transit_override,
+                validate_scenario=validate_scenario,
             )
         else:
             assert action_scale is not None
@@ -332,6 +356,7 @@ def main() -> None:
                 action_scale=action_scale,
                 use_cbf=bool(args.use_cbf),
                 transit_override=transit_override,
+                validate_scenario=validate_scenario,
             )
         metadata = scenario_metadata(scenario)
         row.update(
@@ -416,6 +441,9 @@ def main() -> None:
                 "task_contract": "central_encounter_capture_and_independent_transit",
                 "transit_metrics_reused_from": (
                     str(args.reference_episodes.resolve()) if args.reference_episodes is not None else None
+                ),
+                "frozen_scenes_reused_from": (
+                    str(args.reference_scenes.resolve()) if args.reference_scenes is not None else None
                 ),
             },
             indent=2,

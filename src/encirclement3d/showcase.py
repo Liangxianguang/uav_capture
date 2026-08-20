@@ -464,6 +464,45 @@ def scenario_metadata(scenario: ShowcaseScenario) -> dict[str, Any]:
     }
 
 
+def scenario_from_metadata(metadata: dict[str, Any]) -> ShowcaseScenario:
+    """Restore a previously frozen scenario without re-sampling its geometry."""
+
+    try:
+        obstacles = tuple(
+            CylinderObstacle(
+                center_xy=np.asarray(item["center_xy"], dtype=np.float64),
+                radius=float(item["radius"]),
+                height=float(item["height"]),
+                shape=str(item["shape"]),
+                half_extents_xy=(
+                    None
+                    if item.get("half_extents_xy") is None
+                    else np.asarray(item["half_extents_xy"], dtype=np.float64)
+                ),
+            )
+            for item in metadata["obstacles"]
+        )
+        return ShowcaseScenario(
+            name=str(metadata["name"]),
+            obstacles=obstacles,
+            defender_positions=np.asarray(metadata["defender_positions"], dtype=np.float64),
+            target_position=np.asarray(metadata["target_position"], dtype=np.float64),
+            target_escape_direction=np.asarray(metadata["target_escape_direction"], dtype=np.float64),
+            obstacle_zone_x=tuple(float(value) for value in metadata["obstacle_zone_x"]),
+            target_crossing_required=bool(metadata.get("target_crossing_required", False)),
+            defender_side=str(metadata["defender_side"]),
+            layout_seed=(None if metadata.get("layout_seed") is None else int(metadata["layout_seed"])),
+            required_defender_zone_entries=int(metadata.get("required_defender_zone_entries", 1)),
+            require_target_zone_entry=(
+                None
+                if metadata.get("require_target_zone_entry") is None
+                else bool(metadata["require_target_zone_entry"])
+            ),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("Invalid frozen showcase scenario metadata.") from error
+
+
 def sample_training_episode(
     env: CaptureRadiusPursuit3DEnv,
     settings: dict[str, Any],
@@ -1016,10 +1055,12 @@ def prepare_showcase_episode(
     scenario: ShowcaseScenario,
     seed: int,
     record_history: bool = True,
+    validate_scenario: bool = True,
 ) -> dict[str, Any]:
     """Reset an environment and replace its random map with a fixed scenario."""
     env.reset(seed=seed, record_history=False)
-    validate_showcase_scenario(env, scenario)
+    if validate_scenario:
+        validate_showcase_scenario(env, scenario)
     env.defender_positions = scenario.defender_positions.copy()
     env.defender_velocities.fill(0.0)
     env.target_position = scenario.target_position.copy()
