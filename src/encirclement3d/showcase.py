@@ -30,11 +30,14 @@ class ShowcaseScenario:
 def central_mixed_obstacle_scenario(
     initial_side_distance: float = 5.0,
     target_crossing_required: bool = False,
+    layout: str = "mixed",
 ) -> ShowcaseScenario:
-    """Return a fixed, solvable S1/S2-style central mixed-obstacle layout."""
+    """Return a fixed, solvable S1/S2-style central obstacle layout."""
     if initial_side_distance < 4.0:
         raise ValueError("initial_side_distance must be at least 4.0 m.")
-    obstacles = (
+    if layout not in {"open", "cylinder", "cylinder_box", "mixed"}:
+        raise ValueError("layout must be one of: open, cylinder, cylinder_box, mixed.")
+    all_obstacles = (
         CylinderObstacle(
             center_xy=np.array([0.0, 0.0], dtype=np.float64),
             radius=1.0,
@@ -56,6 +59,8 @@ def central_mixed_obstacle_scenario(
             half_extents_xy=np.array([2.1, 0.35], dtype=np.float64),
         ),
     )
+    obstacle_count = {"open": 0, "cylinder": 1, "cylinder_box": 2, "mixed": 3}[layout]
+    obstacles = all_obstacles[:obstacle_count]
     left_x = -float(initial_side_distance)
     right_x = float(initial_side_distance)
     defender_positions = np.array(
@@ -69,7 +74,7 @@ def central_mixed_obstacle_scenario(
     )
     target_position = np.array([right_x, 0.0, 4.2], dtype=np.float64)
     return ShowcaseScenario(
-        name="central_mixed_obstacles",
+        name=f"central_{layout}_obstacles",
         obstacles=obstacles,
         defender_positions=defender_positions,
         target_position=target_position,
@@ -77,6 +82,70 @@ def central_mixed_obstacle_scenario(
         obstacle_zone_x=(-2.5, 3.0),
         target_crossing_required=bool(target_crossing_required),
     )
+
+
+def sample_training_episode(
+    env: CaptureRadiusPursuit3DEnv,
+    settings: dict[str, Any],
+    rng: np.random.Generator,
+    seed: int,
+    progress: float,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Sample an original random episode or a staged central-layout episode.
+
+    ``progress`` is normalized to ``[0, 1]``.  This permits the same curriculum
+    definition to drive behavior cloning (episode progress) and MAPPO
+    fine-tuning (environment-step progress).
+    """
+    if not 0.0 <= progress <= 1.0:
+        raise ValueError("training progress must lie in [0, 1].")
+    stage: dict[str, Any] = {}
+    stages = settings.get("training_showcase_stages", [])
+    if stages:
+        if not isinstance(stages, list) or not all(isinstance(item, dict) for item in stages):
+            raise ValueError("training_showcase_stages must be a list of mappings.")
+        selected = next((item for item in stages if progress <= float(item["until_progress"])), None)
+        if selected is None:
+            selected = stages[-1]
+        stage = dict(selected)
+    probability = float(stage.get("showcase_probability", settings.get("training_showcase_probability", 0.0)))
+    if not 0.0 <= probability <= 1.0:
+        raise ValueError("showcase_probability must lie in [0, 1].")
+    layouts = stage.get("layouts", settings.get("training_showcase_layouts", ["mixed"]))
+    distances = stage.get(
+        "initial_side_distances", settings.get("training_showcase_initial_side_distances", [5.0])
+    )
+    speeds = stage.get("target_speed_scales", settings.get("training_target_speed_scales", [0.55]))
+    if not isinstance(layouts, list) or not layouts:
+        raise ValueError("Showcase layouts must be a non-empty list.")
+    if not isinstance(distances, list) or not distances:
+        raise ValueError("Showcase initial_side_distances must be a non-empty list.")
+    if not isinstance(speeds, list) or not speeds:
+        raise ValueError("Showcase target_speed_scales must be a non-empty list.")
+    if rng.random() < probability:
+        layout = str(rng.choice(layouts))
+        side_distance = float(rng.choice(np.asarray(distances, dtype=np.float64)))
+        target_speed_scale = float(rng.choice(np.asarray(speeds, dtype=np.float64)))
+        scenario = central_mixed_obstacle_scenario(side_distance, layout=layout)
+        env.obstacle_count = len(scenario.obstacles)
+        env.target_speed_scale = target_speed_scale
+        observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=False)
+        return observation, {
+            "episode_kind": "showcase",
+            "layout": layout,
+            "initial_side_distance": side_distance,
+            "target_speed_scale": target_speed_scale,
+            "progress": progress,
+        }
+    env.obstacle_count = int(rng.choice(np.asarray(settings["training_obstacle_counts"], dtype=np.int64)))
+    env.target_speed_scale = float(rng.choice(np.asarray(settings["training_target_speed_scales"], dtype=np.float64)))
+    return env.reset(seed=seed), {
+        "episode_kind": "random",
+        "layout": str(env.pursuit["obstacle_profile"]),
+        "initial_side_distance": None,
+        "target_speed_scale": env.target_speed_scale,
+        "progress": progress,
+    }
 
 
 def _within_bounds(env: CaptureRadiusPursuit3DEnv, positions: np.ndarray) -> bool:

@@ -29,6 +29,7 @@ from encirclement3d.learning import RecurrentCentralizedSharedActorCritic
 from encirclement3d.prediction import HistoryTargetPredictor, LearnedPredictionObserver
 from encirclement3d.pursuit_controllers import PursuitCBFSafetyFilter
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
+from encirclement3d.showcase import sample_training_episode
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,10 +108,11 @@ def reset_training_episode(
     settings: dict[str, Any],
     rng: np.random.Generator,
     seed: int,
+    progress: float,
 ) -> dict[str, Any]:
-    env.obstacle_count = int(rng.choice(np.asarray(settings["training_obstacle_counts"], dtype=np.int64)))
-    env.target_speed_scale = float(rng.choice(np.asarray(settings["training_target_speed_scales"], dtype=np.float64)))
-    return env.reset(seed=seed)
+    observation, metadata = sample_training_episode(env, settings, rng, seed, progress)
+    env.training_episode_metadata = metadata
+    return observation
 
 
 def local_features(
@@ -278,6 +280,7 @@ def write_artifacts(
         PROJECT_ROOT / "src" / "encirclement3d" / "learning.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "prediction.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_env.py",
+        PROJECT_ROOT / "src" / "encirclement3d" / "showcase.py",
     ]
     output.joinpath("source_hashes.json").write_text(
         json.dumps({str(path.relative_to(PROJECT_ROOT)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths}, indent=2),
@@ -340,7 +343,7 @@ def main() -> None:
         obstacle_count=int(settings["training_obstacle_counts"][0]),
         target_speed_scale=float(settings["training_target_speed_scales"][0]),
     )
-    observation = reset_training_episode(env, settings, rng, seed)
+    observation = reset_training_episode(env, settings, rng, seed, progress=0.0)
     observer = (
         LearnedPredictionObserver(env, prediction_model, device, args.prediction_history_length, args.prediction_horizon_index)
         if prediction_model is not None
@@ -425,7 +428,13 @@ def main() -> None:
                     episode_returns.append(current_episode_return)
                     current_episode_return = 0.0
                     episode_seed += 1
-                    observation = reset_training_episode(env, settings, rng, episode_seed)
+                    observation = reset_training_episode(
+                        env,
+                        settings,
+                        rng,
+                        episode_seed,
+                        progress=min(steps_completed / max(total_steps, 1), 1.0),
+                    )
                     local_observation = local_features(env, observer, observation, reset=True)
                     actor_hidden = policy.initial_actor_hidden(env.n_defenders, device=device)
                     reset_before = True

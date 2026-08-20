@@ -24,6 +24,7 @@ from encirclement3d.learning import RecurrentCentralizedSharedActorCritic
 from encirclement3d.prediction import HistoryTargetPredictor, LearnedPredictionObserver
 from encirclement3d.pursuit_controllers import DynamicEncirclementController, SafetyFilteredPursuitController
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
+from encirclement3d.showcase import sample_training_episode
 
 
 def parse_args() -> argparse.Namespace:
@@ -114,11 +115,15 @@ def collect_expert_dataset(
     episode_rows: list[dict[str, Any]] = []
     centralized_state_dim: int | None = None
     for episode_index in range(int(settings["episodes"])):
-        obstacle_count = int(rng.choice(np.asarray(settings["training_obstacle_counts"], dtype=np.int64)))
-        target_speed_scale = float(rng.choice(np.asarray(settings["training_target_speed_scales"], dtype=np.float64)))
-        env = CaptureRadiusPursuit3DEnv(config, obstacle_count=obstacle_count, target_speed_scale=target_speed_scale)
+        env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
+        observation, episode_metadata = sample_training_episode(
+            env,
+            settings,
+            rng,
+            seed=seed + episode_index,
+            progress=episode_index / max(int(settings["episodes"]) - 1, 1),
+        )
         controller = SafetyFilteredPursuitController(DynamicEncirclementController(env))
-        observation = env.reset(seed=seed + episode_index)
         observer = (
             LearnedPredictionObserver(
                 env,
@@ -145,11 +150,12 @@ def collect_expert_dataset(
                     {
                         "episode": episode_index,
                         "seed": seed + episode_index,
-                        "obstacle_count": obstacle_count,
-                        "target_speed_scale": target_speed_scale,
+                        "obstacle_count": int(env.obstacle_count),
+                        "target_speed_scale": float(env.target_speed_scale),
                         "safe_capture_success": bool(info["safe_capture_success"]),
                         "collision": bool(info["collision"]),
                         "steps": int(env.step_count),
+                        **episode_metadata,
                     }
                 )
                 break
@@ -274,6 +280,7 @@ def write_artifacts(
         PROJECT_ROOT / "src" / "encirclement3d" / "prediction.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_env.py",
         PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_controllers.py",
+        PROJECT_ROOT / "src" / "encirclement3d" / "showcase.py",
     ]
     output.joinpath("source_hashes.json").write_text(
         json.dumps({str(path.relative_to(PROJECT_ROOT)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths}, indent=2),

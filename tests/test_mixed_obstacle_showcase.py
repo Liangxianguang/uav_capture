@@ -10,6 +10,7 @@ from encirclement3d.showcase import (
     central_mixed_obstacle_scenario,
     crossing_metrics,
     prepare_showcase_episode,
+    sample_training_episode,
     validate_showcase_scenario,
 )
 
@@ -63,3 +64,27 @@ def test_crossing_metrics_require_trajectory_entry_into_obstacle_zone() -> None:
     metrics = crossing_metrics(env, scenario.obstacle_zone_x)
     assert metrics["defender_crossing_rate"] == 1.0
     assert metrics["target_crossed"] is False
+
+
+def test_curriculum_sampler_can_select_a_central_mixed_episode() -> None:
+    config = load_config()
+    config["task"]["pursuit"]["detection_range"] = 14.0
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
+    settings = {
+        "training_obstacle_counts": [0, 3],
+        "training_target_speed_scales": [0.55],
+        "training_showcase_stages": [
+            {
+                "until_progress": 1.0,
+                "showcase_probability": 1.0,
+                "layouts": ["mixed"],
+                "initial_side_distances": [5.0],
+                "target_speed_scales": [0.55],
+            }
+        ],
+    }
+    observation, metadata = sample_training_episode(env, settings, np.random.default_rng(123), seed=642004, progress=0.7)
+    assert metadata["episode_kind"] == "showcase"
+    assert metadata["layout"] == "mixed"
+    assert env.obstacle_count == 3
+    assert observation["defender_positions"][:, 0].max() < -2.5
