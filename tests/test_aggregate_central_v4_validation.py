@@ -15,11 +15,21 @@ def test_aggregate_normalizes_fixed_and_s3_summaries(tmp_path) -> None:
     randomized = tmp_path / "randomized"
     randomized.mkdir()
     (randomized / "summary.json").write_text(
-        json.dumps({"overall": {"episodes": 4, "safe_capture_rate": 0.75, "transit_success_rate": 1.0}}),
+        json.dumps(
+            {
+                "overall": {
+                    "episodes": 4,
+                    "safe_capture_rate": 0.75,
+                    "showcase_success_rate": 0.5,
+                    "transit_success_rate": 1.0,
+                }
+            }
+        ),
         encoding="utf-8",
     )
 
     aggregate = collect(tmp_path, {"S1": ["fixed"], "S3": ["randomized"], "S2": []})
     assert aggregate["S1"]["fixed"]["metrics"]["cooperative_safe_capture_rate"] == 1.0
     assert aggregate["S3"]["randomized"]["metrics"]["safe_capture_rate"] == 0.75
+    assert aggregate["S3"]["randomized"]["metrics"]["cooperative_safe_capture_rate"] == 0.5
     assert "no locked-test" in render_markdown({"groups": aggregate})

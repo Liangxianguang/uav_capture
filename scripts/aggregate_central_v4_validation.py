@@ -40,6 +40,15 @@ def _load_metrics(path: Path) -> dict[str, Any]:
     raise ValueError(f"{path} has neither a fixed-run summary nor an S3 overall summary.")
 
 
+def _normalize_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(metrics)
+    if "cooperative_safe_capture_rate" not in normalized:
+        cooperative = normalized.get("showcase_success_rate")
+        if cooperative is not None:
+            normalized["cooperative_safe_capture_rate"] = cooperative
+    return normalized
+
+
 def _find_summary(directory: Path) -> Path:
     for name in ("summary.json", "evaluation.json"):
         candidate = directory / name
@@ -55,7 +64,7 @@ def collect(root: Path, entries: dict[str, list[str]]) -> dict[str, Any]:
         for directory in directories:
             path = root / directory
             summary_path = _find_summary(path)
-            metrics = _load_metrics(summary_path)
+            metrics = _normalize_metrics(_load_metrics(summary_path))
             methods[directory] = {
                 "summary_path": str(summary_path),
                 "episodes": metrics.get("episodes"),
