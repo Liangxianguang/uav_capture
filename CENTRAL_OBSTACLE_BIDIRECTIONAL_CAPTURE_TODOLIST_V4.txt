@@ -145,8 +145,9 @@ S4：只在 S3 稳定后逐项扩展
         CBF action 的结果，不能把 CBF 的收益全部归因给策略网络。
     [x] C2. 旧 BC 在新合同下 raw 为 0%，CBF 仅为 75%-90%，确认任务分布变化；
         启动不强制目标穿越中央区的 V4 C1-C3 课程重新训练。
-    [ ] C3. 用专家轨迹训练 BC，检查训练数据中每级场景的专家安全成功率；低质量
-        专家数据不得直接用于 MAPPO 初始化。
+    [x] C3. 用形状可辨识的专家轨迹训练 BC；640 条演示在 cylinder、box、wall、
+        cylinder_box 与 mixed 上均为 Safe Capture、零碰撞。固定 S1/S2 的 CBF
+        验证达到 90%-100% Cooperative Safe Capture，作为 MAPPO 初始化候选。
     [ ] C4. 以合格 BC 初始化 Recurrent MAPPO + CBF，先完成一个 pilot，再用
         validation 指标决定是否继续至 3 个独立训练 seed。
 

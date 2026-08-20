@@ -118,6 +118,34 @@ S2 raw and CBF results first, then run the three S1 layouts only after S2 is
 stable. MAPPO, S3 random maps, higher target speed, target crossing, and
 execution-dynamics randomization remain blocked until this gate is passed.
 
+## Shape-Aware BC Gate
+
+The optimization audit found a second task-interface limitation: the original
+actor received obstacle center, bounding radius, and height only. A box and a
+wall with the same bounding radius could therefore be indistinguishable to the
+policy. V4 now uses `shape_extents_and_type`, adding horizontal half-extents
+and a cylinder/box/wall one-hot code for each observed obstacle. This is part
+of the frozen V4 protocol and is checked in both training and showcase
+evaluation.
+
+The shape-aware BC run `results/central_v4/bc_shapeaware_seed660701` used 640
+safe, collision-free expert episodes. Layout coverage was cylinder `301`, box
+`106`, wall `94`, cylinder-plus-box `98`, and mixed `41`; the resulting actor
+observation is 63-dimensional. Its final action MSE was `0.0274`.
+
+| Scene | Raw cooperative safe capture | Raw collision | CBF cooperative safe capture | CBF collision | CBF mean capture time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| S1 cylinder | 19/20 (95%) | 1/20 (5%) | 19/20 (95%) | 0/20 (0%) | 3.49 s |
+| S1 box | 15/20 (75%) | 5/20 (25%) | 18/20 (90%) | 0/20 (0%) | 3.05 s |
+| S1 wall | 20/20 (100%) | 0/20 (0%) | 20/20 (100%) | 0/20 (0%) | 2.95 s |
+| S2 mixed | 20/20 (100%) | 0/20 (0%) | 20/20 (100%) | 0/20 (0%) | 3.44 s |
+
+Every one of these eight controlled evaluations recorded independent Transit
+success `20/20`. The raw and CBF numbers remain separate: CBF removes the
+remaining S1 collisions but is not attributed to the learned actor. This model
+passes the C3 initialization gate for one MAPPO pilot because it is already
+stable under CBF on every frozen S1/S2 layout and raw S2 is fully successful.
+
 ## Required Gate Before MAPPO
 
 1. Generate a new expert dataset and verify its manifest reports high safe
