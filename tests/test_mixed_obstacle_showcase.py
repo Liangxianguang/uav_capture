@@ -8,8 +8,10 @@ import yaml
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 from encirclement3d.showcase import (
     capture_contract_metrics,
+    central_capture_v4_scenario,
     central_mixed_obstacle_scenario,
     crossing_metrics,
+    load_central_capture_protocol,
     prepare_showcase_episode,
     sample_training_episode,
     transit_execution_metrics,
@@ -19,6 +21,10 @@ from encirclement3d.showcase import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_v4_protocol():
+    return load_central_capture_protocol(PROJECT_ROOT / "configs" / "central_bidirectional_v4.yaml")
 
 
 def load_config() -> dict:
@@ -34,6 +40,16 @@ def test_central_showcase_contains_all_required_obstacle_shapes() -> None:
     assert {obstacle.shape for obstacle in scenario.obstacles} == {"cylinder", "box", "wall"}
     assert scenario.defender_positions[:, 0].max() < scenario.obstacle_zone_x[0]
     assert scenario.target_position[0] > scenario.obstacle_zone_x[1]
+
+
+def test_single_obstacle_layouts_keep_the_geometry_and_routes_explicit() -> None:
+    config = load_config()
+    for layout, shape in (("cylinder", "cylinder"), ("box", "box"), ("wall", "wall")):
+        scenario = central_mixed_obstacle_scenario(layout=layout)
+        env = CaptureRadiusPursuit3DEnv(config, obstacle_count=len(scenario.obstacles), target_speed_scale=0.55)
+        validate_showcase_scenario(env, scenario)
+        assert len(scenario.obstacles) == 1
+        assert scenario.obstacles[0].shape == shape
 
 
 def test_central_showcase_is_inside_bounds_and_reachable() -> None:
@@ -56,6 +72,26 @@ def test_central_showcase_is_inside_bounds_and_reachable() -> None:
     assert executed["transit_success"] is True
     assert executed["all_defenders_transit_success"] is True
     assert executed["target_transit_success"] is True
+
+
+def test_v4_fixed_scene_freezes_opposite_sides_central_obstacles_and_separation() -> None:
+    protocol = load_v4_protocol()
+    scenario = central_capture_v4_scenario(protocol)
+    config = load_config()
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=3, target_speed_scale=protocol.target_speed_scale)
+    validate_showcase_scenario(env, scenario)
+    assert scenario.required_defender_zone_entries == 2
+    assert scenario.target_crossing_required is False
+    assert scenario.require_target_zone_entry is False
+    assert scenario.defender_positions[:, 0].max() < protocol.obstacle_zone_x[0]
+    assert scenario.target_position[0] > protocol.obstacle_zone_x[1]
+    assert np.min(np.linalg.norm(scenario.defender_positions - scenario.target_position[None, :], axis=1)) >= (
+        protocol.minimum_initial_target_defender_distance
+    )
+    for obstacle in scenario.obstacles:
+        half_x = obstacle.radius if obstacle.half_extents_xy is None else obstacle.half_extents_xy[0]
+        assert obstacle.center_xy[0] - half_x >= protocol.obstacle_zone_x[0]
+        assert obstacle.center_xy[0] + half_x <= protocol.obstacle_zone_x[1]
 
 
 def test_s2_reverses_sides_and_requires_target_crossing() -> None:
@@ -134,6 +170,46 @@ def test_capture_contract_requires_a_central_encounter() -> None:
         target_crossing_required=False,
     )
     assert ordinary_pursuit["safe_capture_in_pursuit"] is True
+
+
+def test_capture_contract_can_require_target_entry_and_v4_requires_two_defenders_only() -> None:
+    final_info = {"capture_event": True, "safe_capture_success": True, "termination_reason": "safe_capture"}
+    one_defender = capture_contract_metrics(
+        final_info,
+        {"target_zone_entered": True, "defender_zone_entered": [True, False, False, False]},
+        required_defender_zone_entries=2,
+        require_target_zone_entry=True,
+    )
+    assert one_defender["cooperative_safe_capture"] is False
+    assert one_defender["capture_without_zone_entry"] is True
+    assert one_defender["defender_zone_entry_count"] == 1
+
+    target_absent = capture_contract_metrics(
+        final_info,
+        {"target_zone_entered": False, "defender_zone_entered": [True, True, False, False]},
+        required_defender_zone_entries=2,
+        require_target_zone_entry=True,
+    )
+    assert target_absent["cooperative_safe_capture"] is False
+    assert target_absent["capture_without_zone_entry"] is True
+
+    cooperative = capture_contract_metrics(
+        final_info,
+        {"target_zone_entered": True, "defender_zone_entered": [True, True, False, False]},
+        required_defender_zone_entries=2,
+        require_target_zone_entry=True,
+    )
+    assert cooperative["cooperative_safe_capture"] is True
+    assert cooperative["required_defender_zone_entries"] == 2
+
+    v4_cooperative = capture_contract_metrics(
+        final_info,
+        {"target_zone_entered": False, "defender_zone_entered": [True, True, False, False]},
+        required_defender_zone_entries=2,
+        require_target_zone_entry=False,
+    )
+    assert v4_cooperative["cooperative_safe_capture"] is True
+    assert v4_cooperative["target_zone_entry_required"] is False
 
 
 def test_curriculum_sampler_can_select_a_central_mixed_episode() -> None:

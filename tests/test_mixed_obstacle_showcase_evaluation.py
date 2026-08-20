@@ -8,9 +8,11 @@ def test_showcase_summary_reports_crossing_and_capture_separately() -> None:
         {
             "safe_capture_success": True,
             "safe_capture_in_pursuit": True,
+            "cooperative_safe_capture": True,
             "showcase_success": True,
             "target_zone_entry_rate": 1.0,
             "defender_zone_entry_rate": 1.0,
+            "defender_zone_entry_count": 3,
             "defender_crossing_rate": 1.0,
             "target_crossing_rate": 0.0,
             "transit_route_feasible": True,
@@ -26,9 +28,11 @@ def test_showcase_summary_reports_crossing_and_capture_separately() -> None:
         {
             "safe_capture_success": False,
             "safe_capture_in_pursuit": False,
+            "cooperative_safe_capture": False,
             "showcase_success": False,
             "target_zone_entry_rate": 1.0,
             "defender_zone_entry_rate": 1.0,
+            "defender_zone_entry_count": 1,
             "defender_crossing_rate": 1.0,
             "target_crossing_rate": 0.0,
             "transit_route_feasible": True,
@@ -45,6 +49,8 @@ def test_showcase_summary_reports_crossing_and_capture_separately() -> None:
     result = summarize(rows)
     assert result["safe_capture_rate"] == 0.5
     assert result["safe_capture_in_pursuit_rate"] == 0.5
+    assert result["cooperative_safe_capture_rate"] == 0.5
+    assert result["mean_defender_zone_entry_count"] == 2.0
     assert result["showcase_success_rate"] == 0.5
     assert result["target_zone_entry_rate"] == 1.0
     assert result["transit_route_feasible_rate"] == 1.0

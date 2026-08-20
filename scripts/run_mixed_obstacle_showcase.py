@@ -24,15 +24,20 @@ from encirclement3d.pursuit_controllers import (  # noqa: E402
     SafetyFilteredPursuitController,
 )
 from encirclement3d.showcase import (  # noqa: E402
+    CentralCaptureProtocol,
     capture_contract_metrics,
+    central_capture_protocol_metadata,
+    central_capture_v4_scenario,
     central_mixed_obstacle_scenario,
     crossing_metrics,
+    load_central_capture_protocol,
     prepare_showcase_episode,
     scenario_metadata,
     target_crossing_pursuit_overrides,
     transit_execution_metrics,
     target_min_clearance,
     transit_route_metrics,
+    validate_central_capture_protocol_environment,
 )
 from evaluate_capture_radius_mappo import load_policy, save_trajectory, select_device  # noqa: E402
 from replay_capture_radius_checkpoint import METHOD_CONFIGS, render_animation  # noqa: E402
@@ -45,7 +50,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=642002)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--initial-side-distance", type=float, default=5.0)
-    parser.add_argument("--scenario", choices=("s1", "s1_cross", "s2", "s2_cross"), default="s1_cross")
+    parser.add_argument("--scenario", choices=("s1", "s1_cross", "s2", "s2_cross", "v4_s2"), default="s1_cross")
+    parser.add_argument("--layout", choices=("open", "cylinder", "box", "wall", "cylinder_box", "mixed"), default="mixed")
+    parser.add_argument(
+        "--protocol-config",
+        type=Path,
+        help="Frozen V4 protocol YAML. Required for --scenario v4_s2.",
+    )
     parser.add_argument(
         "--detection-range",
         type=float,
@@ -66,13 +77,32 @@ def build_config(
     target_speed_scale: float,
     *,
     target_crossing_required: bool = False,
+    protocol: CentralCaptureProtocol | None = None,
+    obstacle_count: int = 3,
 ) -> dict[str, Any]:
     if detection_range <= 0.0 or target_speed_scale <= 0.0:
         raise ValueError("detection-range and target-speed-scale must be positive.")
     config = yaml.safe_load(METHOD_CONFIGS[method].read_text(encoding="utf-8"))
     config["task"]["pursuit"].setdefault("include_uncertainty_features", method == "f2")
     config["task"]["pursuit"]["obstacle_profile"] = "mixed"
-    config["task"]["pursuit"]["detection_range"] = float(detection_range)
+    config["task"]["pursuit"]["detection_range"] = float(
+        protocol.detection_range if protocol is not None else detection_range
+    )
+    if protocol is not None:
+        config["world"].update(
+            {
+                "half_extent_xy": protocol.half_extent_xy,
+                "height": protocol.height,
+                "minimum_altitude": protocol.minimum_altitude,
+            }
+        )
+        config["task"]["pursuit"].update(
+            {
+                "capture_radius": protocol.capture_radius,
+                "safety_margin": protocol.safety_margin,
+                "target_motion_mode": protocol.target_motion_mode,
+            }
+        )
     if target_crossing_required:
         # A crossing target still avoids obstacles, but its deliberate transit
         # intent must outweigh the normal "flee away from pursuers" bias.
@@ -83,14 +113,19 @@ def build_config(
         {
             "name": "central_mixed_obstacles",
             "episodes": 1,
-            "obstacle_count": 3,
-            "target_speed_scale": float(target_speed_scale),
+            "obstacle_count": int(obstacle_count),
+            "target_speed_scale": float(protocol.target_speed_scale if protocol is not None else target_speed_scale),
         }
     ]
     return config
 
 
-def build_showcase_scenario(scenario_kind: str, initial_side_distance: float) -> Any:
+def build_showcase_scenario(
+    scenario_kind: str,
+    initial_side_distance: float,
+    protocol: CentralCaptureProtocol | None = None,
+    layout: str = "mixed",
+) -> Any:
     """Return a fixed scenario with an explicit crossing contract.
 
     ``s1_cross`` is the V3 main task: defenders start on the left, the target
@@ -98,13 +133,25 @@ def build_showcase_scenario(scenario_kind: str, initial_side_distance: float) ->
     opposite directions.  ``s2``/``s2_cross`` retain the reverse-side
     regression tasks.
     """
+    if scenario_kind == "v4_s2":
+        if protocol is None:
+            raise ValueError("--scenario v4_s2 requires --protocol-config.")
+        return central_capture_v4_scenario(protocol)
     if scenario_kind not in {"s1", "s1_cross", "s2", "s2_cross"}:
         raise ValueError(f"Unknown showcase scenario: {scenario_kind}")
     defender_side = "left" if scenario_kind in {"s1", "s1_cross"} else "right"
+    target_crossing_required = (
+        protocol.target_crossing_required
+        if protocol is not None
+        else scenario_kind in {"s1_cross", "s2_cross"}
+    )
     return central_mixed_obstacle_scenario(
         initial_side_distance=initial_side_distance,
-        target_crossing_required=scenario_kind in {"s1_cross", "s2_cross"},
+        target_crossing_required=target_crossing_required,
         defender_side=defender_side,
+        layout=layout,
+        required_defender_zone_entries=(protocol.required_defender_zone_entries if protocol is not None else 1),
+        require_target_zone_entry=(protocol.require_target_zone_entry if protocol is not None else None),
     )
 
 
@@ -122,6 +169,8 @@ def _finalize_showcase_row(
         crossing,
         target_collision=target_collision,
         target_crossing_required=bool(scenario.target_crossing_required),
+        required_defender_zone_entries=int(scenario.required_defender_zone_entries),
+        require_target_zone_entry=scenario.require_target_zone_entry,
     )
     transit = transit_route_metrics(env, scenario)
     transit_execution = transit_execution_metrics(env, scenario)
@@ -133,7 +182,7 @@ def _finalize_showcase_row(
     # capture rollout; it is not the V3 capture success criterion.
     row["rollout_all_defenders_crossed"] = bool(crossing["all_defenders_crossed"])
     row["rollout_target_crossed"] = bool(crossing["target_crossed"])
-    row["showcase_success"] = bool(contract["safe_capture_in_pursuit"])
+    row["showcase_success"] = bool(contract["cooperative_safe_capture"])
     return row
 
 
@@ -276,19 +325,29 @@ def main() -> None:
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    scenario = build_showcase_scenario(args.scenario, args.initial_side_distance)
+    protocol = load_central_capture_protocol(args.protocol_config) if args.protocol_config is not None else None
+    scenario = build_showcase_scenario(
+        args.scenario,
+        args.initial_side_distance,
+        protocol=protocol,
+        layout=args.layout,
+    )
     config = build_config(
         args.method,
         args.detection_range,
         args.target_speed_scale,
         target_crossing_required=bool(scenario.target_crossing_required),
+        protocol=protocol,
+        obstacle_count=len(scenario.obstacles),
     )
     device = select_device(args.device)
     prototype = CaptureRadiusPursuit3DEnv(
         config,
-        obstacle_count=3,
-        target_speed_scale=float(args.target_speed_scale),
+        obstacle_count=len(scenario.obstacles),
+        target_speed_scale=float(config["experiments"][0]["target_speed_scale"]),
     )
+    if protocol is not None:
+        validate_central_capture_protocol_environment(prototype, protocol)
     policy, action_scale, _metadata = load_policy(
         checkpoint,
         prototype,
@@ -310,7 +369,14 @@ def main() -> None:
     (output_dir / "episode.json").write_text(json.dumps(row, indent=2), encoding="utf-8")
     (output_dir / "scenario.json").write_text(
         json.dumps(
-            {"scenario_kind": args.scenario, **scenario_metadata(scenario)},
+            {
+                "scenario_kind": args.scenario,
+                "layout": args.layout,
+                **scenario_metadata(scenario),
+                "central_capture_protocol": (
+                    central_capture_protocol_metadata(protocol) if protocol is not None else None
+                ),
+            },
             indent=2,
         ),
         encoding="utf-8",

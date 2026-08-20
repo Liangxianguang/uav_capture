@@ -22,6 +22,11 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
+from encirclement3d.showcase import (  # noqa: E402
+    central_capture_protocol_metadata,
+    load_central_capture_protocol,
+    validate_central_capture_protocol_environment,
+)
 from evaluate_capture_radius_mappo import load_policy, select_device  # noqa: E402
 from run_mixed_obstacle_showcase import (  # noqa: E402
     build_config,
@@ -40,7 +45,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=643001)
     parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--initial-side-distance", type=float, default=5.0)
-    parser.add_argument("--scenario", choices=("s1", "s1_cross", "s2", "s2_cross"), default="s1_cross")
+    parser.add_argument("--scenario", choices=("s1", "s1_cross", "s2", "s2_cross", "v4_s2"), default="s1_cross")
+    parser.add_argument("--layout", choices=("open", "cylinder", "box", "wall", "cylinder_box", "mixed"), default="mixed")
+    parser.add_argument(
+        "--protocol-config",
+        type=Path,
+        help="Frozen V4 protocol YAML. Required for --scenario v4_s2.",
+    )
     parser.add_argument("--detection-range", type=float, default=14.0)
     parser.add_argument("--target-speed-scale", type=float, default=0.55)
     parser.add_argument("--use-cbf", action="store_true")
@@ -54,9 +65,15 @@ def summarize(rows: list[dict[str, object]]) -> dict[str, float | int | None]:
         "episodes": len(rows),
         "safe_capture_rate": float(np.mean([bool(row["safe_capture_success"]) for row in rows])),
         "safe_capture_in_pursuit_rate": float(np.mean([bool(row["safe_capture_in_pursuit"]) for row in rows])),
+        "cooperative_safe_capture_rate": float(
+            np.mean([bool(row.get("cooperative_safe_capture", row["safe_capture_in_pursuit"])) for row in rows])
+        ),
         "showcase_success_rate": float(np.mean([bool(row["showcase_success"]) for row in rows])),
         "target_zone_entry_rate": float(np.mean([float(row["target_zone_entry_rate"]) for row in rows])),
         "defender_zone_entry_rate": float(np.mean([float(row["defender_zone_entry_rate"]) for row in rows])),
+        "mean_defender_zone_entry_count": float(
+            np.mean([float(row.get("defender_zone_entry_count", 0.0)) for row in rows])
+        ),
         "defender_obstacle_crossing_rate": float(np.mean([float(row["defender_crossing_rate"]) for row in rows])),
         "target_obstacle_crossing_rate": float(np.mean([float(row["target_crossing_rate"]) for row in rows])),
         "transit_route_feasible_rate": float(np.mean([bool(row["transit_route_feasible"]) for row in rows])),
@@ -87,24 +104,34 @@ def main() -> None:
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    scenario = build_showcase_scenario(args.scenario, args.initial_side_distance)
+    protocol = load_central_capture_protocol(args.protocol_config) if args.protocol_config is not None else None
+    scenario = build_showcase_scenario(
+        args.scenario,
+        args.initial_side_distance,
+        protocol=protocol,
+        layout=args.layout,
+    )
     config = build_config(
         args.method,
         args.detection_range,
         args.target_speed_scale,
         target_crossing_required=bool(scenario.target_crossing_required),
+        protocol=protocol,
+        obstacle_count=len(scenario.obstacles),
     )
     device = select_device(args.device)
+    protocol_prototype = CaptureRadiusPursuit3DEnv(
+        config,
+        obstacle_count=len(scenario.obstacles),
+        target_speed_scale=float(config["experiments"][0]["target_speed_scale"]),
+    )
+    if protocol is not None:
+        validate_central_capture_protocol_environment(protocol_prototype, protocol)
     if checkpoint is not None:
-        prototype = CaptureRadiusPursuit3DEnv(
-            config,
-            obstacle_count=len(scenario.obstacles),
-            target_speed_scale=args.target_speed_scale,
-        )
         policy, action_scale, _metadata = load_policy(
             checkpoint,
-            prototype,
-            prototype.reset(seed=args.seed),
+            protocol_prototype,
+            protocol_prototype.reset(seed=args.seed),
             device,
         )
     rows: list[dict[str, object]] = []
@@ -141,10 +168,14 @@ def main() -> None:
                 "use_cbf": bool(args.use_cbf),
                 "base_seed": args.seed,
                 "episode_seeds": [int(row["seed"]) for row in rows],
-                "initial_side_distance_m": args.initial_side_distance,
+                "initial_side_distance_m": float(abs(scenario.defender_positions[0, 0])),
                 "scenario_kind": args.scenario,
-                "detection_range_m": args.detection_range,
-                "target_speed_scale": args.target_speed_scale,
+                "layout": args.layout,
+                "central_capture_protocol": (
+                    central_capture_protocol_metadata(protocol) if protocol is not None else None
+                ),
+                "detection_range_m": float(config["task"]["pursuit"]["detection_range"]),
+                "target_speed_scale": float(config["experiments"][0]["target_speed_scale"]),
                 "summary": summary,
             },
             indent=2,

@@ -8,10 +8,12 @@ the same environment dynamics and policy observation interface.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+import yaml
 
 from .pursuit_env import CaptureRadiusPursuit3DEnv, CylinderObstacle
 
@@ -27,6 +29,129 @@ class ShowcaseScenario:
     target_crossing_required: bool = False
     defender_side: str = "left"
     layout_seed: int | None = None
+    required_defender_zone_entries: int = 1
+    require_target_zone_entry: bool | None = None
+
+
+@dataclass(frozen=True)
+class CentralCaptureProtocol:
+    """Frozen parameters for the V4 central bidirectional capture task."""
+
+    name: str
+    half_extent_xy: float
+    height: float
+    minimum_altitude: float
+    boundary_buffer: float
+    capture_radius: float
+    safety_margin: float
+    obstacle_zone_x: tuple[float, float]
+    layout: str
+    defender_side: str
+    initial_side_distance: float
+    target_crossing_required: bool
+    require_target_zone_entry: bool
+    required_defender_zone_entries: int
+    minimum_initial_target_defender_distance: float
+    layout_seed: int
+    motion_seed: int
+    evaluation_seed_start: int
+    detection_range: float
+    target_speed_scale: float
+    target_motion_mode: str
+
+
+def load_central_capture_protocol(path: str | Path) -> CentralCaptureProtocol:
+    """Load and validate the frozen V4 central-capture task configuration."""
+    source = Path(path)
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Central capture protocol must be a YAML mapping.")
+    world = payload.get("world")
+    task_contract = payload.get("task_contract")
+    scenario = payload.get("scenario")
+    seed_blocks = payload.get("seed_blocks")
+    runtime = payload.get("runtime")
+    if not all(isinstance(value, dict) for value in (world, task_contract, scenario, seed_blocks, runtime)):
+        raise ValueError(
+            "Central capture protocol requires world, task_contract, scenario, seed_blocks, and runtime mappings."
+        )
+    try:
+        protocol = CentralCaptureProtocol(
+            name=str(payload["protocol_name"]),
+            half_extent_xy=float(world["half_extent_xy"]),
+            height=float(world["height"]),
+            minimum_altitude=float(world["minimum_altitude"]),
+            boundary_buffer=float(world["boundary_buffer"]),
+            capture_radius=float(task_contract["capture_radius"]),
+            safety_margin=float(task_contract["safety_margin"]),
+            obstacle_zone_x=tuple(float(value) for value in task_contract["obstacle_zone_x"]),
+            layout=str(scenario["layout"]),
+            defender_side=str(scenario["defender_side"]),
+            initial_side_distance=float(scenario["initial_side_distance"]),
+            target_crossing_required=bool(scenario["target_crossing_required"]),
+            require_target_zone_entry=bool(task_contract["require_target_zone_entry"]),
+            required_defender_zone_entries=int(task_contract["required_defender_zone_entries"]),
+            minimum_initial_target_defender_distance=float(
+                scenario["minimum_initial_target_defender_distance"]
+            ),
+            layout_seed=int(seed_blocks["layout"]),
+            motion_seed=int(seed_blocks["motion"]),
+            evaluation_seed_start=int(seed_blocks["evaluation_start"]),
+            detection_range=float(runtime["detection_range"]),
+            target_speed_scale=float(runtime["target_speed_scale"]),
+            target_motion_mode=str(runtime["target_motion_mode"]),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"Invalid central capture protocol: {error}") from error
+    if len(protocol.obstacle_zone_x) != 2 or protocol.obstacle_zone_x[0] >= protocol.obstacle_zone_x[1]:
+        raise ValueError("Protocol obstacle_zone_x must contain increasing lower and upper bounds.")
+    if protocol.half_extent_xy <= 0.0 or protocol.height <= protocol.minimum_altitude:
+        raise ValueError("Protocol world dimensions are invalid.")
+    if not 0.0 < protocol.boundary_buffer < protocol.half_extent_xy:
+        raise ValueError("Protocol boundary_buffer must lie within the world extent.")
+    if protocol.capture_radius <= 0.0 or protocol.safety_margin < 0.0:
+        raise ValueError("Protocol capture_radius and safety_margin are invalid.")
+    if protocol.layout not in {"open", "cylinder", "box", "wall", "cylinder_box", "mixed"}:
+        raise ValueError("Protocol layout is unsupported.")
+    if protocol.defender_side not in {"left", "right"}:
+        raise ValueError("Protocol defender_side must be left or right.")
+    if protocol.initial_side_distance <= protocol.obstacle_zone_x[1]:
+        raise ValueError("Protocol initial_side_distance must place agents outside the central obstacle zone.")
+    if not 1 <= protocol.required_defender_zone_entries <= 4:
+        raise ValueError("Protocol required_defender_zone_entries must lie in [1, 4].")
+    if protocol.minimum_initial_target_defender_distance <= 0.0:
+        raise ValueError("Protocol minimum initial target-defender distance must be positive.")
+    if protocol.detection_range <= 0.0 or protocol.target_speed_scale <= 0.0:
+        raise ValueError("Protocol runtime detection_range and target_speed_scale must be positive.")
+    if protocol.target_motion_mode not in {"flee_persistence", "s_curve"}:
+        raise ValueError("Protocol target_motion_mode is unsupported.")
+    return protocol
+
+
+def central_capture_protocol_metadata(protocol: CentralCaptureProtocol) -> dict[str, Any]:
+    """Return a JSON-safe record of a frozen central-capture protocol."""
+    metadata = asdict(protocol)
+    metadata["obstacle_zone_x"] = list(protocol.obstacle_zone_x)
+    return metadata
+
+
+def validate_central_capture_protocol_environment(
+    env: CaptureRadiusPursuit3DEnv,
+    protocol: CentralCaptureProtocol,
+) -> None:
+    """Reject evaluations whose environment does not match frozen V4 parameters."""
+    expected = (
+        ("world.half_extent_xy", float(env.world["half_extent_xy"]), protocol.half_extent_xy),
+        ("world.height", float(env.world["height"]), protocol.height),
+        ("world.minimum_altitude", float(env.world["minimum_altitude"]), protocol.minimum_altitude),
+        ("pursuit.capture_radius", float(env.pursuit["capture_radius"]), protocol.capture_radius),
+        ("pursuit.safety_margin", float(env.pursuit["safety_margin"]), protocol.safety_margin),
+    )
+    for field, actual, required in expected:
+        if not np.isclose(actual, required):
+            raise ValueError(f"V4 protocol mismatch for {field}: expected {required}, got {actual}.")
+    if env.n_defenders < protocol.required_defender_zone_entries:
+        raise ValueError("V4 protocol requires more defender zone entries than the environment provides.")
 
 
 def target_crossing_pursuit_overrides() -> dict[str, float]:
@@ -55,14 +180,18 @@ def central_mixed_obstacle_scenario(
     target_crossing_required: bool = False,
     layout: str = "mixed",
     defender_side: str = "left",
+    required_defender_zone_entries: int = 1,
+    require_target_zone_entry: bool | None = None,
 ) -> ShowcaseScenario:
     """Return a fixed, solvable S1/S2-style central obstacle layout."""
     if initial_side_distance < 4.0:
         raise ValueError("initial_side_distance must be at least 4.0 m.")
-    if layout not in {"open", "cylinder", "cylinder_box", "mixed"}:
-        raise ValueError("layout must be one of: open, cylinder, cylinder_box, mixed.")
+    if layout not in {"open", "cylinder", "box", "wall", "cylinder_box", "mixed"}:
+        raise ValueError("layout must be one of: open, cylinder, box, wall, cylinder_box, mixed.")
     if defender_side not in {"left", "right"}:
         raise ValueError("defender_side must be either 'left' or 'right'.")
+    if not 1 <= int(required_defender_zone_entries) <= 4:
+        raise ValueError("required_defender_zone_entries must lie in [1, 4].")
     all_obstacles = (
         CylinderObstacle(
             center_xy=np.array([0.0, 0.0], dtype=np.float64),
@@ -85,8 +214,15 @@ def central_mixed_obstacle_scenario(
             half_extents_xy=np.array([2.1, 0.35], dtype=np.float64),
         ),
     )
-    obstacle_count = {"open": 0, "cylinder": 1, "cylinder_box": 2, "mixed": 3}[layout]
-    obstacles = all_obstacles[:obstacle_count]
+    obstacle_layouts = {
+        "open": (),
+        "cylinder": (all_obstacles[0],),
+        "box": (all_obstacles[1],),
+        "wall": (all_obstacles[2],),
+        "cylinder_box": all_obstacles[:2],
+        "mixed": all_obstacles,
+    }
+    obstacles = obstacle_layouts[layout]
     left_x = -float(initial_side_distance)
     right_x = float(initial_side_distance)
     defender_x = left_x if defender_side == "left" else right_x
@@ -116,7 +252,38 @@ def central_mixed_obstacle_scenario(
         obstacle_zone_x=(-2.5, 3.0),
         target_crossing_required=bool(target_crossing_required),
         defender_side=defender_side,
+        required_defender_zone_entries=int(required_defender_zone_entries),
+        require_target_zone_entry=require_target_zone_entry,
     )
+
+
+def central_capture_v4_scenario(protocol: CentralCaptureProtocol) -> ShowcaseScenario:
+    """Build the fixed V4 S2 mixed-obstacle scene from its frozen protocol."""
+    scenario = central_mixed_obstacle_scenario(
+        initial_side_distance=protocol.initial_side_distance,
+        target_crossing_required=protocol.target_crossing_required,
+        layout=protocol.layout,
+        defender_side=protocol.defender_side,
+        required_defender_zone_entries=protocol.required_defender_zone_entries,
+        require_target_zone_entry=protocol.require_target_zone_entry,
+    )
+    if scenario.obstacle_zone_x != protocol.obstacle_zone_x:
+        raise ValueError("V4 protocol obstacle_zone_x does not match the implemented central scene.")
+    positions = np.vstack([scenario.defender_positions, scenario.target_position[None, :]])
+    lower = np.array(
+        [-protocol.half_extent_xy, -protocol.half_extent_xy, protocol.minimum_altitude], dtype=np.float64
+    )
+    upper = np.array([protocol.half_extent_xy, protocol.half_extent_xy, protocol.height], dtype=np.float64)
+    if np.any(positions < lower[None, :] + protocol.boundary_buffer) or np.any(
+        positions > upper[None, :] - protocol.boundary_buffer
+    ):
+        raise ValueError("V4 initial positions violate the frozen world-boundary buffer.")
+    closest_initial_distance = float(
+        np.min(np.linalg.norm(scenario.defender_positions - scenario.target_position[None, :], axis=1))
+    )
+    if closest_initial_distance < protocol.minimum_initial_target_defender_distance:
+        raise ValueError("V4 initial target-defender separation is below the frozen minimum.")
+    return scenario
 
 
 def _opposite_side_positions(initial_side_distance: float, defender_side: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -195,6 +362,7 @@ def random_central_mixed_obstacle_scenario(
     target_crossing_required: bool = False,
     obstacle_count_range: tuple[int, int] = (3, 5),
     max_attempts: int = 500,
+    required_defender_zone_entries: int = 1,
 ) -> ShowcaseScenario:
     """Sample a reproducible, valid S3 map with cylinder/box/wall obstacles.
 
@@ -210,6 +378,8 @@ def random_central_mixed_obstacle_scenario(
         raise ValueError("S3 obstacle_count_range must satisfy 3 <= minimum <= maximum.")
     if max_attempts <= 0:
         raise ValueError("max_attempts must be positive.")
+    if not 1 <= int(required_defender_zone_entries) <= env.n_defenders:
+        raise ValueError("required_defender_zone_entries must lie in [1, n_defenders].")
     defender_positions, target_position, target_escape_direction = _opposite_side_positions(
         initial_side_distance, defender_side
     )
@@ -247,6 +417,7 @@ def random_central_mixed_obstacle_scenario(
             target_crossing_required=bool(target_crossing_required),
             defender_side=defender_side,
             layout_seed=int(layout_seed),
+            required_defender_zone_entries=int(required_defender_zone_entries),
         )
         try:
             validate_showcase_scenario(env, scenario)
@@ -263,6 +434,8 @@ def scenario_metadata(scenario: ShowcaseScenario) -> dict[str, Any]:
         "layout_seed": scenario.layout_seed,
         "defender_side": scenario.defender_side,
         "target_crossing_required": scenario.target_crossing_required,
+        "required_defender_zone_entries": scenario.required_defender_zone_entries,
+        "require_target_zone_entry": scenario.require_target_zone_entry,
         "obstacle_zone_x": list(scenario.obstacle_zone_x),
         "defender_positions": scenario.defender_positions.tolist(),
         "target_position": scenario.target_position.tolist(),
@@ -334,6 +507,9 @@ def sample_training_episode(
         )
     )
     target_crossing_probability = float(stage.get("target_crossing_probability", 0.0))
+    required_defender_zone_entries = int(
+        stage.get("required_defender_zone_entries", settings.get("training_required_defender_zone_entries", 1))
+    )
     if not isinstance(layouts, list) or not layouts:
         raise ValueError("Showcase layouts must be a non-empty list.")
     if not isinstance(distances, list) or not distances:
@@ -350,6 +526,8 @@ def sample_training_episode(
         raise ValueError("target_crossing_probability must lie in [0, 1].")
     if not 0.0 <= randomized_probability <= 1.0:
         raise ValueError("randomized_central_probability must lie in [0, 1].")
+    if not 1 <= required_defender_zone_entries <= env.n_defenders:
+        raise ValueError("required_defender_zone_entries must lie in [1, n_defenders].")
     if len(randomized_obstacle_count_range) != 2 or not 3 <= randomized_obstacle_count_range[0] <= randomized_obstacle_count_range[1]:
         raise ValueError("randomized_obstacle_count_range must satisfy 3 <= low <= high.")
     if rng.random() < randomized_probability:
@@ -368,6 +546,7 @@ def sample_training_episode(
             defender_side=defender_side,
             target_crossing_required=target_crossing_required,
             obstacle_count_range=randomized_obstacle_count_range,
+            required_defender_zone_entries=required_defender_zone_entries,
         )
         env.obstacle_count = len(scenario.obstacles)
         env.target_speed_scale = target_speed_scale
@@ -385,6 +564,7 @@ def sample_training_episode(
             "initial_side_distance": side_distance,
             "target_speed_scale": target_speed_scale,
             "target_motion_mode": target_motion_mode,
+            "required_defender_zone_entries": required_defender_zone_entries,
             "progress": progress,
         }
     if rng.random() < probability:
@@ -401,6 +581,7 @@ def sample_training_episode(
             target_crossing_required=target_crossing_required,
             layout=layout,
             defender_side=defender_side,
+            required_defender_zone_entries=required_defender_zone_entries,
         )
         env.obstacle_count = len(scenario.obstacles)
         env.target_speed_scale = target_speed_scale
@@ -418,6 +599,7 @@ def sample_training_episode(
             "initial_side_distance": side_distance,
             "target_speed_scale": target_speed_scale,
             "target_motion_mode": target_motion_mode,
+            "required_defender_zone_entries": required_defender_zone_entries,
             "progress": progress,
         }
     env.obstacle_count = int(rng.choice(np.asarray(settings["training_obstacle_counts"], dtype=np.int64)))
@@ -433,12 +615,19 @@ def sample_training_episode(
         "initial_side_distance": None,
         "target_speed_scale": env.target_speed_scale,
         "target_motion_mode": str(env.pursuit["target_motion_mode"]),
+        "required_defender_zone_entries": None,
         "progress": progress,
     }
 
 
 def _within_bounds(env: CaptureRadiusPursuit3DEnv, positions: np.ndarray) -> bool:
     return bool(np.all(positions >= env.lower[None, :]) and np.all(positions <= env.upper[None, :]))
+
+
+def _obstacle_x_extent(obstacle: CylinderObstacle) -> tuple[float, float]:
+    """Return the full axis-aligned horizontal x extent used by collision checks."""
+    half_x = float(obstacle.radius) if obstacle.half_extents_xy is None else float(obstacle.half_extents_xy[0])
+    return float(obstacle.center_xy[0] - half_x), float(obstacle.center_xy[0] + half_x)
 
 
 def _planar_route(
@@ -753,6 +942,19 @@ def validate_showcase_scenario(env: CaptureRadiusPursuit3DEnv, scenario: Showcas
         raise ValueError("Showcase scenario must provide one 3D position per defender.")
     if scenario.target_position.shape != (3,):
         raise ValueError("Showcase scenario target_position must have shape (3,).")
+    if not 1 <= scenario.required_defender_zone_entries <= env.n_defenders:
+        raise ValueError("Showcase scenario required_defender_zone_entries is invalid.")
+    low, high = map(float, scenario.obstacle_zone_x)
+    if not low < high:
+        raise ValueError("Showcase obstacle zone must have increasing bounds.")
+    if scenario.defender_side == "left":
+        if np.any(scenario.defender_positions[:, 0] >= low) or scenario.target_position[0] <= high:
+            raise ValueError("Left-side defender scenario must place defenders and target on opposite obstacle-zone sides.")
+    elif scenario.defender_side == "right":
+        if np.any(scenario.defender_positions[:, 0] <= high) or scenario.target_position[0] >= low:
+            raise ValueError("Right-side defender scenario must place defenders and target on opposite obstacle-zone sides.")
+    else:
+        raise ValueError("Showcase scenario defender_side is invalid.")
     all_positions = np.vstack([scenario.defender_positions, scenario.target_position[None, :]])
     if not _within_bounds(env, all_positions):
         raise ValueError("Showcase initial positions must stay inside the world bounds.")
@@ -764,6 +966,9 @@ def validate_showcase_scenario(env: CaptureRadiusPursuit3DEnv, scenario: Showcas
     if np.min(np.linalg.norm(scenario.defender_positions[:, None, :] - scenario.defender_positions[None, :, :], axis=2) + np.eye(env.n_defenders) * 1e6) < 2.0 * float(env.agents["drone_radius"]):
         raise ValueError("Showcase defenders overlap at initialization.")
     for obstacle in scenario.obstacles:
+        obstacle_low, obstacle_high = _obstacle_x_extent(obstacle)
+        if obstacle_low < low or obstacle_high > high:
+            raise ValueError("Showcase obstacles must remain entirely inside the central obstacle zone.")
         if any(env._obstacle_clearance(position, obstacle) < float(env.pursuit["safety_margin"]) + float(env.agents["drone_radius"]) for position in all_positions):
             raise ValueError("Showcase obstacle is too close to an initial agent position.")
     for defender_index, defender_position in enumerate(scenario.defender_positions):
@@ -827,6 +1032,7 @@ def crossing_metrics(
     defender_initial_x = defender_trace[0, :, 0]
     defender_in_zone = (defender_trace[:, :, 0] >= low) & (defender_trace[:, :, 0] <= high)
     defender_zone_entered = np.any(defender_in_zone, axis=0)
+    defender_zone_entry_count = int(np.sum(defender_zone_entered))
     defender_crossed = np.where(
         defender_initial_x <= low,
         np.any(defender_trace[:, :, 0] > high, axis=0),
@@ -851,6 +1057,7 @@ def crossing_metrics(
         "defender_zone_entered": defender_zone_entered.astype(bool).tolist(),
         "defender_crossed": defender_crossed.astype(bool).tolist(),
         "defender_zone_entry_rate": float(np.mean(defender_zone_entered)),
+        "defender_zone_entry_count": defender_zone_entry_count,
         "defender_crossing_rate": float(np.mean(defender_crossed)),
         "any_defender_zone_entered": bool(np.any(defender_zone_entered)),
         "all_defenders_zone_entered": bool(np.all(defender_zone_entered)),
@@ -870,13 +1077,29 @@ def capture_contract_metrics(
     *,
     target_collision: bool = False,
     target_crossing_required: bool = False,
+    required_defender_zone_entries: int = 1,
+    require_target_zone_entry: bool | None = None,
 ) -> dict[str, Any]:
-    """Apply the V3 central-obstacle capture contract to one finished rollout."""
+    """Apply a central-obstacle capture contract to one finished rollout."""
+    if required_defender_zone_entries < 1:
+        raise ValueError("required_defender_zone_entries must be positive.")
     capture_event = bool(final_info.get("capture_event", False))
     safe_capture = bool(final_info.get("safe_capture_success", False)) and not target_collision
+    defender_zone_entry_count = int(
+        crossing.get(
+            "defender_zone_entry_count",
+            sum(bool(value) for value in crossing.get("defender_zone_entered", [])),
+        )
+    )
+    if not defender_zone_entry_count and bool(crossing.get("any_defender_zone_entered", False)):
+        defender_zone_entry_count = 1
+    target_zone_entry_required = (
+        bool(target_crossing_required) if require_target_zone_entry is None else bool(require_target_zone_entry)
+    )
+    defender_requirement_met = defender_zone_entry_count >= required_defender_zone_entries
+    target_requirement_met = not target_zone_entry_required or bool(crossing.get("target_zone_entered", False))
     central_encounter = bool(
-        crossing["any_defender_zone_entered"]
-        and (not target_crossing_required or crossing["target_zone_entered"])
+        defender_requirement_met and target_requirement_met
     )
     safe_capture_in_pursuit = bool(safe_capture and central_encounter)
     if target_collision:
@@ -890,8 +1113,13 @@ def capture_contract_metrics(
     return {
         "central_encounter": central_encounter,
         "safe_capture_in_pursuit": safe_capture_in_pursuit,
+        "cooperative_safe_capture": safe_capture_in_pursuit,
         "capture_without_zone_entry": bool(capture_event and not central_encounter),
         "target_crossing_required": bool(target_crossing_required),
+        "target_zone_entry_required": target_zone_entry_required,
+        "defender_zone_entry_count": defender_zone_entry_count,
+        "required_defender_zone_entries": int(required_defender_zone_entries),
+        "defender_zone_entry_requirement_met": defender_requirement_met,
         "task_termination_reason": task_termination_reason,
     }
 

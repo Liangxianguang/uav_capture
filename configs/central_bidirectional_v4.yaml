@@ -1,0 +1,62 @@
+protocol_name: central_bidirectional_capture_v4
+task: partially_observable_3d_cooperative_capture_radius_with_central_mixed_obstacles
+status: frozen_fixed_s2_protocol
+source_environment_config: capture_radius_pursuit_time_aligned_uncertainty_dev.yaml
+
+world:
+  half_extent_xy: 10.0
+  height: 10.0
+  minimum_altitude: 0.5
+  boundary_buffer: 1.0
+
+task_contract:
+  obstacle_zone_x: [-2.5, 3.0]
+  capture_radius: 0.80
+  safety_margin: 0.35
+  required_defender_zone_entries: 2
+  require_target_zone_entry: false
+  capture_definition: min_defender_target_distance_lte_capture_radius
+  cooperative_success_definition: >-
+    Safe capture after at least two defenders have entered the central obstacle
+    zone. Target motion terminates at capture and need not cross the zone.
+  transit_definition: >-
+    A separately executed conservative route takes the target right-to-left
+    and every defender left-to-right without collision or boundary violation.
+
+scenario:
+  name: v4_s2_fixed_central_mixed
+  layout: mixed
+  defender_side: left
+  initial_side_distance: 5.5
+  minimum_initial_target_defender_distance: 10.0
+  target_crossing_required: false
+  obstacle_types: [cylinder, box, wall]
+  obstacle_location_constraint: entirely_inside_obstacle_zone_x
+
+seed_blocks:
+  layout: 660001
+  motion: 660101
+  evaluation_start: 660201
+  training: 660301
+  validation: 660401
+  locked_test: 660501
+
+runtime:
+  detection_range: 14.0
+  target_speed_scale: 0.45
+  target_motion_mode: flee_persistence
+
+evaluation:
+  fixed_s1_episodes_per_layout: 20
+  fixed_s2_episodes: 20
+  required_expert_safe_capture_rate: 1.0
+  required_expert_transit_success_rate: 1.0
+  locked_test_episodes: 100
+  training_seeds: [660701, 660702, 660703]
+
+reporting:
+  raw_and_cbf_separate: true
+  persist_episode_json: true
+  persist_trajectory_npz: true
+  persist_tensorboard: true
+  not_physical_capture_claim: true
