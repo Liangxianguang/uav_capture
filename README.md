@@ -119,6 +119,7 @@ python scripts/run_mixed_obstacle_showcase.py `
   --checkpoint F:/path/to/f2/recurrent_mappo/checkpoint.pt `
   --seed 642002 `
   --initial-side-distance 5.0 `
+  --detection-range 14.0 `
   --use-cbf `
   --output-dir results/showcase/central_mixed_seed642002_cbf
 ```
@@ -126,7 +127,26 @@ python scripts/run_mixed_obstacle_showcase.py `
 The showcase starts defenders and target on opposite sides of a fixed central
 layout containing a cylinder, box, and wall. It validates the initial map,
 exports the exact obstacle shapes and dimensions, and records obstacle-zone
-crossing metrics separately from the ordinary Safe Capture result.
+crossing metrics separately from the ordinary Safe Capture result. The default
+showcase detection range makes those deliberately distant starts observable;
+it remains a separate visualization scenario rather than a replacement for the
+locked test configuration.
+
+Probe a fixed showcase across multiple perception/noise seeds without rendering
+every episode:
+
+```powershell
+python scripts/evaluate_mixed_obstacle_showcase.py `
+  --method f2 `
+  --checkpoint F:/path/to/f2/recurrent_mappo/checkpoint.pt `
+  --output-dir results/showcase/probe_f2_cbf `
+  --seed 643001 --episodes 20 `
+  --initial-side-distance 5.0 --detection-range 14.0 `
+  --use-cbf
+```
+
+Use `--baseline dynamic_encirclement --use-cbf` instead of `--checkpoint` to
+verify that the validated layout has a safe, local-information expert solution.
 
 TensorBoard:
 
