@@ -42,7 +42,8 @@ imitation:
       target_motion_modes: [flee_persistence]
       target_crossing_probability: 0.0
       required_defender_zone_entries: 2
-  epochs: 24
   learning_rate: 0.0003
+  action_scale_mode: full_range
   hidden_dim: 128
+  epochs: 96
   validation_episodes: 10

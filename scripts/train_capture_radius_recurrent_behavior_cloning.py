@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"))
     parser.add_argument("--sequence-length", type=int, default=32)
     parser.add_argument("--sequence-batch-size", type=int, default=16)
+    parser.add_argument(
+        "--expert-dataset",
+        type=Path,
+        help="Reuse a prior expert_sequence_dataset.npz after verifying its manifest.",
+    )
     parser.add_argument("--prediction-checkpoint", type=Path)
     parser.add_argument("--prediction-history-length", type=int, default=8)
     parser.add_argument("--prediction-horizon-index", type=int, default=2)
@@ -75,6 +80,17 @@ def select_device(requested: str) -> torch.device:
     if requested == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is unavailable.")
     return torch.device("cuda" if requested == "auto" and torch.cuda.is_available() else requested)
+
+
+def action_scale_for_settings(config: dict[str, Any], settings: dict[str, Any]) -> float:
+    """Return the actor action scale while preserving older checkpoint semantics."""
+    mode = str(settings.get("action_scale_mode", "per_axis_safe"))
+    max_speed = float(config["agents"]["defender_max_speed"])
+    if mode == "per_axis_safe":
+        return max_speed / np.sqrt(3.0)
+    if mode == "full_range":
+        return max_speed
+    raise ValueError("action_scale_mode must be 'per_axis_safe' or 'full_range'.")
 
 
 def load_prediction_model(checkpoint_path: Path, device: torch.device) -> HistoryTargetPredictor:
@@ -170,6 +186,49 @@ def collect_expert_dataset(
         "expert_collision_rate": float(np.mean([row["collision"] for row in episode_rows])),
     }
     return local_values, action_values, reset_values, manifest, int(centralized_state_dim)
+
+
+def load_reused_expert_dataset(
+    dataset_path: Path,
+    config: dict[str, Any],
+    settings: dict[str, Any],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any], int]:
+    """Load a previously audited recurrent BC dataset without silently changing it."""
+    resolved = dataset_path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Expert dataset does not exist: {resolved}")
+    with np.load(resolved) as archive:
+        required = {"local_observations", "actions", "reset_masks"}
+        missing = sorted(required.difference(archive.files))
+        if missing:
+            raise ValueError(f"Expert dataset is missing: {', '.join(missing)}")
+        local_sequences = np.asarray(archive["local_observations"], dtype=np.float32)
+        action_sequences = np.asarray(archive["actions"], dtype=np.float32)
+        reset_sequences = np.asarray(archive["reset_masks"], dtype=np.float32)
+    if local_sequences.ndim != 4 or action_sequences.shape[:3] != local_sequences.shape[:3]:
+        raise ValueError("Reused expert dataset has incompatible recurrent sequence shapes.")
+    if action_sequences.shape[-1] != 3 or reset_sequences.shape != local_sequences.shape[:2]:
+        raise ValueError("Reused expert dataset has incompatible action or reset-mask shapes.")
+    manifest_path = resolved.with_name("expert_dataset_manifest.json")
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Expert dataset manifest does not exist: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("Expert dataset manifest must be a JSON object.")
+    prototype = CaptureRadiusPursuit3DEnv(
+        config,
+        obstacle_count=int(settings["training_obstacle_counts"][0]),
+        target_speed_scale=float(settings["training_target_speed_scales"][0]),
+    )
+    prototype.reset(seed=int(settings["seed"]))
+    centralized_state_dim = int(prototype.centralized_state().shape[-1])
+    manifest = {
+        **manifest,
+        "reused_expert_dataset": str(resolved),
+        "reused_expert_dataset_sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+        "reused_expert_manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+    }
+    return local_sequences, action_sequences, reset_sequences, manifest, centralized_state_dim
 
 
 def evaluate_actor(
@@ -323,44 +382,53 @@ def main() -> None:
         torch.cuda.manual_seed_all(int(settings["seed"]))
     write_artifacts(output, document, config, settings, device, args, prediction_checkpoint)
 
-    local_data, expert_actions, reset_masks, manifest, centralized_state_dim = collect_expert_dataset(
-        config,
-        settings,
-        device,
-        prediction_model,
-        args.prediction_history_length,
-        args.prediction_horizon_index,
-    )
-    usable_frames = (local_data.shape[0] // args.sequence_length) * args.sequence_length
-    if usable_frames == 0:
-        raise RuntimeError("Expert trajectory dataset is shorter than one recurrent sequence.")
-    local_data = local_data[:usable_frames]
-    expert_actions = expert_actions[:usable_frames]
-    reset_masks = reset_masks[:usable_frames]
-    local_sequences = local_data.reshape(-1, args.sequence_length, *local_data.shape[1:])
-    action_sequences = expert_actions.reshape(-1, args.sequence_length, *expert_actions.shape[1:])
-    reset_sequences = reset_masks.reshape(-1, args.sequence_length)
-    # Expert episodes have arbitrary lengths. Each BC sequence starts from a
-    # zero hidden state, so mark chunk boundaries as truncated-BPTT resets
-    # rather than silently treating a preceding, unavailable frame as memory.
-    reset_sequences[:, 0] = 1.0
+    if args.expert_dataset is None:
+        local_data, expert_actions, reset_masks, manifest, centralized_state_dim = collect_expert_dataset(
+            config,
+            settings,
+            device,
+            prediction_model,
+            args.prediction_history_length,
+            args.prediction_horizon_index,
+        )
+        usable_frames = (local_data.shape[0] // args.sequence_length) * args.sequence_length
+        if usable_frames == 0:
+            raise RuntimeError("Expert trajectory dataset is shorter than one recurrent sequence.")
+        local_data = local_data[:usable_frames]
+        expert_actions = expert_actions[:usable_frames]
+        reset_masks = reset_masks[:usable_frames]
+        local_sequences = local_data.reshape(-1, args.sequence_length, *local_data.shape[1:])
+        action_sequences = expert_actions.reshape(-1, args.sequence_length, *expert_actions.shape[1:])
+        reset_sequences = reset_masks.reshape(-1, args.sequence_length)
+        # Expert episodes have arbitrary lengths. Each BC sequence starts from
+        # a zero hidden state at the truncated-BPTT chunk boundary.
+        reset_sequences[:, 0] = 1.0
+        manifest.update(
+            {
+                "sequence_length": args.sequence_length,
+                "sequence_count": int(local_sequences.shape[0]),
+                "discarded_frames": int(manifest["frame_count"] - usable_frames),
+                "chunk_boundaries_reset_hidden": True,
+            }
+        )
+    else:
+        local_sequences, action_sequences, reset_sequences, manifest, centralized_state_dim = load_reused_expert_dataset(
+            args.expert_dataset,
+            config,
+            settings,
+        )
+        if local_sequences.shape[1] != args.sequence_length:
+            raise ValueError("Reused expert dataset sequence length does not match --sequence-length.")
+        local_data = local_sequences.reshape(-1, *local_sequences.shape[2:])
     np.savez_compressed(
         output / "expert_sequence_dataset.npz",
         local_observations=local_sequences,
         actions=action_sequences,
         reset_masks=reset_sequences,
     )
-    manifest.update(
-        {
-            "sequence_length": args.sequence_length,
-            "sequence_count": int(local_sequences.shape[0]),
-            "discarded_frames": int(manifest["frame_count"] - usable_frames),
-            "chunk_boundaries_reset_hidden": True,
-        }
-    )
     output.joinpath("expert_dataset_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    action_scale = float(config["agents"]["defender_max_speed"]) / np.sqrt(3.0)
+    action_scale = action_scale_for_settings(config, settings)
     policy = RecurrentCentralizedSharedActorCritic(
         local_observation_dim=int(local_data.shape[-1]),
         centralized_state_dim=centralized_state_dim,
@@ -441,6 +509,7 @@ def main() -> None:
             "local_observation_dim": int(local_data.shape[-1]),
             "centralized_state_dim": centralized_state_dim,
             "action_scale": float(action_scale),
+            "action_scale_mode": str(settings.get("action_scale_mode", "per_axis_safe")),
             "seed": int(settings["seed"]),
             "algorithm": "behavior_cloning_recurrent_local_rule_expert",
             "actor_recurrent": True,

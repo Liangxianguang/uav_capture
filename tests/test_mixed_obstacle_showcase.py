@@ -45,6 +45,7 @@ def test_v4_flee_curricula_match_the_frozen_sensor_and_motion_contract() -> None
         environment_path = PROJECT_ROOT / "configs" / document["environment_config"]
         environment = yaml.safe_load(environment_path.read_text(encoding="utf-8"))
         settings = document[section]
+        assert settings["action_scale_mode"] == "full_range"
         assert environment["task"]["pursuit"]["detection_range"] == protocol.detection_range
         assert environment["task"]["pursuit"]["obstacle_profile"] == "mixed"
         for stage in settings["training_showcase_stages"]:

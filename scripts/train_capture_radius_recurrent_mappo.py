@@ -78,6 +78,17 @@ def select_device(requested: str) -> torch.device:
     return torch.device("cuda" if requested == "auto" and torch.cuda.is_available() else requested)
 
 
+def action_scale_for_settings(config: dict[str, Any], settings: dict[str, Any]) -> float:
+    """Match MAPPO action semantics to the BC checkpoint it initializes from."""
+    mode = str(settings.get("action_scale_mode", "per_axis_safe"))
+    max_speed = float(config["agents"]["defender_max_speed"])
+    if mode == "per_axis_safe":
+        return max_speed / np.sqrt(3.0)
+    if mode == "full_range":
+        return max_speed
+    raise ValueError("action_scale_mode must be 'per_axis_safe' or 'full_range'.")
+
+
 def cuda_details(device: torch.device) -> dict[str, Any]:
     details: dict[str, Any] = {"torch_cuda_available": torch.cuda.is_available(), "torch_cuda_runtime": torch.version.cuda}
     if device.type == "cuda":
@@ -352,7 +363,7 @@ def main() -> None:
     local_observation = local_features(env, observer, observation, reset=True)
     local_observation_dim = int(local_observation.shape[-1])
     centralized_state_dim = int(env.centralized_state().shape[-1])
-    action_scale = float(config["agents"]["defender_max_speed"]) / np.sqrt(3.0)
+    action_scale = action_scale_for_settings(config, settings)
     policy = RecurrentCentralizedSharedActorCritic(
         local_observation_dim, centralized_state_dim, hidden_dim=int(settings["hidden_dim"])
     ).to(device)
