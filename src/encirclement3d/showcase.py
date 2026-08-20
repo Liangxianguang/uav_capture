@@ -29,6 +29,27 @@ class ShowcaseScenario:
     layout_seed: int | None = None
 
 
+def target_crossing_pursuit_overrides() -> dict[str, float]:
+    """Return the controlled target profile used by crossing-required tasks.
+
+    The profile keeps obstacle avoidance active but makes the target's planned
+    transit direction persistent enough for the pursuers to intercept it in
+    the central zone.  It is a task-definition parameter, not an action hint
+    exposed to the policy.
+    """
+    return {
+        "target_heading_persistence": 4.0,
+        "target_flee_gain": 0.05,
+        "target_defender_avoidance_distance": 4.0,
+        "target_defender_avoidance_gain": 8.0,
+    }
+
+
+def configure_target_crossing_episode(env: CaptureRadiusPursuit3DEnv) -> None:
+    """Apply the frozen crossing-required target profile to one environment."""
+    env.pursuit.update(target_crossing_pursuit_overrides())
+
+
 def central_mixed_obstacle_scenario(
     initial_side_distance: float = 5.0,
     target_crossing_required: bool = False,
@@ -351,6 +372,8 @@ def sample_training_episode(
         env.obstacle_count = len(scenario.obstacles)
         env.target_speed_scale = target_speed_scale
         env.pursuit["target_motion_mode"] = target_motion_mode
+        if scenario.target_crossing_required:
+            configure_target_crossing_episode(env)
         observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=False)
         return observation, {
             "episode_kind": "randomized_showcase",
@@ -382,6 +405,8 @@ def sample_training_episode(
         env.obstacle_count = len(scenario.obstacles)
         env.target_speed_scale = target_speed_scale
         env.pursuit["target_motion_mode"] = target_motion_mode
+        if scenario.target_crossing_required:
+            configure_target_crossing_episode(env)
         observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=False)
         return observation, {
             "episode_kind": "showcase",

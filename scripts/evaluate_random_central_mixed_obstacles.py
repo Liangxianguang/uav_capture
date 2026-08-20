@@ -28,6 +28,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
 from encirclement3d.showcase import (  # noqa: E402
+    configure_target_crossing_episode,
     random_central_mixed_obstacle_scenario,
     scenario_metadata,
 )
@@ -148,7 +149,16 @@ def config_for_spec(method: str, spec: dict[str, Any]) -> dict[str, Any]:
     pursuit = config["task"]["pursuit"]
     pursuit.update(copy.deepcopy(spec["pursuit_overrides"]))
     pursuit["target_motion_mode"] = str(spec["target_motion_mode"])
+    if bool(spec["target_crossing_required"]):
+        configure_target_crossing_episode_from_config(config)
     return config
+
+
+def configure_target_crossing_episode_from_config(config: dict[str, Any]) -> None:
+    """Apply the frozen crossing profile before constructing an environment."""
+    from encirclement3d.showcase import target_crossing_pursuit_overrides
+
+    config["task"]["pursuit"].update(target_crossing_pursuit_overrides())
 
 
 def layout_signature(metadata: dict[str, Any]) -> str:
@@ -229,6 +239,11 @@ def main() -> None:
             obstacle_count_range=(int(spec["obstacle_count"]), int(spec["obstacle_count"])),
             max_attempts=int(protocol["s3"].get("max_sampling_attempts", 500)),
         )
+        if bool(scenario.target_crossing_required):
+            # Keep the rollout environment and the scenario protocol aligned;
+            # config_for_spec already applies the same values to its policy
+            # prototype, while this object is the actual episode environment.
+            configure_target_crossing_episode(validation_env)
         if checkpoint is not None and policy is None:
             policy, action_scale, _metadata = load_policy(
                 checkpoint,

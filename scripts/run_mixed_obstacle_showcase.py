@@ -29,6 +29,7 @@ from encirclement3d.showcase import (  # noqa: E402
     crossing_metrics,
     prepare_showcase_episode,
     scenario_metadata,
+    target_crossing_pursuit_overrides,
     transit_execution_metrics,
     target_min_clearance,
     transit_route_metrics,
@@ -77,14 +78,7 @@ def build_config(
         # intent must outweigh the normal "flee away from pursuers" bias.
         # This is a controlled capture task, not a claim that an adversary
         # voluntarily drives toward a defender in the open world.
-        config["task"]["pursuit"].update(
-            {
-                "target_heading_persistence": 4.0,
-                "target_flee_gain": 0.05,
-                "target_defender_avoidance_distance": 4.0,
-                "target_defender_avoidance_gain": 8.0,
-            }
-        )
+        config["task"]["pursuit"].update(target_crossing_pursuit_overrides())
     config["experiments"] = [
         {
             "name": "central_mixed_obstacles",

@@ -213,3 +213,32 @@ def test_curriculum_sampler_can_select_randomized_central_episode() -> None:
     assert metadata["defender_side"] == "right"
     assert 3 <= metadata["obstacle_count"] <= 5
     assert metadata["target_motion_mode"] == "s_curve"
+
+
+def test_crossing_curriculum_uses_the_frozen_target_motion_profile() -> None:
+    config = load_config()
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
+    settings = {
+        "training_obstacle_counts": [0],
+        "training_target_speed_scales": [0.55],
+        "training_showcase_stages": [
+            {
+                "until_progress": 1.0,
+                "showcase_probability": 1.0,
+                "layouts": ["mixed"],
+                "initial_side_distances": [5.0],
+                "defender_sides": ["left"],
+                "target_speed_scales": [0.55],
+                "target_crossing_probability": 1.0,
+                "target_crossing_speed_scales": [0.90],
+                "target_motion_modes": ["flee_persistence"],
+            }
+        ],
+    }
+    _observation, metadata = sample_training_episode(
+        env, settings, np.random.default_rng(777), seed=642007, progress=0.75
+    )
+    assert metadata["target_crossing_required"] is True
+    assert metadata["target_speed_scale"] == 0.90
+    assert env.pursuit["target_heading_persistence"] == 4.0
+    assert env.pursuit["target_flee_gain"] == 0.05
