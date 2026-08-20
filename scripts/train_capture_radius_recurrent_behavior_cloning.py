@@ -41,6 +41,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Reuse a prior expert_sequence_dataset.npz after verifying its manifest.",
     )
+    parser.add_argument(
+        "--initialize-from",
+        type=Path,
+        help="Initialize the recurrent actor from a compatible audited checkpoint.",
+    )
     parser.add_argument("--prediction-checkpoint", type=Path)
     parser.add_argument("--prediction-history-length", type=int, default=8)
     parser.add_argument("--prediction-horizon-index", type=int, default=2)
@@ -318,6 +323,110 @@ def load_reused_expert_dataset(
     return local_sequences, action_sequences, reset_sequences, manifest, centralized_state_dim
 
 
+def resolve_configured_dataset_paths(configured_paths: Any, config_path: Path) -> list[Path]:
+    """Resolve the explicit expert archive list recorded in a BC YAML."""
+    if not isinstance(configured_paths, list) or not configured_paths:
+        raise ValueError("expert_datasets must be a non-empty list when provided.")
+    paths: list[Path] = []
+    for value in configured_paths:
+        path = Path(str(value))
+        paths.append(path if path.is_absolute() else config_path.parent / path)
+    if len({path.resolve() for path in paths}) != len(paths):
+        raise ValueError("expert_datasets must not contain the same archive more than once.")
+    return paths
+
+
+def load_reused_expert_datasets(
+    dataset_paths: list[Path],
+    config: dict[str, Any],
+    settings: dict[str, Any],
+    *,
+    source_balance: str,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any], int]:
+    """Load audited archives and explicitly balance their source contributions."""
+    if source_balance not in {"proportional", "equal_sequences"}:
+        raise ValueError("expert_dataset_source_balance must be 'proportional' or 'equal_sequences'.")
+    archives = [load_reused_expert_dataset(path, config, settings) for path in dataset_paths]
+    state_dimensions = {state_dim for *_values, state_dim in archives}
+    if len(state_dimensions) != 1:
+        raise ValueError("Reused expert datasets disagree on centralized-state dimension.")
+    sequence_counts = [int(local.shape[0]) for local, *_values in archives]
+    if any(count <= 0 for count in sequence_counts):
+        raise ValueError("Reused expert datasets must each contain at least one sequence.")
+    target_count = max(sequence_counts) if source_balance == "equal_sequences" else None
+    rng = np.random.default_rng(seed)
+    local_parts: list[np.ndarray] = []
+    action_parts: list[np.ndarray] = []
+    reset_parts: list[np.ndarray] = []
+    source_metadata: list[dict[str, Any]] = []
+    for source_index, (local, actions, resets, manifest, _state_dim) in enumerate(archives):
+        original_count = int(local.shape[0])
+        selected_indices = (
+            np.arange(original_count, dtype=np.int64)
+            if target_count is None
+            else rng.choice(original_count, size=target_count, replace=original_count < target_count)
+        )
+        local_parts.append(local[selected_indices])
+        action_parts.append(actions[selected_indices])
+        reset_parts.append(resets[selected_indices])
+        source_metadata.append(
+            {
+                "source_index": source_index,
+                "original_sequences": original_count,
+                "selected_sequences": int(selected_indices.size),
+                "manifest": manifest,
+            }
+        )
+    local_sequences = np.concatenate(local_parts, axis=0)
+    action_sequences = np.concatenate(action_parts, axis=0)
+    reset_sequences = np.concatenate(reset_parts, axis=0)
+    manifest = {
+        "reused_expert_datasets": source_metadata,
+        "source_balance": source_balance,
+        "source_balance_seed": int(seed),
+        "sequence_count": int(local_sequences.shape[0]),
+        "frame_count": int(local_sequences.shape[0] * local_sequences.shape[1]),
+    }
+    return local_sequences, action_sequences, reset_sequences, manifest, state_dimensions.pop()
+
+
+def initialize_recurrent_actor(
+    policy: RecurrentCentralizedSharedActorCritic,
+    checkpoint_path: Path | None,
+    *,
+    local_observation_dim: int,
+    centralized_state_dim: int,
+    action_scale: float,
+    device: torch.device,
+) -> dict[str, Any] | None:
+    """Load a full compatible recurrent BC checkpoint before fine-tuning."""
+    if checkpoint_path is None:
+        return None
+    resolved = checkpoint_path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Initialization checkpoint does not exist: {resolved}")
+    checkpoint = torch.load(resolved, map_location=device, weights_only=True)
+    if not bool(checkpoint.get("actor_recurrent", False)):
+        raise ValueError("Initialization checkpoint must contain a recurrent actor.")
+    if int(checkpoint.get("local_observation_dim", -1)) != local_observation_dim:
+        raise ValueError("Initialization checkpoint observation dimension differs from this BC configuration.")
+    if int(checkpoint.get("centralized_state_dim", -1)) != centralized_state_dim:
+        raise ValueError("Initialization checkpoint critic-state dimension differs from this BC configuration.")
+    if not np.isclose(float(checkpoint.get("action_scale", np.nan)), action_scale):
+        raise ValueError("Initialization checkpoint action scale differs from this BC configuration.")
+    state_dict = checkpoint.get("state_dict")
+    if not isinstance(state_dict, dict):
+        raise ValueError("Initialization checkpoint has no state_dict.")
+    policy.load_state_dict(state_dict, strict=True)
+    return {
+        "checkpoint": str(resolved),
+        "sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+        "source_algorithm": checkpoint.get("algorithm"),
+        "source_seed": checkpoint.get("seed"),
+    }
+
+
 def evaluate_actor(
     policy: RecurrentCentralizedSharedActorCritic,
     config: dict[str, Any],
@@ -455,6 +564,9 @@ def main() -> None:
     if args.prediction_history_length <= 0 or args.prediction_horizon_index < 0:
         raise ValueError("Invalid prediction history arguments.")
     document, config, settings = load_configuration(args)
+    configured_datasets = settings.get("expert_datasets")
+    if args.expert_dataset is not None and configured_datasets is not None:
+        raise ValueError("Use either --expert-dataset or imitation.expert_datasets, not both.")
     output = args.output
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output}")
@@ -470,7 +582,7 @@ def main() -> None:
         torch.cuda.manual_seed_all(int(settings["seed"]))
     write_artifacts(output, document, config, settings, device, args, prediction_checkpoint)
 
-    if args.expert_dataset is None:
+    if args.expert_dataset is None and configured_datasets is None:
         local_data, expert_actions, reset_masks, manifest, centralized_state_dim = collect_expert_dataset(
             config,
             settings,
@@ -510,7 +622,7 @@ def main() -> None:
                 "chunk_boundaries_reset_hidden": True,
             }
         )
-    else:
+    elif args.expert_dataset is not None:
         local_sequences, action_sequences, reset_sequences, manifest, centralized_state_dim = load_reused_expert_dataset(
             args.expert_dataset,
             config,
@@ -518,6 +630,18 @@ def main() -> None:
         )
         if local_sequences.shape[1] != args.sequence_length:
             raise ValueError("Reused expert dataset sequence length does not match --sequence-length.")
+        local_data = local_sequences.reshape(-1, *local_sequences.shape[2:])
+    else:
+        dataset_paths = resolve_configured_dataset_paths(configured_datasets, args.config)
+        local_sequences, action_sequences, reset_sequences, manifest, centralized_state_dim = load_reused_expert_datasets(
+            dataset_paths,
+            config,
+            settings,
+            source_balance=str(settings.get("expert_dataset_source_balance", "proportional")),
+            seed=int(settings["seed"]),
+        )
+        if local_sequences.shape[1] != args.sequence_length:
+            raise ValueError("Configured expert dataset sequence length does not match --sequence-length.")
         local_data = local_sequences.reshape(-1, *local_sequences.shape[2:])
     np.savez_compressed(
         output / "expert_sequence_dataset.npz",
@@ -533,6 +657,16 @@ def main() -> None:
         centralized_state_dim=centralized_state_dim,
         hidden_dim=int(settings["hidden_dim"]),
     ).to(device)
+    initialization = initialize_recurrent_actor(
+        policy,
+        args.initialize_from.resolve() if args.initialize_from is not None else None,
+        local_observation_dim=int(local_data.shape[-1]),
+        centralized_state_dim=centralized_state_dim,
+        action_scale=action_scale,
+        device=device,
+    )
+    if initialization is not None:
+        output.joinpath("initialization.json").write_text(json.dumps(initialization, indent=2), encoding="utf-8")
     optimizer = torch.optim.Adam(policy.actor_parameters(), lr=float(settings["learning_rate"]))
     local_tensor = torch.as_tensor(local_sequences, device=device)
     action_tensor = torch.as_tensor(action_sequences, device=device)

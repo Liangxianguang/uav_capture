@@ -1,0 +1,35 @@
+experiment_name: capture_radius_recurrent_behavior_cloning_central_v4_s3_retained
+environment_config: capture_radius_pursuit_central_v4_flee.yaml
+
+# Retain the validated fixed-scene behavior while learning S3 coverage. The
+# two audited archives are sampled to equal sequence counts every epoch.
+imitation:
+  seed: 661201
+  device: cuda
+  episodes: 320
+  expert_datasets:
+    - ../results/central_v4/bc_shapeaware_seed660701/expert_sequence_dataset.npz
+    - ../results/central_v4/bc_s3_progressive_seed661101/expert_sequence_dataset.npz
+  expert_dataset_source_balance: equal_sequences
+  training_obstacle_counts: [3]
+  training_target_speed_scales: [0.45, 0.55]
+  training_target_motion_modes: [flee_persistence, s_curve]
+  training_required_defender_zone_entries: 2
+  # Retained for a complete task-contract audit even though datasets are reused.
+  training_showcase_stages:
+    - until_progress: 1.0
+      showcase_probability: 1.0
+      randomized_central_probability: 0.85
+      randomized_obstacle_count_range: [3, 5]
+      layouts: [mixed]
+      initial_side_distances: [6.0, 6.5, 7.0, 7.5]
+      defender_sides: [left, right]
+      target_speed_scales: [0.45, 0.55]
+      target_motion_modes: [flee_persistence, s_curve]
+      target_crossing_probability: 0.0
+      required_defender_zone_entries: 2
+  learning_rate: 0.00005
+  action_scale_mode: full_range
+  hidden_dim: 128
+  epochs: 64
+  validation_episodes: 10

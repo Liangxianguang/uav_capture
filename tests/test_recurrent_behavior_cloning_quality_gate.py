@@ -7,8 +7,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 import yaml
 
+from encirclement3d.learning import RecurrentCentralizedSharedActorCritic
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 from encirclement3d.showcase import sample_training_episode
 
@@ -64,7 +66,7 @@ def test_expert_quality_gate_uses_the_default_entry_requirement_for_random_episo
 
 def _load_config() -> dict:
     return yaml.safe_load(
-        (PROJECT_ROOT / "configs" / "capture_radius_pursuit_time_aligned_uncertainty_dev.yaml").read_text(
+        (PROJECT_ROOT / "configs" / "capture_radius_pursuit_central_v4_flee.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -123,3 +125,67 @@ def test_curriculum_rejects_unknown_pursuit_override() -> None:
     }
     with pytest.raises(ValueError, match="unknown pursuit"):
         sample_training_episode(env, settings, np.random.default_rng(3), seed=102, progress=0.1)
+
+
+def test_reused_expert_archives_can_be_sequence_balanced(tmp_path: Path) -> None:
+    config = _load_config()
+    settings = {"training_obstacle_counts": [3], "training_target_speed_scales": [0.45], "seed": 55}
+    datasets: list[Path] = []
+    for index, sequence_count in enumerate((2, 3)):
+        directory = tmp_path / f"source_{index}"
+        directory.mkdir()
+        dataset = directory / "expert_sequence_dataset.npz"
+        np.savez_compressed(
+            dataset,
+            local_observations=np.full((sequence_count, 32, 4, 63), index, dtype=np.float32),
+            actions=np.zeros((sequence_count, 32, 4, 3), dtype=np.float32),
+            reset_masks=np.zeros((sequence_count, 32), dtype=np.float32),
+        )
+        dataset.with_name("expert_dataset_manifest.json").write_text("{}", encoding="utf-8")
+        datasets.append(dataset)
+
+    local, actions, resets, manifest, state_dim = TRAINER.load_reused_expert_datasets(
+        datasets,
+        config,
+        settings,
+        source_balance="equal_sequences",
+        seed=55,
+    )
+
+    assert local.shape == (6, 32, 4, 63)
+    assert actions.shape == (6, 32, 4, 3)
+    assert resets.shape == (6, 32)
+    assert state_dim == 46
+    assert [source["selected_sequences"] for source in manifest["reused_expert_datasets"]] == [3, 3]
+    assert manifest["source_balance"] == "equal_sequences"
+
+
+def test_recurrent_bc_warm_start_requires_a_compatible_checkpoint(tmp_path: Path) -> None:
+    source = RecurrentCentralizedSharedActorCritic(63, 46, hidden_dim=16)
+    checkpoint = tmp_path / "checkpoint.pt"
+    torch.save(
+        {
+            "state_dict": source.state_dict(),
+            "local_observation_dim": 63,
+            "centralized_state_dim": 46,
+            "action_scale": 5.0,
+            "actor_recurrent": True,
+            "algorithm": "behavior_cloning_recurrent_local_rule_expert",
+            "seed": 42,
+        },
+        checkpoint,
+    )
+    target = RecurrentCentralizedSharedActorCritic(63, 46, hidden_dim=16)
+
+    metadata = TRAINER.initialize_recurrent_actor(
+        target,
+        checkpoint,
+        local_observation_dim=63,
+        centralized_state_dim=46,
+        action_scale=5.0,
+        device=torch.device("cpu"),
+    )
+
+    assert metadata is not None
+    assert metadata["source_seed"] == 42
+    assert torch.equal(target.actor_base_body[0].weight, source.actor_base_body[0].weight)
