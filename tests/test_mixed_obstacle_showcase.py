@@ -49,6 +49,8 @@ def test_v4_flee_curricula_match_the_frozen_sensor_and_motion_contract() -> None
         assert settings["action_scale_mode"] == "full_range"
         assert environment["task"]["policy_obstacle_geometry"] == "shape_extents_and_type"
         assert environment["task"]["policy_obstacle_geometry"] == protocol.policy_obstacle_geometry
+        covered_layouts = {layout for stage in settings["training_showcase_stages"] for layout in stage["layouts"]}
+        assert {"cylinder", "box", "wall", "mixed"}.issubset(covered_layouts)
         assert environment["task"]["pursuit"]["detection_range"] == protocol.detection_range
         assert environment["task"]["pursuit"]["obstacle_profile"] == "mixed"
         for stage in settings["training_showcase_stages"]:

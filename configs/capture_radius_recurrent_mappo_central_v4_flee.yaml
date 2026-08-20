@@ -41,7 +41,7 @@ training:
     - until_progress: 0.65
       showcase_probability: 1.0
       randomized_central_probability: 0.0
-      layouts: [cylinder_box]
+      layouts: [cylinder, box, wall, cylinder_box]
       initial_side_distances: [5.5]
       defender_sides: [left]
       target_speed_scales: [0.45]
@@ -51,7 +51,7 @@ training:
     - until_progress: 1.0
       showcase_probability: 1.0
       randomized_central_probability: 0.0
-      layouts: [mixed]
+      layouts: [cylinder, box, wall, cylinder_box, mixed]
       initial_side_distances: [5.5]
       defender_sides: [left]
       target_speed_scales: [0.45]
