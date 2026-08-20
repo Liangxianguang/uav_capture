@@ -24,11 +24,14 @@ from encirclement3d.pursuit_controllers import (  # noqa: E402
     SafetyFilteredPursuitController,
 )
 from encirclement3d.showcase import (  # noqa: E402
+    capture_contract_metrics,
     central_mixed_obstacle_scenario,
     crossing_metrics,
     prepare_showcase_episode,
     scenario_metadata,
+    transit_execution_metrics,
     target_min_clearance,
+    transit_route_metrics,
 )
 from evaluate_capture_radius_mappo import load_policy, save_trajectory, select_device  # noqa: E402
 from replay_capture_radius_checkpoint import METHOD_CONFIGS, render_animation  # noqa: E402
@@ -41,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=642002)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--initial-side-distance", type=float, default=5.0)
-    parser.add_argument("--scenario", choices=("s1", "s2", "s2_cross"), default="s1")
+    parser.add_argument("--scenario", choices=("s1", "s1_cross", "s2", "s2_cross"), default="s1_cross")
     parser.add_argument(
         "--detection-range",
         type=float,
@@ -56,13 +59,32 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_config(method: str, detection_range: float, target_speed_scale: float) -> dict[str, Any]:
+def build_config(
+    method: str,
+    detection_range: float,
+    target_speed_scale: float,
+    *,
+    target_crossing_required: bool = False,
+) -> dict[str, Any]:
     if detection_range <= 0.0 or target_speed_scale <= 0.0:
         raise ValueError("detection-range and target-speed-scale must be positive.")
     config = yaml.safe_load(METHOD_CONFIGS[method].read_text(encoding="utf-8"))
     config["task"]["pursuit"].setdefault("include_uncertainty_features", method == "f2")
     config["task"]["pursuit"]["obstacle_profile"] = "mixed"
     config["task"]["pursuit"]["detection_range"] = float(detection_range)
+    if target_crossing_required:
+        # A crossing target still avoids obstacles, but its deliberate transit
+        # intent must outweigh the normal "flee away from pursuers" bias.
+        # This is a controlled capture task, not a claim that an adversary
+        # voluntarily drives toward a defender in the open world.
+        config["task"]["pursuit"].update(
+            {
+                "target_heading_persistence": 4.0,
+                "target_flee_gain": 0.05,
+                "target_defender_avoidance_distance": 4.0,
+                "target_defender_avoidance_gain": 8.0,
+            }
+        )
     config["experiments"] = [
         {
             "name": "central_mixed_obstacles",
@@ -77,19 +99,48 @@ def build_config(method: str, detection_range: float, target_speed_scale: float)
 def build_showcase_scenario(scenario_kind: str, initial_side_distance: float) -> Any:
     """Return a fixed scenario with an explicit crossing contract.
 
-    ``s2`` reverses which side the defenders occupy while retaining an
-    evading target.  ``s2_cross`` is intentionally separate because requiring
-    the target to cross toward the pursuers is a harder task whose feasibility
-    must be validated independently.
+    ``s1_cross`` is the V3 main task: defenders start on the left, the target
+    starts on the right, and both approach the central obstacle zone from
+    opposite directions.  ``s2``/``s2_cross`` retain the reverse-side
+    regression tasks.
     """
-    if scenario_kind not in {"s1", "s2", "s2_cross"}:
+    if scenario_kind not in {"s1", "s1_cross", "s2", "s2_cross"}:
         raise ValueError(f"Unknown showcase scenario: {scenario_kind}")
-    defender_side = "left" if scenario_kind == "s1" else "right"
+    defender_side = "left" if scenario_kind in {"s1", "s1_cross"} else "right"
     return central_mixed_obstacle_scenario(
         initial_side_distance=initial_side_distance,
-        target_crossing_required=scenario_kind == "s2_cross",
+        target_crossing_required=scenario_kind in {"s1_cross", "s2_cross"},
         defender_side=defender_side,
     )
+
+
+def _finalize_showcase_row(
+    row: dict[str, Any],
+    env: CaptureRadiusPursuit3DEnv,
+    scenario: Any,
+    final_info: dict[str, Any],
+    *,
+    target_collision: bool,
+) -> dict[str, Any]:
+    crossing = crossing_metrics(env, scenario.obstacle_zone_x)
+    contract = capture_contract_metrics(
+        final_info,
+        crossing,
+        target_collision=target_collision,
+        target_crossing_required=bool(scenario.target_crossing_required),
+    )
+    transit = transit_route_metrics(env, scenario)
+    transit_execution = transit_execution_metrics(env, scenario)
+    row.update(crossing)
+    row.update(contract)
+    row.update(transit)
+    row.update(transit_execution)
+    # Kept as a diagnostic. It refers only to completed crossings in this
+    # capture rollout; it is not the V3 capture success criterion.
+    row["rollout_all_defenders_crossed"] = bool(crossing["all_defenders_crossed"])
+    row["rollout_target_crossed"] = bool(crossing["target_crossed"])
+    row["showcase_success"] = bool(contract["safe_capture_in_pursuit"])
+    return row
 
 
 def rollout_showcase(
@@ -142,7 +193,6 @@ def rollout_showcase(
             if terminated or truncated:
                 break
             local_observation = env.policy_observations(observation)
-    crossing = crossing_metrics(env, scenario.obstacle_zone_x)
     target_clearance = target_min_clearance(env)
     safe_capture = bool(final_info.get("safe_capture_success", False)) and not target_collision
     row = {
@@ -163,14 +213,8 @@ def rollout_showcase(
         "mean_message_age_steps": float(np.mean(message_ages)) if message_ages else 0.0,
         "mean_observation_age_steps": float(np.mean(observation_ages)) if observation_ages else 0.0,
         "use_cbf": bool(use_cbf),
-        **crossing,
     }
-    row["obstacle_crossing_success"] = bool(
-        all(bool(value) for value in row["defender_crossed"])
-        and (not scenario.target_crossing_required or bool(row["target_crossed"]))
-    )
-    row["showcase_success"] = bool(row["safe_capture_success"] and row["obstacle_crossing_success"])
-    return row, env
+    return _finalize_showcase_row(row, env, scenario, final_info, target_collision=target_collision), env
 
 
 def rollout_showcase_expert(
@@ -207,7 +251,6 @@ def rollout_showcase_expert(
             break
         if terminated or truncated:
             break
-    crossing = crossing_metrics(env, scenario.obstacle_zone_x)
     row = {
         "seed": int(seed),
         "scenario": scenario.name,
@@ -226,14 +269,8 @@ def rollout_showcase_expert(
         "mean_message_age_steps": float(np.mean(message_ages)) if message_ages else 0.0,
         "mean_observation_age_steps": float(np.mean(observation_ages)) if observation_ages else 0.0,
         "use_cbf": bool(use_cbf),
-        **crossing,
     }
-    row["obstacle_crossing_success"] = bool(
-        all(bool(value) for value in row["defender_crossed"])
-        and (not scenario.target_crossing_required or bool(row["target_crossed"]))
-    )
-    row["showcase_success"] = bool(row["safe_capture_success"] and row["obstacle_crossing_success"])
-    return row, env
+    return _finalize_showcase_row(row, env, scenario, final_info, target_collision=target_collision), env
 
 
 def main() -> None:
@@ -245,8 +282,13 @@ def main() -> None:
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    config = build_config(args.method, args.detection_range, args.target_speed_scale)
     scenario = build_showcase_scenario(args.scenario, args.initial_side_distance)
+    config = build_config(
+        args.method,
+        args.detection_range,
+        args.target_speed_scale,
+        target_crossing_required=bool(scenario.target_crossing_required),
+    )
     device = select_device(args.device)
     prototype = CaptureRadiusPursuit3DEnv(
         config,

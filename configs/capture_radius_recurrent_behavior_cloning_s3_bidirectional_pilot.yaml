@@ -19,6 +19,8 @@ imitation:
     - until_progress: 0.50
       showcase_probability: 0.45
       randomized_central_probability: 0.10
+      target_crossing_probability: 0.50
+      target_crossing_speed_scales: [0.90]
       layouts: [cylinder, cylinder_box]
       initial_side_distances: [4.5, 5.0]
       defender_sides: [left, right]
@@ -28,6 +30,8 @@ imitation:
     - until_progress: 1.0
       showcase_probability: 0.40
       randomized_central_probability: 0.40
+      target_crossing_probability: 1.00
+      target_crossing_speed_scales: [0.90]
       layouts: [cylinder_box, mixed]
       initial_side_distances: [5.5, 6.0, 6.5]
       defender_sides: [left, right]

@@ -7,10 +7,13 @@ import yaml
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 from encirclement3d.showcase import (
+    capture_contract_metrics,
     central_mixed_obstacle_scenario,
     crossing_metrics,
     prepare_showcase_episode,
     sample_training_episode,
+    transit_execution_metrics,
+    transit_route_metrics,
     validate_showcase_scenario,
 )
 
@@ -44,6 +47,15 @@ def test_central_showcase_is_inside_bounds_and_reachable() -> None:
     assert all(item["shape"] in {"cylinder", "box", "wall"} for item in observation["obstacles"])
     assert np.all(env.defender_positions >= env.lower)
     assert np.all(env.defender_positions <= env.upper)
+    transit = transit_route_metrics(env, scenario)
+    assert transit["transit_route_feasible"] is True
+    assert transit["all_defenders_transit_route_feasible"] is True
+    assert transit["target_transit_route_feasible"] is True
+    assert len(transit["defender_transit_route_length_m"]) == env.n_defenders
+    executed = transit_execution_metrics(env, scenario)
+    assert executed["transit_success"] is True
+    assert executed["all_defenders_transit_success"] is True
+    assert executed["target_transit_success"] is True
 
 
 def test_s2_reverses_sides_and_requires_target_crossing() -> None:
@@ -91,6 +103,37 @@ def test_crossing_metrics_distinguish_zone_entry_from_opposite_side_completion()
     )
     completed = crossing_metrics(env, scenario.obstacle_zone_x)
     assert completed["defender_crossing_rate"] == 1.0
+    assert completed["all_defenders_crossed"] is True
+    assert completed["any_defender_zone_entered"] is True
+
+
+def test_capture_contract_requires_a_central_encounter() -> None:
+    crossing = {
+        "target_zone_entered": True,
+        "any_defender_zone_entered": True,
+    }
+    captured = capture_contract_metrics(
+        {"capture_event": True, "safe_capture_success": True, "termination_reason": "safe_capture"},
+        crossing,
+    )
+    assert captured["safe_capture_in_pursuit"] is True
+    assert captured["task_termination_reason"] == "safe_capture_in_pursuit"
+
+    outside_capture = capture_contract_metrics(
+        {"capture_event": True, "safe_capture_success": True, "termination_reason": "safe_capture"},
+        {"target_zone_entered": False, "any_defender_zone_entered": True},
+        target_crossing_required=True,
+    )
+    assert outside_capture["safe_capture_in_pursuit"] is False
+    assert outside_capture["capture_without_zone_entry"] is True
+    assert outside_capture["task_termination_reason"] == "capture_without_zone_entry"
+
+    ordinary_pursuit = capture_contract_metrics(
+        {"capture_event": True, "safe_capture_success": True, "termination_reason": "safe_capture"},
+        {"target_zone_entered": False, "any_defender_zone_entered": True},
+        target_crossing_required=False,
+    )
+    assert ordinary_pursuit["safe_capture_in_pursuit"] is True
 
 
 def test_curriculum_sampler_can_select_a_central_mixed_episode() -> None:

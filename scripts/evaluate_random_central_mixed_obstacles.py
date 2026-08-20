@@ -74,7 +74,14 @@ def load_protocol(path: Path) -> dict[str, Any]:
         raise ValueError("S3 seed blocks must be distinct non-negative integers.")
     if any(int(episodes_per_split[name]) <= 0 for name in REQUIRED_SPLITS):
         raise ValueError("S3 episodes_per_split values must be positive.")
-    for name in ("obstacle_count_range", "initial_side_distances", "defender_sides", "target_speed_scales", "target_motion_modes"):
+    for name in (
+        "obstacle_count_range",
+        "initial_side_distances",
+        "defender_sides",
+        "target_speed_scales",
+        "target_crossing_speed_scales",
+        "target_motion_modes",
+    ):
         if not isinstance(settings.get(name), list) or not settings[name]:
             raise ValueError(f"S3 protocol s3.{name} must be a non-empty list.")
     observations = settings.get("observation_conditions")
@@ -82,6 +89,8 @@ def load_protocol(path: Path) -> dict[str, Any]:
         raise ValueError("S3 protocol s3.observation_conditions must be a non-empty list of mappings.")
     if any(not isinstance(item.get("name"), str) or not isinstance(item.get("pursuit_overrides"), dict) for item in observations):
         raise ValueError("Each S3 observation condition requires name and pursuit_overrides.")
+    if not isinstance(settings.get("target_crossing_required", False), bool):
+        raise ValueError("S3 protocol s3.target_crossing_required must be boolean.")
     return document
 
 
@@ -108,6 +117,10 @@ def episode_spec(protocol: dict[str, Any], split: str, episode_index: int) -> di
     obstacle_count, defender_side, initial_side_distance, target_speed_scale, target_motion_mode, observation_condition = (
         conditions[int(order[episode_index % len(order)])]
     )
+    target_crossing_required = bool(settings.get("target_crossing_required", False))
+    if target_crossing_required:
+        crossing_speeds = [float(value) for value in settings["target_crossing_speed_scales"]]
+        target_speed_scale = crossing_speeds[int(order[episode_index % len(order)]) % len(crossing_speeds)]
     observation_condition = dict(observation_condition)
     return {
         "episode_seed": episode_seed,
@@ -116,6 +129,7 @@ def episode_spec(protocol: dict[str, Any], split: str, episode_index: int) -> di
         "initial_side_distance": float(initial_side_distance),
         "target_speed_scale": float(target_speed_scale),
         "target_motion_mode": str(target_motion_mode),
+        "target_crossing_required": target_crossing_required,
         "observation_condition": str(observation_condition["name"]),
         "pursuit_overrides": dict(observation_condition["pursuit_overrides"]),
         "obstacle_count": int(obstacle_count),
@@ -125,7 +139,12 @@ def episode_spec(protocol: dict[str, Any], split: str, episode_index: int) -> di
 
 
 def config_for_spec(method: str, spec: dict[str, Any]) -> dict[str, Any]:
-    config = build_config(method, float(spec["pursuit_overrides"]["detection_range"]), float(spec["target_speed_scale"]))
+    config = build_config(
+        method,
+        float(spec["pursuit_overrides"]["detection_range"]),
+        float(spec["target_speed_scale"]),
+        target_crossing_required=bool(spec["target_crossing_required"]),
+    )
     pursuit = config["task"]["pursuit"]
     pursuit.update(copy.deepcopy(spec["pursuit_overrides"]))
     pursuit["target_motion_mode"] = str(spec["target_motion_mode"])
@@ -146,10 +165,16 @@ def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "episodes": len(subset),
             "safe_capture_rate": float(np.mean([bool(row["safe_capture_success"]) for row in subset])),
+            "safe_capture_in_pursuit_rate": float(np.mean([bool(row["safe_capture_in_pursuit"]) for row in subset])),
             "capture_rate": float(np.mean([bool(row["capture_event"]) for row in subset])),
             "showcase_success_rate": float(np.mean([bool(row["showcase_success"]) for row in subset])),
+            "target_zone_entry_rate": float(np.mean([float(row["target_zone_entry_rate"]) for row in subset])),
+            "defender_zone_entry_rate": float(np.mean([float(row["defender_zone_entry_rate"]) for row in subset])),
             "defender_crossing_rate": float(np.mean([float(row["defender_crossing_rate"]) for row in subset])),
-            "all_defenders_crossing_rate": float(np.mean([bool(row["obstacle_crossing_success"]) for row in subset])),
+            "all_defenders_crossing_rate": float(np.mean([bool(row["all_defenders_crossed"]) for row in subset])),
+            "target_crossing_rate": float(np.mean([float(row["target_crossing_rate"]) for row in subset])),
+            "transit_route_feasible_rate": float(np.mean([bool(row["transit_route_feasible"]) for row in subset])),
+            "transit_success_rate": float(np.mean([bool(row["transit_success"]) for row in subset])),
             "collision_rate": float(np.mean([bool(row["collision"]) for row in subset])),
             "boundary_violation_rate": float(np.mean([int(row["world_violation_steps"]) > 0 for row in subset])),
             "mean_min_clearance_m": float(np.mean([float(row["min_clearance_m"]) for row in subset])),
@@ -200,6 +225,7 @@ def main() -> None:
             layout_seed=int(spec["layout_seed"]),
             initial_side_distance=float(spec["initial_side_distance"]),
             defender_side=str(spec["defender_side"]),
+            target_crossing_required=bool(spec["target_crossing_required"]),
             obstacle_count_range=(int(spec["obstacle_count"]), int(spec["obstacle_count"])),
             max_attempts=int(protocol["s3"].get("max_sampling_attempts", 500)),
         )
@@ -236,6 +262,7 @@ def main() -> None:
                 "initial_side_distance_m": float(spec["initial_side_distance"]),
                 "target_speed_scale": float(spec["target_speed_scale"]),
                 "target_motion_mode": str(spec["target_motion_mode"]),
+                "target_crossing_required": bool(spec["target_crossing_required"]),
                 "observation_condition": str(spec["observation_condition"]),
                 "condition_index": int(spec["condition_index"]),
                 "obstacle_count": len(scenario.obstacles),
@@ -246,7 +273,31 @@ def main() -> None:
             }
         )
         rows.append(row)
-        scenes.append({"episode_index": episode_index, "spec": spec, "scenario": metadata})
+        scenes.append(
+            {
+                "episode_index": episode_index,
+                "spec": spec,
+                "scenario": metadata,
+                "outcome": {
+                    key: row[key]
+                    for key in (
+                        "safe_capture_success",
+                        "safe_capture_in_pursuit",
+                        "capture_event",
+                        "collision",
+                        "world_violation_steps",
+                        "termination_reason",
+                        "task_termination_reason",
+                        "target_zone_entered",
+                        "defender_zone_entered",
+                        "target_crossed",
+                        "defender_crossed",
+                        "transit_route_feasible",
+                        "transit_success",
+                    )
+                },
+            }
+        )
 
     summary = summarize_rows(rows)
     with output_dir.joinpath("episodes.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -273,6 +324,7 @@ def main() -> None:
                 "separate_episode_and_layout_seeds": True,
                 "condition_table_size": int(scenes[0]["spec"]["condition_table_size"]),
                 "wall_orientation_contract": "axis_aligned_0_or_90_degrees",
+                "task_contract": "central_encounter_capture_and_independent_transit",
             },
             indent=2,
         ),

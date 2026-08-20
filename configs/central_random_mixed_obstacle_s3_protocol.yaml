@@ -10,10 +10,12 @@ episodes_per_split:
   validation: 40
   locked_test: 100
 s3:
+  target_crossing_required: false
   obstacle_count_range: [3, 5]
   initial_side_distances: [6.0, 6.5, 7.0, 7.5]
   defender_sides: [left, right]
   target_speed_scales: [0.45, 0.55]
+  target_crossing_speed_scales: [0.90]
   target_motion_modes: [flee_persistence, s_curve]
   observation_conditions:
     - name: nominal

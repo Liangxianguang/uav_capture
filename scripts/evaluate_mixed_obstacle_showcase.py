@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=643001)
     parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--initial-side-distance", type=float, default=5.0)
-    parser.add_argument("--scenario", choices=("s1", "s2", "s2_cross"), default="s1")
+    parser.add_argument("--scenario", choices=("s1", "s1_cross", "s2", "s2_cross"), default="s1_cross")
     parser.add_argument("--detection-range", type=float, default=14.0)
     parser.add_argument("--target-speed-scale", type=float, default=0.55)
     parser.add_argument("--use-cbf", action="store_true")
@@ -53,9 +53,14 @@ def summarize(rows: list[dict[str, object]]) -> dict[str, float | int | None]:
     return {
         "episodes": len(rows),
         "safe_capture_rate": float(np.mean([bool(row["safe_capture_success"]) for row in rows])),
+        "safe_capture_in_pursuit_rate": float(np.mean([bool(row["safe_capture_in_pursuit"]) for row in rows])),
         "showcase_success_rate": float(np.mean([bool(row["showcase_success"]) for row in rows])),
+        "target_zone_entry_rate": float(np.mean([float(row["target_zone_entry_rate"]) for row in rows])),
+        "defender_zone_entry_rate": float(np.mean([float(row["defender_zone_entry_rate"]) for row in rows])),
         "defender_obstacle_crossing_rate": float(np.mean([float(row["defender_crossing_rate"]) for row in rows])),
         "target_obstacle_crossing_rate": float(np.mean([float(row["target_crossing_rate"]) for row in rows])),
+        "transit_route_feasible_rate": float(np.mean([bool(row["transit_route_feasible"]) for row in rows])),
+        "transit_success_rate": float(np.mean([bool(row["transit_success"]) for row in rows])),
         "collision_rate": float(np.mean([bool(row["collision"]) for row in rows])),
         "boundary_violation_rate": float(np.mean([int(row["world_violation_steps"]) > 0 for row in rows])),
         "mean_min_clearance_m": float(np.mean([float(row["min_clearance_m"]) for row in rows])),
@@ -82,8 +87,13 @@ def main() -> None:
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    config = build_config(args.method, args.detection_range, args.target_speed_scale)
     scenario = build_showcase_scenario(args.scenario, args.initial_side_distance)
+    config = build_config(
+        args.method,
+        args.detection_range,
+        args.target_speed_scale,
+        target_crossing_required=bool(scenario.target_crossing_required),
+    )
     device = select_device(args.device)
     if checkpoint is not None:
         prototype = CaptureRadiusPursuit3DEnv(

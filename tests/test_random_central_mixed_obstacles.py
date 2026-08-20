@@ -55,11 +55,13 @@ def test_s3_random_layout_supports_both_start_sides_and_axis_aligned_walls() -> 
 
 def test_s3_protocol_has_disjoint_reproducible_motion_and_layout_seed_blocks() -> None:
     protocol = load_protocol(PROJECT_ROOT / "configs" / "central_random_mixed_obstacle_s3_protocol.yaml")
+    assert protocol["s3"]["target_crossing_required"] is False
     specs = {
         split: [episode_spec(protocol, split, index) for index in range(3)]
         for split in ("train", "validation", "locked_test")
     }
     assert specs["train"] == [episode_spec(protocol, "train", index) for index in range(3)]
+    assert not any(spec["target_crossing_required"] for values in specs.values() for spec in values)
     episode_seeds = {spec["episode_seed"] for values in specs.values() for spec in values}
     layout_seeds = {spec["layout_seed"] for values in specs.values() for spec in values}
     assert len(episode_seeds) == 9
@@ -87,10 +89,16 @@ def test_s3_summary_groups_layout_and_observation_conditions() -> None:
     rows = [
         {
             "safe_capture_success": True,
+            "safe_capture_in_pursuit": True,
             "capture_event": True,
             "showcase_success": True,
+            "target_zone_entry_rate": 1.0,
+            "defender_zone_entry_rate": 1.0,
             "defender_crossing_rate": 1.0,
-            "obstacle_crossing_success": True,
+            "all_defenders_crossed": True,
+            "target_crossing_rate": 0.0,
+            "transit_route_feasible": True,
+            "transit_success": True,
             "collision": False,
             "world_violation_steps": 0,
             "min_clearance_m": 0.42,
@@ -107,10 +115,16 @@ def test_s3_summary_groups_layout_and_observation_conditions() -> None:
         },
         {
             "safe_capture_success": False,
+            "safe_capture_in_pursuit": False,
             "capture_event": False,
             "showcase_success": False,
+            "target_zone_entry_rate": 0.0,
+            "defender_zone_entry_rate": 0.5,
             "defender_crossing_rate": 0.5,
-            "obstacle_crossing_success": False,
+            "all_defenders_crossed": False,
+            "target_crossing_rate": 0.0,
+            "transit_route_feasible": True,
+            "transit_success": True,
             "collision": False,
             "world_violation_steps": 0,
             "min_clearance_m": 0.31,
