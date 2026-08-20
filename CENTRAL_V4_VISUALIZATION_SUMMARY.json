@@ -1,0 +1,33 @@
+{
+  "evaluation_type": "central_v4_visualization_evidence",
+  "statistical_claim": false,
+  "checkpoint": "results/central_v4/bc_s3_retained_seed661201/checkpoint.pt",
+  "success": {
+    "directory": "results/central_v4/showcase_s2_locked_success_seed660501_cbf",
+    "seed": 660501,
+    "cooperative_safe_capture": true,
+    "transit_success": true,
+    "capture_radius_m": 0.8,
+    "final_nearest_distance_m": 0.7651807258949247,
+    "final_frame_inside_capture_radius": true,
+    "simulation_frames": 40,
+    "capture_freeze_frames": 21,
+    "fps": 12,
+    "trajectory_sha256": "948361ab9fb4bb9350853280e9532fef80c1cc6521b68c3361fe4b324d51b444",
+    "media": ["capture_cbf.png", "capture_cbf.gif", "capture_cbf_3d.png", "capture_cbf.mp4"]
+  },
+  "failure": {
+    "directory": "results/central_v4/showcase_s1_wall_locked_failure_seed660510_cbf",
+    "seed": 660510,
+    "cooperative_safe_capture": false,
+    "transit_success": true,
+    "capture_radius_m": 0.8,
+    "final_nearest_distance_m": 0.9453999722544758,
+    "final_frame_inside_capture_radius": false,
+    "simulation_frames": 36,
+    "capture_freeze_frames": 0,
+    "fps": 12,
+    "trajectory_sha256": "19f193140c9814b4a6a1ad628ec0c2c1839283f6b2770e48311e18279293cbe2",
+    "media": ["capture_cbf.png", "capture_cbf.gif", "capture_cbf_3d.png", "capture_cbf.mp4"]
+  }
+}

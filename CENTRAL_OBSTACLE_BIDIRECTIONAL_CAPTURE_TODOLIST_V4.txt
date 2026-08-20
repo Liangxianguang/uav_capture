@@ -164,23 +164,31 @@ S4：只在 S3 稳定后逐项扩展
         且 MAPPO 在固定 S1 cylinder/wall 出现安全退化，因此拒绝该 MAPPO 候选，
         保留 retained-BC+CBF 作为三训练 seed formal 候选。详见
         CENTRAL_V4_D1_VALIDATION_REPORT.md。
-    [ ] D2. 固定模型和超参数后，在 locked-test 上用 3 个独立训练 seed 做最终评估。
-    [ ] D3. 报告 Cooperative Safe Capture Rate、普通 Capture Rate、Target Zone Entry、
+    [x] D2. 固定模型和超参数后，在 locked-test 上用 3 个独立训练 seed 做最终评估。
+        固定 S1/S2 使用 seed=660501，S3 使用 seed block=647001；每个 retained-BC
+        checkpoint 均为 100 回合，补跑结果与原 locked outcome 逐回合一致。
+    [x] D3. 报告 Cooperative Safe Capture Rate、普通 Capture Rate、Target Zone Entry、
         Pursuer Zone Entry Count、独立 Transit Success、碰撞率、边界违规率、
-        Time-to-Capture、最小净空、路径长度和 CBF 修正量。
-    [ ] D4. 按障碍物类型/数量、通道宽度、出生方向和目标机动强度分组报告失败原因。
+        Time-to-Capture、最小净空、路径长度和 CBF 修正量。详见
+        CENTRAL_V4_LOCKED_TEST_REPORT.md 与 CENTRAL_V4_LOCKED_TEST_SUMMARY.json。
+    [x] D4. 按障碍物类型/数量、通道宽度、出生方向和目标机动强度分组报告失败原因。
+        通道宽度使用冻结 Transit planned-clearance band 作为可复现代理，并单列
+        episode 68 的共享 Transit 执行失败；详见 CENTRAL_V4_LOCKED_TEST_REPORT.md。
 
 阶段 E：可审查的可视化输出
 
-    [ ] E1. 只从已经满足 Cooperative Safe Capture 的正式 episode 中选择展示轨迹，
+    [x] E1. 只从已经满足 Cooperative Safe Capture 的正式 episode 中选择展示轨迹，
         保存其 checkpoint、YAML、seed、episode.json 和 trajectory.npz。
-    [ ] E2. 输出固定俯视图和三维透视图：中央混合障碍、边界、主体轨迹、目标真实
+        正式成功样例为 locked S2 seed=660501；完整证据位于
+        results/central_v4/showcase_s2_locked_success_seed660501_cbf/。
+    [x] E2. 输出固定俯视图和三维透视图：中央混合障碍、边界、主体轨迹、目标真实
         捕获圈和每架追捕机的高度变化均应可见。
-    [ ] E3. 捕获瞬间显示真实 0.80 m 圈、绿色高亮、冻结 1.5-2.0 秒和
+    [x] E3. 捕获瞬间显示真实 0.80 m 圈、绿色高亮、冻结 1.5-2.0 秒和
         “SAFE CAPTURE CONFIRMED”；动态视觉光圈只能改变透明度/线宽，不能改变
         实际判定半径。
-    [ ] E4. 同时导出 PNG、GIF、H.264 MP4 与一条失败轨迹；视频是可视化证据，
-        不能代替 locked-test 的统计结论。
+    [x] E4. 同时导出 PNG、GIF、H.264 MP4 与一条失败轨迹；视频是可视化证据，
+        不能代替 locked-test 的统计结论。失败样例位于
+        results/central_v4/showcase_s1_wall_locked_failure_seed660510_cbf/。
 
 ======================================================================
 六、完成标准与当前第一步

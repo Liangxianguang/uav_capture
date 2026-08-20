@@ -1,0 +1,2403 @@
+{
+  "evaluation_type": "central_v4_locked_test_aggregate",
+  "locked_test": true,
+  "metric_replay_only": true,
+  "no_tuning_after_locked_test_opened": true,
+  "metric_instrumentation_commit": "6e53efa560b5895da4a83721b8e9bf91b610b77b",
+  "metric_replay_commits": [
+    "d8ddaf740c120d22599e404e2920a8949a8e42be",
+    "5cd53600765ddd85bb7938d91da506f119652169"
+  ],
+  "statistical_unit": "independently_trained_checkpoint_seed",
+  "training_seeds": [
+    661201,
+    661202,
+    661203
+  ],
+  "locked_seed_contract": {
+    "fixed_s1_s2": 660501,
+    "random_s3": 647001
+  },
+  "episodes_per_artifact": 100,
+  "checkpoints": {
+    "661201": {
+      "path": "F:\\uav_capture\\three_d_encirclement\\results\\central_v4\\bc_s3_retained_seed661201\\checkpoint.pt",
+      "sha256": "ccab4a9fa899082c7a363c7f0b24a58bd13ecdfb59fc9a2e265dddfad320de8d"
+    },
+    "661202": {
+      "path": "F:\\uav_capture\\three_d_encirclement\\results\\central_v4\\bc_s3_retained_seed661202\\checkpoint.pt",
+      "sha256": "8baeec9c8e21d5dd6bcb3a5848e1edd3ac3ba05b99d2930799a88d3a91e42494"
+    },
+    "661203": {
+      "path": "F:\\uav_capture\\three_d_encirclement\\results\\central_v4\\bc_s3_retained_seed661203\\checkpoint.pt",
+      "sha256": "a0c809607954996f7367db8f7ce346cec62552de235aa21f3a91f95b78f8c22b"
+    }
+  },
+  "fixed": {
+    "s1_cylinder": {
+      "raw": {
+        "per_training_seed": {
+          "661201": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.98,
+            "capture_rate": 0.98,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.02,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.3960467250576609,
+            "mean_defender_path_length_m": 14.509872035996855,
+            "mean_total_defender_path_length_m": 58.03948814398742,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 3.488775510204082,
+            "worst_min_clearance_m": -0.04870358207957792,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 98,
+              "safety_failure": 2
+            }
+          },
+          "661202": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.97,
+            "capture_rate": 0.97,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.03,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.3519456685677475,
+            "mean_defender_path_length_m": 14.459825054729695,
+            "mean_total_defender_path_length_m": 57.83930021891878,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 3.5381443298969075,
+            "worst_min_clearance_m": -0.07530444681293891,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 97,
+              "safety_failure": 3
+            }
+          },
+          "661203": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.98,
+            "capture_rate": 0.98,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.02,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.4304285605551428,
+            "mean_defender_path_length_m": 14.461963781256708,
+            "mean_total_defender_path_length_m": 57.84785512502683,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 3.4867346938775516,
+            "worst_min_clearance_m": -0.04893039488425166,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 98,
+              "safety_failure": 2
+            }
+          }
+        },
+        "across_training_seeds": {
+          "training_seeds": 3,
+          "cooperative_safe_capture_rate": {
+            "mean": 0.9766666666666666,
+            "sample_std": 0.005773502691896263,
+            "min": 0.97,
+            "max": 0.98
+          },
+          "capture_rate": {
+            "mean": 0.9766666666666666,
+            "sample_std": 0.005773502691896263,
+            "min": 0.97,
+            "max": 0.98
+          },
+          "target_zone_entry_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_pursuer_zone_entry_count": {
+            "mean": 4.0,
+            "sample_std": 0.0,
+            "min": 4.0,
+            "max": 4.0
+          },
+          "transit_success_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "collision_rate": {
+            "mean": 0.023333333333333334,
+            "sample_std": 0.005773502691896257,
+            "min": 0.02,
+            "max": 0.03
+          },
+          "boundary_violation_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_time_to_capture_seconds": {
+            "mean": 3.5045515113261807,
+            "sample_std": 0.02911012414030555,
+            "min": 3.4867346938775516,
+            "max": 3.5381443298969075
+          },
+          "mean_min_clearance_m": {
+            "mean": 0.39280698472685044,
+            "sample_std": 0.03934161945998917,
+            "min": 0.3519456685677475,
+            "max": 0.4304285605551428
+          },
+          "worst_min_clearance_m": {
+            "mean": -0.05764614125892283,
+            "sample_std": 0.015292961691292413,
+            "min": -0.07530444681293891,
+            "max": -0.04870358207957792
+          },
+          "mean_defender_path_length_m": {
+            "mean": 14.477220290661085,
+            "sample_std": 0.028297453823502728,
+            "min": 14.459825054729695,
+            "max": 14.509872035996855
+          },
+          "mean_total_defender_path_length_m": {
+            "mean": 57.90888116264434,
+            "sample_std": 0.11318981529401091,
+            "min": 57.83930021891878,
+            "max": 58.03948814398742
+          },
+          "mean_cbf_action_correction_norm": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "max_cbf_action_correction_norm": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          }
+        }
+      },
+      "cbf": {
+        "per_training_seed": {
+          "661201": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.5675191897236105,
+            "mean_defender_path_length_m": 14.493123774598269,
+            "mean_total_defender_path_length_m": 57.972495098393075,
+            "mean_cbf_action_correction_norm": 0.015261159910917324,
+            "mean_time_to_capture_seconds": 3.443,
+            "worst_min_clearance_m": 0.4467469250637113,
+            "max_cbf_action_correction_norm": 0.45199277206010424,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          },
+          "661202": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.5454428592892763,
+            "mean_defender_path_length_m": 14.445588370842815,
+            "mean_total_defender_path_length_m": 57.78235348337126,
+            "mean_cbf_action_correction_norm": 0.016576441688249767,
+            "mean_time_to_capture_seconds": 3.443,
+            "worst_min_clearance_m": 0.4989166344574909,
+            "max_cbf_action_correction_norm": 0.43521936966369523,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          },
+          "661203": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.5502778676411791,
+            "mean_defender_path_length_m": 14.455747363231556,
+            "mean_total_defender_path_length_m": 57.82298945292622,
+            "mean_cbf_action_correction_norm": 0.01631410616108417,
+            "mean_time_to_capture_seconds": 3.443,
+            "worst_min_clearance_m": 0.45856865532615765,
+            "max_cbf_action_correction_norm": 0.44202140431181314,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          }
+        },
+        "across_training_seeds": {
+          "training_seeds": 3,
+          "cooperative_safe_capture_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "capture_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "target_zone_entry_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_pursuer_zone_entry_count": {
+            "mean": 4.0,
+            "sample_std": 0.0,
+            "min": 4.0,
+            "max": 4.0
+          },
+          "transit_success_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "collision_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "boundary_violation_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_time_to_capture_seconds": {
+            "mean": 3.443,
+            "sample_std": 0.0,
+            "min": 3.443,
+            "max": 3.443
+          },
+          "mean_min_clearance_m": {
+            "mean": 0.5544133055513553,
+            "sample_std": 0.011604631678479475,
+            "min": 0.5454428592892763,
+            "max": 0.5675191897236105
+          },
+          "worst_min_clearance_m": {
+            "mean": 0.4680774049491199,
+            "sample_std": 0.027353827595091584,
+            "min": 0.4467469250637113,
+            "max": 0.4989166344574909
+          },
+          "mean_defender_path_length_m": {
+            "mean": 14.464819836224214,
+            "sample_std": 0.02503269816061343,
+            "min": 14.445588370842815,
+            "max": 14.493123774598269
+          },
+          "mean_total_defender_path_length_m": {
+            "mean": 57.859279344896855,
+            "sample_std": 0.10013079264245373,
+            "min": 57.78235348337126,
+            "max": 57.972495098393075
+          },
+          "mean_cbf_action_correction_norm": {
+            "mean": 0.016050569253417087,
+            "sample_std": 0.0006961180321775494,
+            "min": 0.015261159910917324,
+            "max": 0.016576441688249767
+          },
+          "max_cbf_action_correction_norm": {
+            "mean": 0.44307784867853756,
+            "sample_std": 0.008436457373385624,
+            "min": 0.43521936966369523,
+            "max": 0.45199277206010424
+          }
+        }
+      }
+    },
+    "s1_box": {
+      "raw": {
+        "per_training_seed": {
+          "661201": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.99,
+            "capture_rate": 0.99,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.01,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.3338807621204428,
+            "mean_defender_path_length_m": 14.430899068111815,
+            "mean_total_defender_path_length_m": 57.72359627244726,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 2.98989898989899,
+            "worst_min_clearance_m": -0.07604399803561207,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 99,
+              "safety_failure": 1
+            }
+          },
+          "661202": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.99,
+            "capture_rate": 0.99,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.01,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.3097343116002669,
+            "mean_defender_path_length_m": 14.440940799227423,
+            "mean_total_defender_path_length_m": 57.76376319690969,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 2.9959595959595964,
+            "worst_min_clearance_m": -0.12559573740782853,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 99,
+              "safety_failure": 1
+            }
+          },
+          "661203": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.99,
+            "capture_rate": 0.99,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.01,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.3582052057141461,
+            "mean_defender_path_length_m": 14.43741195630892,
+            "mean_total_defender_path_length_m": 57.74964782523568,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 2.996969696969697,
+            "worst_min_clearance_m": -0.005402313111920409,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 99,
+              "safety_failure": 1
+            }
+          }
+        },
+        "across_training_seeds": {
+          "training_seeds": 3,
+          "cooperative_safe_capture_rate": {
+            "mean": 0.9899999999999999,
+            "sample_std": 0.0,
+            "min": 0.99,
+            "max": 0.99
+          },
+          "capture_rate": {
+            "mean": 0.9899999999999999,
+            "sample_std": 0.0,
+            "min": 0.99,
+            "max": 0.99
+          },
+          "target_zone_entry_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_pursuer_zone_entry_count": {
+            "mean": 4.0,
+            "sample_std": 0.0,
+            "min": 4.0,
+            "max": 4.0
+          },
+          "transit_success_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "collision_rate": {
+            "mean": 0.01,
+            "sample_std": 0.0,
+            "min": 0.01,
+            "max": 0.01
+          },
+          "boundary_violation_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_time_to_capture_seconds": {
+            "mean": 2.994276094276094,
+            "sample_std": 0.003824180704242643,
+            "min": 2.98989898989899,
+            "max": 2.996969696969697
+          },
+          "mean_min_clearance_m": {
+            "mean": 0.33394009314495193,
+            "sample_std": 0.024235501525191817,
+            "min": 0.3097343116002669,
+            "max": 0.3582052057141461
+          },
+          "worst_min_clearance_m": {
+            "mean": -0.06901401618512033,
+            "sample_std": 0.060404306921011286,
+            "min": -0.12559573740782853,
+            "max": -0.005402313111920409
+          },
+          "mean_defender_path_length_m": {
+            "mean": 14.436417274549385,
+            "sample_std": 0.005094225633165946,
+            "min": 14.430899068111815,
+            "max": 14.440940799227423
+          },
+          "mean_total_defender_path_length_m": {
+            "mean": 57.74566909819754,
+            "sample_std": 0.020376902532663783,
+            "min": 57.72359627244726,
+            "max": 57.76376319690969
+          },
+          "mean_cbf_action_correction_norm": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "max_cbf_action_correction_norm": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          }
+        }
+      },
+      "cbf": {
+        "per_training_seed": {
+          "661201": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.45808576568740766,
+            "mean_defender_path_length_m": 14.387192557961791,
+            "mean_total_defender_path_length_m": 57.548770231847165,
+            "mean_cbf_action_correction_norm": 0.02975689552572863,
+            "mean_time_to_capture_seconds": 2.986,
+            "worst_min_clearance_m": 0.3979342746566171,
+            "max_cbf_action_correction_norm": 0.5976705980781648,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          },
+          "661202": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.4540256825247057,
+            "mean_defender_path_length_m": 14.360404023962257,
+            "mean_total_defender_path_length_m": 57.44161609584903,
+            "mean_cbf_action_correction_norm": 0.026577807980883637,
+            "mean_time_to_capture_seconds": 2.975,
+            "worst_min_clearance_m": 0.38800634370638154,
+            "max_cbf_action_correction_norm": 0.5645968072002359,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          },
+          "661203": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.4584585307481113,
+            "mean_defender_path_length_m": 14.416740733693945,
+            "mean_total_defender_path_length_m": 57.66696293477578,
+            "mean_cbf_action_correction_norm": 0.023187952997087077,
+            "mean_time_to_capture_seconds": 2.997,
+            "worst_min_clearance_m": 0.3968438328037984,
+            "max_cbf_action_correction_norm": 0.542996019732354,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          }
+        },
+        "across_training_seeds": {
+          "training_seeds": 3,
+          "cooperative_safe_capture_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "capture_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "target_zone_entry_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_pursuer_zone_entry_count": {
+            "mean": 4.0,
+            "sample_std": 0.0,
+            "min": 4.0,
+            "max": 4.0
+          },
+          "transit_success_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "collision_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "boundary_violation_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_time_to_capture_seconds": {
+            "mean": 2.986,
+            "sample_std": 0.010999999999999899,
+            "min": 2.975,
+            "max": 2.997
+          },
+          "mean_min_clearance_m": {
+            "mean": 0.4568566596534082,
+            "sample_std": 0.002458772473216654,
+            "min": 0.4540256825247057,
+            "max": 0.4584585307481113
+          },
+          "worst_min_clearance_m": {
+            "mean": 0.3942614837222657,
+            "sample_std": 0.005444478700695881,
+            "min": 0.38800634370638154,
+            "max": 0.3979342746566171
+          },
+          "mean_defender_path_length_m": {
+            "mean": 14.38811243853933,
+            "sample_std": 0.02817961765276158,
+            "min": 14.360404023962257,
+            "max": 14.416740733693945
+          },
+          "mean_total_defender_path_length_m": {
+            "mean": 57.55244975415732,
+            "sample_std": 0.11271847061104633,
+            "min": 57.44161609584903,
+            "max": 57.66696293477578
+          },
+          "mean_cbf_action_correction_norm": {
+            "mean": 0.02650755216789978,
+            "sample_std": 0.0032850347632243457,
+            "min": 0.023187952997087077,
+            "max": 0.02975689552572863
+          },
+          "max_cbf_action_correction_norm": {
+            "mean": 0.5684211416702515,
+            "sample_std": 0.027537184495277717,
+            "min": 0.542996019732354,
+            "max": 0.5976705980781648
+          }
+        }
+      }
+    },
+    "s1_wall": {
+      "raw": {
+        "per_training_seed": {
+          "661201": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.97,
+            "capture_rate": 0.97,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.03,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.2520507267605033,
+            "mean_defender_path_length_m": 14.263020326468407,
+            "mean_total_defender_path_length_m": 57.05208130587363,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 2.9536082474226806,
+            "worst_min_clearance_m": -0.02845487894978066,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 97,
+              "safety_failure": 3
+            }
+          },
+          "661202": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.98,
+            "capture_rate": 0.98,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.02,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.2117926597197469,
+            "mean_defender_path_length_m": 14.28381525513617,
+            "mean_total_defender_path_length_m": 57.13526102054468,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 2.96530612244898,
+            "worst_min_clearance_m": -0.032027223855348674,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 98,
+              "safety_failure": 2
+            }
+          },
+          "661203": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.98,
+            "capture_rate": 0.98,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.02,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.25169112882926137,
+            "mean_defender_path_length_m": 14.279785881074947,
+            "mean_total_defender_path_length_m": 57.11914352429979,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 2.96530612244898,
+            "worst_min_clearance_m": -0.020818433897604238,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 98,
+              "safety_failure": 2
+            }
+          }
+        },
+        "across_training_seeds": {
+          "training_seeds": 3,
+          "cooperative_safe_capture_rate": {
+            "mean": 0.9766666666666666,
+            "sample_std": 0.005773502691896263,
+            "min": 0.97,
+            "max": 0.98
+          },
+          "capture_rate": {
+            "mean": 0.9766666666666666,
+            "sample_std": 0.005773502691896263,
+            "min": 0.97,
+            "max": 0.98
+          },
+          "target_zone_entry_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_pursuer_zone_entry_count": {
+            "mean": 4.0,
+            "sample_std": 0.0,
+            "min": 4.0,
+            "max": 4.0
+          },
+          "transit_success_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "collision_rate": {
+            "mean": 0.023333333333333334,
+            "sample_std": 0.005773502691896257,
+            "min": 0.02,
+            "max": 0.03
+          },
+          "boundary_violation_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_time_to_capture_seconds": {
+            "mean": 2.9614068307735466,
+            "sample_std": 0.006753771295380481,
+            "min": 2.9536082474226806,
+            "max": 2.96530612244898
+          },
+          "mean_min_clearance_m": {
+            "mean": 0.2385115051031705,
+            "sample_std": 0.02313989739898411,
+            "min": 0.2117926597197469,
+            "max": 0.2520507267605033
+          },
+          "worst_min_clearance_m": {
+            "mean": -0.027100178900911192,
+            "sample_std": 0.005725875675039874,
+            "min": -0.032027223855348674,
+            "max": -0.020818433897604238
+          },
+          "mean_defender_path_length_m": {
+            "mean": 14.275540487559843,
+            "sample_std": 0.011028362940523732,
+            "min": 14.263020326468407,
+            "max": 14.28381525513617
+          },
+          "mean_total_defender_path_length_m": {
+            "mean": 57.10216195023937,
+            "sample_std": 0.04411345176209493,
+            "min": 57.05208130587363,
+            "max": 57.13526102054468
+          },
+          "mean_cbf_action_correction_norm": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "max_cbf_action_correction_norm": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          }
+        }
+      },
+      "cbf": {
+        "per_training_seed": {
+          "661201": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.98,
+            "capture_rate": 0.98,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.02,
+            "boundary_violation_rate": 0.02,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.39993975530669035,
+            "mean_defender_path_length_m": 14.287879496573494,
+            "mean_total_defender_path_length_m": 57.151517986293975,
+            "mean_cbf_action_correction_norm": 0.035792659239649624,
+            "mean_time_to_capture_seconds": 2.942857142857143,
+            "worst_min_clearance_m": 0.35814400027533655,
+            "max_cbf_action_correction_norm": 1.0139411340734237,
+            "termination_reasons": {
+              "safe_capture": 98,
+              "safety_failure": 2
+            }
+          },
+          "661202": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.99,
+            "capture_rate": 0.99,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.01,
+            "boundary_violation_rate": 0.01,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.3987049356549736,
+            "mean_defender_path_length_m": 14.28789809838112,
+            "mean_total_defender_path_length_m": 57.15159239352448,
+            "mean_cbf_action_correction_norm": 0.03518439164220831,
+            "mean_time_to_capture_seconds": 2.9494949494949494,
+            "worst_min_clearance_m": 0.3585126105022364,
+            "max_cbf_action_correction_norm": 0.86808992063599,
+            "termination_reasons": {
+              "safe_capture": 99,
+              "safety_failure": 1
+            }
+          },
+          "661203": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.99,
+            "capture_rate": 0.99,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.01,
+            "boundary_violation_rate": 0.01,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.4093940234049833,
+            "mean_defender_path_length_m": 14.34908847000847,
+            "mean_total_defender_path_length_m": 57.39635388003388,
+            "mean_cbf_action_correction_norm": 0.025820426505467182,
+            "mean_time_to_capture_seconds": 2.978787878787879,
+            "worst_min_clearance_m": 0.36475978574445667,
+            "max_cbf_action_correction_norm": 0.7233687669728472,
+            "termination_reasons": {
+              "safe_capture": 99,
+              "safety_failure": 1
+            }
+          }
+        },
+        "across_training_seeds": {
+          "training_seeds": 3,
+          "cooperative_safe_capture_rate": {
+            "mean": 0.9866666666666667,
+            "sample_std": 0.005773502691896263,
+            "min": 0.98,
+            "max": 0.99
+          },
+          "capture_rate": {
+            "mean": 0.9866666666666667,
+            "sample_std": 0.005773502691896263,
+            "min": 0.98,
+            "max": 0.99
+          },
+          "target_zone_entry_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_pursuer_zone_entry_count": {
+            "mean": 4.0,
+            "sample_std": 0.0,
+            "min": 4.0,
+            "max": 4.0
+          },
+          "transit_success_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "collision_rate": {
+            "mean": 0.013333333333333334,
+            "sample_std": 0.005773502691896258,
+            "min": 0.01,
+            "max": 0.02
+          },
+          "boundary_violation_rate": {
+            "mean": 0.013333333333333334,
+            "sample_std": 0.005773502691896258,
+            "min": 0.01,
+            "max": 0.02
+          },
+          "mean_time_to_capture_seconds": {
+            "mean": 2.957046657046657,
+            "sample_std": 0.019118725410993256,
+            "min": 2.942857142857143,
+            "max": 2.978787878787879
+          },
+          "mean_min_clearance_m": {
+            "mean": 0.4026795714555491,
+            "sample_std": 0.005847571601016295,
+            "min": 0.3987049356549736,
+            "max": 0.4093940234049833
+          },
+          "worst_min_clearance_m": {
+            "mean": 0.36047213217400986,
+            "sample_std": 0.0037177880829826356,
+            "min": 0.35814400027533655,
+            "max": 0.36475978574445667
+          },
+          "mean_defender_path_length_m": {
+            "mean": 14.308288688321028,
+            "sample_std": 0.03533364863432573,
+            "min": 14.287879496573494,
+            "max": 14.34908847000847
+          },
+          "mean_total_defender_path_length_m": {
+            "mean": 57.23315475328411,
+            "sample_std": 0.14133459453730293,
+            "min": 57.151517986293975,
+            "max": 57.39635388003388
+          },
+          "mean_cbf_action_correction_norm": {
+            "mean": 0.032265825795775034,
+            "sample_std": 0.005590158886485251,
+            "min": 0.025820426505467182,
+            "max": 0.035792659239649624
+          },
+          "max_cbf_action_correction_norm": {
+            "mean": 0.8684666072274204,
+            "sample_std": 0.14528654979109099,
+            "min": 0.7233687669728472,
+            "max": 1.0139411340734237
+          }
+        }
+      }
+    },
+    "s2": {
+      "raw": {
+        "per_training_seed": {
+          "661201": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.54,
+            "capture_rate": 0.54,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.46,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.0266474936433435,
+            "mean_defender_path_length_m": 12.555360602604956,
+            "mean_total_defender_path_length_m": 50.221442410419826,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 4.053703703703704,
+            "worst_min_clearance_m": -0.352273535355925,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 54,
+              "safety_failure": 46
+            }
+          },
+          "661202": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 0.89,
+            "capture_rate": 0.9,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.11,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.13038580362981653,
+            "mean_defender_path_length_m": 15.63055970152898,
+            "mean_total_defender_path_length_m": 62.52223880611592,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 4.230337078651686,
+            "worst_min_clearance_m": -0.15919803601757543,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 89,
+              "safety_failure": 11
+            }
+          },
+          "661203": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.26937900864011166,
+            "mean_defender_path_length_m": 14.928339622625003,
+            "mean_total_defender_path_length_m": 59.71335849050001,
+            "mean_cbf_action_correction_norm": 0.0,
+            "mean_time_to_capture_seconds": 3.7840000000000003,
+            "worst_min_clearance_m": 0.12685730959934144,
+            "max_cbf_action_correction_norm": 0.0,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          }
+        },
+        "across_training_seeds": {
+          "training_seeds": 3,
+          "cooperative_safe_capture_rate": {
+            "mean": 0.81,
+            "sample_std": 0.24020824298928625,
+            "min": 0.54,
+            "max": 1.0
+          },
+          "capture_rate": {
+            "mean": 0.8133333333333334,
+            "sample_std": 0.24193663082165406,
+            "min": 0.54,
+            "max": 1.0
+          },
+          "target_zone_entry_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_pursuer_zone_entry_count": {
+            "mean": 4.0,
+            "sample_std": 0.0,
+            "min": 4.0,
+            "max": 4.0
+          },
+          "transit_success_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "collision_rate": {
+            "mean": 0.19000000000000003,
+            "sample_std": 0.24020824298928628,
+            "min": 0.0,
+            "max": 0.46
+          },
+          "boundary_violation_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_time_to_capture_seconds": {
+            "mean": 4.02268026078513,
+            "sample_std": 0.22477997564890362,
+            "min": 3.7840000000000003,
+            "max": 4.230337078651686
+          },
+          "mean_min_clearance_m": {
+            "mean": 0.14213743530442388,
+            "sample_std": 0.12179171863644218,
+            "min": 0.0266474936433435,
+            "max": 0.26937900864011166
+          },
+          "worst_min_clearance_m": {
+            "mean": -0.12820475392471967,
+            "sample_std": 0.24106436754122826,
+            "min": -0.352273535355925,
+            "max": 0.12685730959934144
+          },
+          "mean_defender_path_length_m": {
+            "mean": 14.371419975586313,
+            "sample_std": 1.6114688934165178,
+            "min": 12.555360602604956,
+            "max": 15.63055970152898
+          },
+          "mean_total_defender_path_length_m": {
+            "mean": 57.485679902345254,
+            "sample_std": 6.445875573666071,
+            "min": 50.221442410419826,
+            "max": 62.52223880611592
+          },
+          "mean_cbf_action_correction_norm": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "max_cbf_action_correction_norm": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          }
+        }
+      },
+      "cbf": {
+        "per_training_seed": {
+          "661201": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.5373933348664721,
+            "mean_defender_path_length_m": 14.77563110346351,
+            "mean_total_defender_path_length_m": 59.10252441385404,
+            "mean_cbf_action_correction_norm": 0.05069755333853177,
+            "mean_time_to_capture_seconds": 3.7820000000000005,
+            "worst_min_clearance_m": 0.4634752884385581,
+            "max_cbf_action_correction_norm": 0.5062859379144738,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          },
+          "661202": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.5322741035601388,
+            "mean_defender_path_length_m": 14.85739174875102,
+            "mean_total_defender_path_length_m": 59.42956699500408,
+            "mean_cbf_action_correction_norm": 0.043090000295605196,
+            "mean_time_to_capture_seconds": 3.785,
+            "worst_min_clearance_m": 0.47100335844891494,
+            "max_cbf_action_correction_norm": 0.6209972453110987,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          },
+          "661203": {
+            "episodes": 100,
+            "cooperative_safe_capture_rate": 1.0,
+            "capture_rate": 1.0,
+            "target_zone_entry_rate": 0.0,
+            "transit_success_rate": 1.0,
+            "collision_rate": 0.0,
+            "boundary_violation_rate": 0.0,
+            "mean_pursuer_zone_entry_count": 4.0,
+            "mean_min_clearance_m": 0.5278681503188547,
+            "mean_defender_path_length_m": 14.761144687465487,
+            "mean_total_defender_path_length_m": 59.04457874986195,
+            "mean_cbf_action_correction_norm": 0.03543839057263664,
+            "mean_time_to_capture_seconds": 3.7090000000000005,
+            "worst_min_clearance_m": 0.4752028856228053,
+            "max_cbf_action_correction_norm": 0.4963142424891557,
+            "termination_reasons": {
+              "safe_capture": 100
+            }
+          }
+        },
+        "across_training_seeds": {
+          "training_seeds": 3,
+          "cooperative_safe_capture_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "capture_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "target_zone_entry_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_pursuer_zone_entry_count": {
+            "mean": 4.0,
+            "sample_std": 0.0,
+            "min": 4.0,
+            "max": 4.0
+          },
+          "transit_success_rate": {
+            "mean": 1.0,
+            "sample_std": 0.0,
+            "min": 1.0,
+            "max": 1.0
+          },
+          "collision_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "boundary_violation_rate": {
+            "mean": 0.0,
+            "sample_std": 0.0,
+            "min": 0.0,
+            "max": 0.0
+          },
+          "mean_time_to_capture_seconds": {
+            "mean": 3.758666666666667,
+            "sample_std": 0.04303874223688841,
+            "min": 3.7090000000000005,
+            "max": 3.785
+          },
+          "mean_min_clearance_m": {
+            "mean": 0.5325118629151552,
+            "sample_std": 0.004767041252151669,
+            "min": 0.5278681503188547,
+            "max": 0.5373933348664721
+          },
+          "worst_min_clearance_m": {
+            "mean": 0.46989384417009283,
+            "sample_std": 0.00594200306127264,
+            "min": 0.4634752884385581,
+            "max": 0.4752028856228053
+          },
+          "mean_defender_path_length_m": {
+            "mean": 14.798055846560006,
+            "sample_std": 0.051894373767617186,
+            "min": 14.761144687465487,
+            "max": 14.85739174875102
+          },
+          "mean_total_defender_path_length_m": {
+            "mean": 59.19222338624002,
+            "sample_std": 0.20757749507046874,
+            "min": 59.04457874986195,
+            "max": 59.42956699500408
+          },
+          "mean_cbf_action_correction_norm": {
+            "mean": 0.0430753147355912,
+            "sample_std": 0.007629591983079749,
+            "min": 0.03543839057263664,
+            "max": 0.05069755333853177
+          },
+          "max_cbf_action_correction_norm": {
+            "mean": 0.5411991419049094,
+            "sample_std": 0.06928680724230613,
+            "min": 0.4963142424891557,
+            "max": 0.6209972453110987
+          }
+        }
+      }
+    }
+  },
+  "s3": {
+    "raw": {
+      "per_training_seed": {
+        "661201": {
+          "episodes": 100,
+          "cooperative_safe_capture_rate": 0.03,
+          "capture_rate": 0.03,
+          "target_zone_entry_rate": 0.0,
+          "transit_success_rate": 0.99,
+          "collision_rate": 0.97,
+          "boundary_violation_rate": 0.0,
+          "mean_pursuer_zone_entry_count": 3.17,
+          "mean_min_clearance_m": -0.09774982019954169,
+          "mean_defender_path_length_m": 5.886216261945272,
+          "mean_total_defender_path_length_m": 23.544865047781087,
+          "mean_cbf_action_correction_norm": 0.0,
+          "mean_time_to_capture_seconds": 4.366666666666667,
+          "worst_min_clearance_m": -0.33933412668675966,
+          "max_cbf_action_correction_norm": 0.0,
+          "termination_reasons": {
+            "safe_capture": 3,
+            "safety_failure": 97
+          }
+        },
+        "661202": {
+          "episodes": 100,
+          "cooperative_safe_capture_rate": 0.03,
+          "capture_rate": 0.03,
+          "target_zone_entry_rate": 0.0,
+          "transit_success_rate": 0.99,
+          "collision_rate": 0.97,
+          "boundary_violation_rate": 0.0,
+          "mean_pursuer_zone_entry_count": 3.13,
+          "mean_min_clearance_m": -0.11306208131995951,
+          "mean_defender_path_length_m": 5.722835232051579,
+          "mean_total_defender_path_length_m": 22.891340928206315,
+          "mean_cbf_action_correction_norm": 0.0,
+          "mean_time_to_capture_seconds": 4.033333333333334,
+          "worst_min_clearance_m": -0.35157079478320874,
+          "max_cbf_action_correction_norm": 0.0,
+          "termination_reasons": {
+            "safe_capture": 3,
+            "safety_failure": 97
+          }
+        },
+        "661203": {
+          "episodes": 100,
+          "cooperative_safe_capture_rate": 0.01,
+          "capture_rate": 0.01,
+          "target_zone_entry_rate": 0.0,
+          "transit_success_rate": 0.99,
+          "collision_rate": 0.99,
+          "boundary_violation_rate": 0.0,
+          "mean_pursuer_zone_entry_count": 3.11,
+          "mean_min_clearance_m": -0.09792601378738502,
+          "mean_defender_path_length_m": 5.831168142276457,
+          "mean_total_defender_path_length_m": 23.32467256910583,
+          "mean_cbf_action_correction_norm": 0.0,
+          "mean_time_to_capture_seconds": 4.6000000000000005,
+          "worst_min_clearance_m": -0.3279969422706815,
+          "max_cbf_action_correction_norm": 0.0,
+          "termination_reasons": {
+            "safe_capture": 1,
+            "safety_failure": 99
+          }
+        }
+      },
+      "across_training_seeds": {
+        "training_seeds": 3,
+        "cooperative_safe_capture_rate": {
+          "mean": 0.02333333333333333,
+          "sample_std": 0.011547005383792514,
+          "min": 0.01,
+          "max": 0.03
+        },
+        "capture_rate": {
+          "mean": 0.02333333333333333,
+          "sample_std": 0.011547005383792514,
+          "min": 0.01,
+          "max": 0.03
+        },
+        "target_zone_entry_rate": {
+          "mean": 0.0,
+          "sample_std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "mean_pursuer_zone_entry_count": {
+          "mean": 3.1366666666666667,
+          "sample_std": 0.03055050463303896,
+          "min": 3.11,
+          "max": 3.17
+        },
+        "transit_success_rate": {
+          "mean": 0.9899999999999999,
+          "sample_std": 0.0,
+          "min": 0.99,
+          "max": 0.99
+        },
+        "collision_rate": {
+          "mean": 0.9766666666666666,
+          "sample_std": 0.011547005383792526,
+          "min": 0.97,
+          "max": 0.99
+        },
+        "boundary_violation_rate": {
+          "mean": 0.0,
+          "sample_std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "mean_time_to_capture_seconds": {
+          "mean": 4.333333333333334,
+          "sample_std": 0.2848001248439176,
+          "min": 4.033333333333334,
+          "max": 4.6000000000000005
+        },
+        "mean_min_clearance_m": {
+          "mean": -0.10291263843562874,
+          "sample_std": 0.008790116847449677,
+          "min": -0.11306208131995951,
+          "max": -0.09774982019954169
+        },
+        "worst_min_clearance_m": {
+          "mean": -0.33963395458021667,
+          "sample_std": 0.01178978596688116,
+          "min": -0.35157079478320874,
+          "max": -0.3279969422706815
+        },
+        "mean_defender_path_length_m": {
+          "mean": 5.813406545424436,
+          "sample_std": 0.0831260848009291,
+          "min": 5.722835232051579,
+          "max": 5.886216261945272
+        },
+        "mean_total_defender_path_length_m": {
+          "mean": 23.253626181697744,
+          "sample_std": 0.3325043392037164,
+          "min": 22.891340928206315,
+          "max": 23.544865047781087
+        },
+        "mean_cbf_action_correction_norm": {
+          "mean": 0.0,
+          "sample_std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "max_cbf_action_correction_norm": {
+          "mean": 0.0,
+          "sample_std": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    },
+    "cbf": {
+      "per_training_seed": {
+        "661201": {
+          "episodes": 100,
+          "cooperative_safe_capture_rate": 0.75,
+          "capture_rate": 0.75,
+          "target_zone_entry_rate": 0.19,
+          "transit_success_rate": 0.99,
+          "collision_rate": 0.04,
+          "boundary_violation_rate": 0.04,
+          "mean_pursuer_zone_entry_count": 3.94,
+          "mean_min_clearance_m": 0.3547390217562548,
+          "mean_defender_path_length_m": 25.17840384881362,
+          "mean_total_defender_path_length_m": 100.71361539525448,
+          "mean_cbf_action_correction_norm": 0.16664021405121787,
+          "mean_time_to_capture_seconds": 7.278666666666668,
+          "worst_min_clearance_m": 0.11491013060490851,
+          "max_cbf_action_correction_norm": 1.7819894464544164,
+          "termination_reasons": {
+            "safe_capture": 75,
+            "safety_failure": 4,
+            "timeout": 21
+          }
+        },
+        "661202": {
+          "episodes": 100,
+          "cooperative_safe_capture_rate": 0.82,
+          "capture_rate": 0.82,
+          "target_zone_entry_rate": 0.1,
+          "transit_success_rate": 0.99,
+          "collision_rate": 0.06,
+          "boundary_violation_rate": 0.06,
+          "mean_pursuer_zone_entry_count": 3.91,
+          "mean_min_clearance_m": 0.3573067921322521,
+          "mean_defender_path_length_m": 25.46951410340771,
+          "mean_total_defender_path_length_m": 101.87805641363084,
+          "mean_cbf_action_correction_norm": 0.17361105137232558,
+          "mean_time_to_capture_seconds": 8.81219512195122,
+          "worst_min_clearance_m": 0.16576597830348627,
+          "max_cbf_action_correction_norm": 1.8009855271290458,
+          "termination_reasons": {
+            "safe_capture": 82,
+            "safety_failure": 6,
+            "timeout": 12
+          }
+        },
+        "661203": {
+          "episodes": 100,
+          "cooperative_safe_capture_rate": 0.69,
+          "capture_rate": 0.69,
+          "target_zone_entry_rate": 0.27,
+          "transit_success_rate": 0.99,
+          "collision_rate": 0.04,
+          "boundary_violation_rate": 0.04,
+          "mean_pursuer_zone_entry_count": 3.93,
+          "mean_min_clearance_m": 0.34627694257181396,
+          "mean_defender_path_length_m": 27.71730645782217,
+          "mean_total_defender_path_length_m": 110.86922583128867,
+          "mean_cbf_action_correction_norm": 0.1834981188321439,
+          "mean_time_to_capture_seconds": 8.162318840579712,
+          "worst_min_clearance_m": 0.020316777143675635,
+          "max_cbf_action_correction_norm": 1.769906777478327,
+          "termination_reasons": {
+            "safe_capture": 69,
+            "safety_failure": 4,
+            "timeout": 27
+          }
+        }
+      },
+      "across_training_seeds": {
+        "training_seeds": 3,
+        "cooperative_safe_capture_rate": {
+          "mean": 0.7533333333333333,
+          "sample_std": 0.06506407098647712,
+          "min": 0.69,
+          "max": 0.82
+        },
+        "capture_rate": {
+          "mean": 0.7533333333333333,
+          "sample_std": 0.06506407098647712,
+          "min": 0.69,
+          "max": 0.82
+        },
+        "target_zone_entry_rate": {
+          "mean": 0.18666666666666668,
+          "sample_std": 0.08504900548115384,
+          "min": 0.1,
+          "max": 0.27
+        },
+        "mean_pursuer_zone_entry_count": {
+          "mean": 3.926666666666667,
+          "sample_std": 0.015275252316519383,
+          "min": 3.91,
+          "max": 3.94
+        },
+        "transit_success_rate": {
+          "mean": 0.9899999999999999,
+          "sample_std": 0.0,
+          "min": 0.99,
+          "max": 0.99
+        },
+        "collision_rate": {
+          "mean": 0.04666666666666667,
+          "sample_std": 0.011547005383792514,
+          "min": 0.04,
+          "max": 0.06
+        },
+        "boundary_violation_rate": {
+          "mean": 0.04666666666666667,
+          "sample_std": 0.011547005383792514,
+          "min": 0.04,
+          "max": 0.06
+        },
+        "mean_time_to_capture_seconds": {
+          "mean": 8.084393543065866,
+          "sample_std": 0.7697282928321668,
+          "min": 7.278666666666668,
+          "max": 8.81219512195122
+        },
+        "mean_min_clearance_m": {
+          "mean": 0.35277425215344027,
+          "sample_std": 0.005771449993336357,
+          "min": 0.34627694257181396,
+          "max": 0.3573067921322521
+        },
+        "worst_min_clearance_m": {
+          "mean": 0.1003309620173568,
+          "sample_std": 0.07381247622885277,
+          "min": 0.020316777143675635,
+          "max": 0.16576597830348627
+        },
+        "mean_defender_path_length_m": {
+          "mean": 26.1217414700145,
+          "sample_std": 1.3894448595826765,
+          "min": 25.17840384881362,
+          "max": 27.71730645782217
+        },
+        "mean_total_defender_path_length_m": {
+          "mean": 104.486965880058,
+          "sample_std": 5.557779438330706,
+          "min": 100.71361539525448,
+          "max": 110.86922583128867
+        },
+        "mean_cbf_action_correction_norm": {
+          "mean": 0.1745831280852291,
+          "sample_std": 0.008470887689759506,
+          "min": 0.16664021405121787,
+          "max": 0.1834981188321439
+        },
+        "max_cbf_action_correction_norm": {
+          "mean": 1.7842939170205963,
+          "sample_std": 0.0156670070021624,
+          "min": 1.769906777478327,
+          "max": 1.8009855271290458
+        }
+      }
+    }
+  },
+  "failure_analysis": {
+    "raw": {
+      "obstacle_count": {
+        "3": {
+          "scenario_evaluations": 102,
+          "unique_locked_scenarios": 34,
+          "cooperative_capture_failures": 97,
+          "cooperative_capture_failure_rate": 0.9509803921568627,
+          "ordinary_capture_failures": 97,
+          "collisions": 97,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 3
+        },
+        "4": {
+          "scenario_evaluations": 96,
+          "unique_locked_scenarios": 32,
+          "cooperative_capture_failures": 95,
+          "cooperative_capture_failure_rate": 0.9895833333333334,
+          "ordinary_capture_failures": 95,
+          "collisions": 95,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "5": {
+          "scenario_evaluations": 102,
+          "unique_locked_scenarios": 34,
+          "cooperative_capture_failures": 101,
+          "cooperative_capture_failure_rate": 0.9901960784313726,
+          "ordinary_capture_failures": 101,
+          "collisions": 101,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        }
+      },
+      "layout_signature": {
+        "cylinder1+box1+wall1": {
+          "scenario_evaluations": 102,
+          "unique_locked_scenarios": 34,
+          "cooperative_capture_failures": 97,
+          "cooperative_capture_failure_rate": 0.9509803921568627,
+          "ordinary_capture_failures": 97,
+          "collisions": 97,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 3
+        },
+        "cylinder1+box1+wall2": {
+          "scenario_evaluations": 36,
+          "unique_locked_scenarios": 12,
+          "cooperative_capture_failures": 35,
+          "cooperative_capture_failure_rate": 0.9722222222222222,
+          "ordinary_capture_failures": 35,
+          "collisions": 35,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "cylinder1+box1+wall3": {
+          "scenario_evaluations": 15,
+          "unique_locked_scenarios": 5,
+          "cooperative_capture_failures": 15,
+          "cooperative_capture_failure_rate": 1.0,
+          "ordinary_capture_failures": 15,
+          "collisions": 15,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "cylinder1+box2+wall1": {
+          "scenario_evaluations": 30,
+          "unique_locked_scenarios": 10,
+          "cooperative_capture_failures": 30,
+          "cooperative_capture_failure_rate": 1.0,
+          "ordinary_capture_failures": 30,
+          "collisions": 30,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "cylinder1+box2+wall2": {
+          "scenario_evaluations": 30,
+          "unique_locked_scenarios": 10,
+          "cooperative_capture_failures": 29,
+          "cooperative_capture_failure_rate": 0.9666666666666667,
+          "ordinary_capture_failures": 29,
+          "collisions": 29,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "cylinder1+box3+wall1": {
+          "scenario_evaluations": 9,
+          "unique_locked_scenarios": 3,
+          "cooperative_capture_failures": 9,
+          "cooperative_capture_failure_rate": 1.0,
+          "ordinary_capture_failures": 9,
+          "collisions": 9,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "cylinder2+box1+wall1": {
+          "scenario_evaluations": 30,
+          "unique_locked_scenarios": 10,
+          "cooperative_capture_failures": 30,
+          "cooperative_capture_failure_rate": 1.0,
+          "ordinary_capture_failures": 30,
+          "collisions": 30,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "cylinder2+box1+wall2": {
+          "scenario_evaluations": 15,
+          "unique_locked_scenarios": 5,
+          "cooperative_capture_failures": 15,
+          "cooperative_capture_failure_rate": 1.0,
+          "ordinary_capture_failures": 15,
+          "collisions": 15,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "cylinder2+box2+wall1": {
+          "scenario_evaluations": 27,
+          "unique_locked_scenarios": 9,
+          "cooperative_capture_failures": 27,
+          "cooperative_capture_failure_rate": 1.0,
+          "ordinary_capture_failures": 27,
+          "collisions": 27,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "cylinder3+box1+wall1": {
+          "scenario_evaluations": 6,
+          "unique_locked_scenarios": 2,
+          "cooperative_capture_failures": 6,
+          "cooperative_capture_failure_rate": 1.0,
+          "ordinary_capture_failures": 6,
+          "collisions": 6,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        }
+      },
+      "planned_route_clearance_band": {
+        "medium: planned clearance 0.65-0.80 m": {
+          "scenario_evaluations": 120,
+          "unique_locked_scenarios": 40,
+          "cooperative_capture_failures": 117,
+          "cooperative_capture_failure_rate": 0.975,
+          "ordinary_capture_failures": 117,
+          "collisions": 117,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "narrow: planned clearance <0.65 m": {
+          "scenario_evaluations": 177,
+          "unique_locked_scenarios": 59,
+          "cooperative_capture_failures": 173,
+          "cooperative_capture_failure_rate": 0.9774011299435028,
+          "ordinary_capture_failures": 173,
+          "collisions": 173,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 3
+        },
+        "wide: planned clearance >=0.80 m": {
+          "scenario_evaluations": 3,
+          "unique_locked_scenarios": 1,
+          "cooperative_capture_failures": 3,
+          "cooperative_capture_failure_rate": 1.0,
+          "ordinary_capture_failures": 3,
+          "collisions": 3,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        }
+      },
+      "defender_side": {
+        "left": {
+          "scenario_evaluations": 147,
+          "unique_locked_scenarios": 49,
+          "cooperative_capture_failures": 140,
+          "cooperative_capture_failure_rate": 0.9523809523809523,
+          "ordinary_capture_failures": 140,
+          "collisions": 140,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 3
+        },
+        "right": {
+          "scenario_evaluations": 153,
+          "unique_locked_scenarios": 51,
+          "cooperative_capture_failures": 153,
+          "cooperative_capture_failure_rate": 1.0,
+          "ordinary_capture_failures": 153,
+          "collisions": 153,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        }
+      },
+      "observation_condition": {
+        "delayed_noisy": {
+          "scenario_evaluations": 141,
+          "unique_locked_scenarios": 47,
+          "cooperative_capture_failures": 140,
+          "cooperative_capture_failure_rate": 0.9929078014184397,
+          "ordinary_capture_failures": 140,
+          "collisions": 140,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "nominal": {
+          "scenario_evaluations": 159,
+          "unique_locked_scenarios": 53,
+          "cooperative_capture_failures": 153,
+          "cooperative_capture_failure_rate": 0.9622641509433962,
+          "ordinary_capture_failures": 153,
+          "collisions": 153,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 3
+        }
+      },
+      "target_speed_scale": {
+        "0.45": {
+          "scenario_evaluations": 144,
+          "unique_locked_scenarios": 48,
+          "cooperative_capture_failures": 139,
+          "cooperative_capture_failure_rate": 0.9652777777777778,
+          "ordinary_capture_failures": 139,
+          "collisions": 139,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 3
+        },
+        "0.55": {
+          "scenario_evaluations": 156,
+          "unique_locked_scenarios": 52,
+          "cooperative_capture_failures": 154,
+          "cooperative_capture_failure_rate": 0.9871794871794872,
+          "ordinary_capture_failures": 154,
+          "collisions": 154,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        }
+      },
+      "target_motion_mode": {
+        "flee_persistence": {
+          "scenario_evaluations": 156,
+          "unique_locked_scenarios": 52,
+          "cooperative_capture_failures": 152,
+          "cooperative_capture_failure_rate": 0.9743589743589743,
+          "ordinary_capture_failures": 152,
+          "collisions": 152,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        },
+        "s_curve": {
+          "scenario_evaluations": 144,
+          "unique_locked_scenarios": 48,
+          "cooperative_capture_failures": 141,
+          "cooperative_capture_failure_rate": 0.9791666666666666,
+          "ordinary_capture_failures": 141,
+          "collisions": 141,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 3
+        }
+      }
+    },
+    "cbf": {
+      "obstacle_count": {
+        "3": {
+          "scenario_evaluations": 102,
+          "unique_locked_scenarios": 34,
+          "cooperative_capture_failures": 24,
+          "cooperative_capture_failure_rate": 0.23529411764705882,
+          "ordinary_capture_failures": 24,
+          "collisions": 4,
+          "boundary_violations": 4,
+          "timeouts": 20,
+          "transit_failures": 3
+        },
+        "4": {
+          "scenario_evaluations": 96,
+          "unique_locked_scenarios": 32,
+          "cooperative_capture_failures": 23,
+          "cooperative_capture_failure_rate": 0.23958333333333334,
+          "ordinary_capture_failures": 23,
+          "collisions": 5,
+          "boundary_violations": 5,
+          "timeouts": 18,
+          "transit_failures": 0
+        },
+        "5": {
+          "scenario_evaluations": 102,
+          "unique_locked_scenarios": 34,
+          "cooperative_capture_failures": 27,
+          "cooperative_capture_failure_rate": 0.2647058823529412,
+          "ordinary_capture_failures": 27,
+          "collisions": 5,
+          "boundary_violations": 5,
+          "timeouts": 22,
+          "transit_failures": 0
+        }
+      },
+      "layout_signature": {
+        "cylinder1+box1+wall1": {
+          "scenario_evaluations": 102,
+          "unique_locked_scenarios": 34,
+          "cooperative_capture_failures": 24,
+          "cooperative_capture_failure_rate": 0.23529411764705882,
+          "ordinary_capture_failures": 24,
+          "collisions": 4,
+          "boundary_violations": 4,
+          "timeouts": 20,
+          "transit_failures": 3
+        },
+        "cylinder1+box1+wall2": {
+          "scenario_evaluations": 36,
+          "unique_locked_scenarios": 12,
+          "cooperative_capture_failures": 9,
+          "cooperative_capture_failure_rate": 0.25,
+          "ordinary_capture_failures": 9,
+          "collisions": 4,
+          "boundary_violations": 4,
+          "timeouts": 5,
+          "transit_failures": 0
+        },
+        "cylinder1+box1+wall3": {
+          "scenario_evaluations": 15,
+          "unique_locked_scenarios": 5,
+          "cooperative_capture_failures": 7,
+          "cooperative_capture_failure_rate": 0.4666666666666667,
+          "ordinary_capture_failures": 7,
+          "collisions": 2,
+          "boundary_violations": 2,
+          "timeouts": 5,
+          "transit_failures": 0
+        },
+        "cylinder1+box2+wall1": {
+          "scenario_evaluations": 30,
+          "unique_locked_scenarios": 10,
+          "cooperative_capture_failures": 6,
+          "cooperative_capture_failure_rate": 0.2,
+          "ordinary_capture_failures": 6,
+          "collisions": 0,
+          "boundary_violations": 0,
+          "timeouts": 6,
+          "transit_failures": 0
+        },
+        "cylinder1+box2+wall2": {
+          "scenario_evaluations": 30,
+          "unique_locked_scenarios": 10,
+          "cooperative_capture_failures": 9,
+          "cooperative_capture_failure_rate": 0.3,
+          "ordinary_capture_failures": 9,
+          "collisions": 1,
+          "boundary_violations": 1,
+          "timeouts": 8,
+          "transit_failures": 0
+        },
+        "cylinder1+box3+wall1": {
+          "scenario_evaluations": 9,
+          "unique_locked_scenarios": 3,
+          "cooperative_capture_failures": 2,
+          "cooperative_capture_failure_rate": 0.2222222222222222,
+          "ordinary_capture_failures": 2,
+          "collisions": 0,
+          "boundary_violations": 0,
+          "timeouts": 2,
+          "transit_failures": 0
+        },
+        "cylinder2+box1+wall1": {
+          "scenario_evaluations": 30,
+          "unique_locked_scenarios": 10,
+          "cooperative_capture_failures": 8,
+          "cooperative_capture_failure_rate": 0.26666666666666666,
+          "ordinary_capture_failures": 8,
+          "collisions": 1,
+          "boundary_violations": 1,
+          "timeouts": 7,
+          "transit_failures": 0
+        },
+        "cylinder2+box1+wall2": {
+          "scenario_evaluations": 15,
+          "unique_locked_scenarios": 5,
+          "cooperative_capture_failures": 4,
+          "cooperative_capture_failure_rate": 0.26666666666666666,
+          "ordinary_capture_failures": 4,
+          "collisions": 0,
+          "boundary_violations": 0,
+          "timeouts": 4,
+          "transit_failures": 0
+        },
+        "cylinder2+box2+wall1": {
+          "scenario_evaluations": 27,
+          "unique_locked_scenarios": 9,
+          "cooperative_capture_failures": 3,
+          "cooperative_capture_failure_rate": 0.1111111111111111,
+          "ordinary_capture_failures": 3,
+          "collisions": 1,
+          "boundary_violations": 1,
+          "timeouts": 2,
+          "transit_failures": 0
+        },
+        "cylinder3+box1+wall1": {
+          "scenario_evaluations": 6,
+          "unique_locked_scenarios": 2,
+          "cooperative_capture_failures": 2,
+          "cooperative_capture_failure_rate": 0.3333333333333333,
+          "ordinary_capture_failures": 2,
+          "collisions": 1,
+          "boundary_violations": 1,
+          "timeouts": 1,
+          "transit_failures": 0
+        }
+      },
+      "planned_route_clearance_band": {
+        "medium: planned clearance 0.65-0.80 m": {
+          "scenario_evaluations": 120,
+          "unique_locked_scenarios": 40,
+          "cooperative_capture_failures": 28,
+          "cooperative_capture_failure_rate": 0.23333333333333334,
+          "ordinary_capture_failures": 28,
+          "collisions": 2,
+          "boundary_violations": 2,
+          "timeouts": 26,
+          "transit_failures": 0
+        },
+        "narrow: planned clearance <0.65 m": {
+          "scenario_evaluations": 177,
+          "unique_locked_scenarios": 59,
+          "cooperative_capture_failures": 46,
+          "cooperative_capture_failure_rate": 0.2598870056497175,
+          "ordinary_capture_failures": 46,
+          "collisions": 12,
+          "boundary_violations": 12,
+          "timeouts": 34,
+          "transit_failures": 3
+        },
+        "wide: planned clearance >=0.80 m": {
+          "scenario_evaluations": 3,
+          "unique_locked_scenarios": 1,
+          "cooperative_capture_failures": 0,
+          "cooperative_capture_failure_rate": 0.0,
+          "ordinary_capture_failures": 0,
+          "collisions": 0,
+          "boundary_violations": 0,
+          "timeouts": 0,
+          "transit_failures": 0
+        }
+      },
+      "defender_side": {
+        "left": {
+          "scenario_evaluations": 147,
+          "unique_locked_scenarios": 49,
+          "cooperative_capture_failures": 35,
+          "cooperative_capture_failure_rate": 0.23809523809523808,
+          "ordinary_capture_failures": 35,
+          "collisions": 6,
+          "boundary_violations": 6,
+          "timeouts": 29,
+          "transit_failures": 3
+        },
+        "right": {
+          "scenario_evaluations": 153,
+          "unique_locked_scenarios": 51,
+          "cooperative_capture_failures": 39,
+          "cooperative_capture_failure_rate": 0.2549019607843137,
+          "ordinary_capture_failures": 39,
+          "collisions": 8,
+          "boundary_violations": 8,
+          "timeouts": 31,
+          "transit_failures": 0
+        }
+      },
+      "observation_condition": {
+        "delayed_noisy": {
+          "scenario_evaluations": 141,
+          "unique_locked_scenarios": 47,
+          "cooperative_capture_failures": 44,
+          "cooperative_capture_failure_rate": 0.3120567375886525,
+          "ordinary_capture_failures": 44,
+          "collisions": 8,
+          "boundary_violations": 8,
+          "timeouts": 36,
+          "transit_failures": 0
+        },
+        "nominal": {
+          "scenario_evaluations": 159,
+          "unique_locked_scenarios": 53,
+          "cooperative_capture_failures": 30,
+          "cooperative_capture_failure_rate": 0.18867924528301888,
+          "ordinary_capture_failures": 30,
+          "collisions": 6,
+          "boundary_violations": 6,
+          "timeouts": 24,
+          "transit_failures": 3
+        }
+      },
+      "target_speed_scale": {
+        "0.45": {
+          "scenario_evaluations": 144,
+          "unique_locked_scenarios": 48,
+          "cooperative_capture_failures": 40,
+          "cooperative_capture_failure_rate": 0.2777777777777778,
+          "ordinary_capture_failures": 40,
+          "collisions": 7,
+          "boundary_violations": 7,
+          "timeouts": 33,
+          "transit_failures": 3
+        },
+        "0.55": {
+          "scenario_evaluations": 156,
+          "unique_locked_scenarios": 52,
+          "cooperative_capture_failures": 34,
+          "cooperative_capture_failure_rate": 0.21794871794871795,
+          "ordinary_capture_failures": 34,
+          "collisions": 7,
+          "boundary_violations": 7,
+          "timeouts": 27,
+          "transit_failures": 0
+        }
+      },
+      "target_motion_mode": {
+        "flee_persistence": {
+          "scenario_evaluations": 156,
+          "unique_locked_scenarios": 52,
+          "cooperative_capture_failures": 43,
+          "cooperative_capture_failure_rate": 0.27564102564102566,
+          "ordinary_capture_failures": 43,
+          "collisions": 10,
+          "boundary_violations": 10,
+          "timeouts": 33,
+          "transit_failures": 0
+        },
+        "s_curve": {
+          "scenario_evaluations": 144,
+          "unique_locked_scenarios": 48,
+          "cooperative_capture_failures": 31,
+          "cooperative_capture_failure_rate": 0.2152777777777778,
+          "ordinary_capture_failures": 31,
+          "collisions": 4,
+          "boundary_violations": 4,
+          "timeouts": 27,
+          "transit_failures": 3
+        }
+      }
+    }
+  },
+  "transit_failure_audit": {
+    "failed_scenario_evaluations": 6,
+    "unique_failed_locked_scenarios": 1,
+    "unique_scenarios": [
+      {
+        "episode_index": 68,
+        "episode_seed": 647069,
+        "layout_seed": 1647069,
+        "capture_event": true,
+        "cooperative_safe_capture": true,
+        "collision": false,
+        "boundary_violation": false,
+        "target_transit_success": false,
+        "target_transit_reason": "obstacle_clearance_violation",
+        "target_transit_execution_min_clearance_m": 0.5998899254955226
+      }
+    ],
+    "evaluations": [
+      {
+        "training_seed": 661201,
+        "mode": "raw",
+        "episode_index": 68,
+        "episode_seed": 647069,
+        "layout_seed": 1647069,
+        "capture_event": true,
+        "cooperative_safe_capture": true,
+        "collision": false,
+        "boundary_violation": false,
+        "target_transit_success": false,
+        "target_transit_reason": "obstacle_clearance_violation",
+        "target_transit_execution_min_clearance_m": 0.5998899254955226
+      },
+      {
+        "training_seed": 661202,
+        "mode": "raw",
+        "episode_index": 68,
+        "episode_seed": 647069,
+        "layout_seed": 1647069,
+        "capture_event": false,
+        "cooperative_safe_capture": false,
+        "collision": true,
+        "boundary_violation": false,
+        "target_transit_success": false,
+        "target_transit_reason": "obstacle_clearance_violation",
+        "target_transit_execution_min_clearance_m": 0.5998899254955226
+      },
+      {
+        "training_seed": 661203,
+        "mode": "raw",
+        "episode_index": 68,
+        "episode_seed": 647069,
+        "layout_seed": 1647069,
+        "capture_event": true,
+        "cooperative_safe_capture": true,
+        "collision": false,
+        "boundary_violation": false,
+        "target_transit_success": false,
+        "target_transit_reason": "obstacle_clearance_violation",
+        "target_transit_execution_min_clearance_m": 0.5998899254955226
+      },
+      {
+        "training_seed": 661201,
+        "mode": "cbf",
+        "episode_index": 68,
+        "episode_seed": 647069,
+        "layout_seed": 1647069,
+        "capture_event": true,
+        "cooperative_safe_capture": true,
+        "collision": false,
+        "boundary_violation": false,
+        "target_transit_success": false,
+        "target_transit_reason": "obstacle_clearance_violation",
+        "target_transit_execution_min_clearance_m": 0.5998899254955226
+      },
+      {
+        "training_seed": 661202,
+        "mode": "cbf",
+        "episode_index": 68,
+        "episode_seed": 647069,
+        "layout_seed": 1647069,
+        "capture_event": true,
+        "cooperative_safe_capture": true,
+        "collision": false,
+        "boundary_violation": false,
+        "target_transit_success": false,
+        "target_transit_reason": "obstacle_clearance_violation",
+        "target_transit_execution_min_clearance_m": 0.5998899254955226
+      },
+      {
+        "training_seed": 661203,
+        "mode": "cbf",
+        "episode_index": 68,
+        "episode_seed": 647069,
+        "layout_seed": 1647069,
+        "capture_event": true,
+        "cooperative_safe_capture": true,
+        "collision": false,
+        "boundary_violation": false,
+        "target_transit_success": false,
+        "target_transit_reason": "obstacle_clearance_violation",
+        "target_transit_execution_min_clearance_m": 0.5998899254955226
+      }
+    ]
+  },
+  "metric_replay_consistency": {
+    "reference_suffix": "_100",
+    "all_outcomes_identical": true,
+    "artifacts": {
+      "locked_bc_retained_seed661201_s1_cylinder_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661202_s1_cylinder_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661203_s1_cylinder_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661201_s1_cylinder_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661202_s1_cylinder_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661203_s1_cylinder_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661201_s1_box_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661202_s1_box_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661203_s1_box_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661201_s1_box_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661202_s1_box_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661203_s1_box_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661201_s1_wall_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661202_s1_wall_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661203_s1_wall_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661201_s1_wall_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661202_s1_wall_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661203_s1_wall_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661201_s2_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661202_s2_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661203_s2_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661201_s2_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661202_s2_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_bc_retained_seed661203_s2_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_s3_bc_retained_seed661201_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_s3_bc_retained_seed661202_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_s3_bc_retained_seed661203_raw_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_s3_bc_retained_seed661201_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_s3_bc_retained_seed661202_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      },
+      "locked_s3_bc_retained_seed661203_cbf_metrics_100": {
+        "identical": true,
+        "mismatch_count": 0,
+        "mismatches": []
+      }
+    }
+  }
+}
