@@ -1,0 +1,57 @@
+{
+  "experiment": "E1_execution_dynamics_rule_expert_feasibility",
+  "decision": "rejected_early",
+  "decision_phase": "P1_rule_expert_feasibility",
+  "reason": "The first pre-registered profile E0 did not meet the Cooperative Safe Capture feasibility threshold, so E1 policy development and locked-test are not authorized.",
+  "preregistration": {
+    "path": "E1_EXECUTION_DYNAMICS_PREREGISTRATION.json",
+    "protocol_sha256": "e7744361a15a37c884ce03986db9b1b321e34d51804b47de8ad18c2fe46846b1",
+    "development_seed_block": 681101,
+    "locked_seed_block_unopened": 681201
+  },
+  "completed_profile": {
+    "profile": "E0",
+    "execution_mode": "execution_aware_cbf",
+    "method": "dynamic_encirclement_rule_expert",
+    "episodes": 60,
+    "artifact_paths": {
+      "episodes_csv": "results/e1_execution_dynamics/development_e0_expert_execution_aware/episodes.csv",
+      "cases_jsonl": "results/e1_execution_dynamics/development_e0_expert_execution_aware/cases.jsonl",
+      "summary_json": "results/e1_execution_dynamics/development_e0_expert_execution_aware/summary.json"
+    },
+    "artifact_sha256": {
+      "episodes_csv": "924f6c59412373daba5c38dbc2c4d58876e67be5c1433525cac2eb061fc4e3f5",
+      "cases_jsonl": "e12b1ed0e3202511e22e58fbf3f866710962eafb92b90fb73577ebfce8544ce7",
+      "summary_json": "ed7e75f4030cd845663170872d479a62a1636c92a94f6aae10534c001febb693"
+    },
+    "metrics": {
+      "cooperative_safe_capture_rate": 0.9333333333333333,
+      "collision_rate": 0.016666666666666666,
+      "boundary_violation_rate": 0.016666666666666666,
+      "transit_success_rate": 1.0,
+      "termination_reasons": {
+        "safe_capture": 56,
+        "safety_failure": 1,
+        "timeout": 3
+      }
+    },
+    "gate": {
+      "cooperative_safe_capture_at_least": 0.95,
+      "collision_at_most": 0.05,
+      "boundary_at_most": 0.05,
+      "cooperative_safe_capture_passed": false,
+      "collision_passed": true,
+      "boundary_passed": true,
+      "passed": false
+    }
+  },
+  "protocol_conformant_stop": {
+    "profiles_not_run_after_e0_failure": ["E1", "E2", "E3", "E4", "E5", "E6"],
+    "frozen_V4_policy_checkpoints_used": false,
+    "E1_policy_development_opened": false,
+    "E1_locked_cases_opened": false,
+    "CBF_or_profile_parameters_changed_after_result": false,
+    "checkpoint_selection_or_retraining_performed": false
+  },
+  "interpretation": "This is a negative feasibility result for the E1 protocol as pre-registered. It does not invalidate the historical V4 result and it does not establish a policy robustness result. A new, weaker or otherwise changed execution benchmark would require a new preregistration and entirely new development and locked seed blocks."
+}
