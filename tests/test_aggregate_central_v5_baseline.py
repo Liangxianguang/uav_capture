@@ -122,7 +122,7 @@ def test_collect_validates_v5_artifact_contract_and_reports_gates(tmp_path: Path
     assert aggregate["s3_validation"]["cbf"]["metrics"]["cooperative_safe_capture_wilson_95"][0] > 0.9
     assert "one-training-seed development-validation" in report
     assert "Raw actor and CBF execution are separate artifacts" in report
-    assert "fixed-contract recovery" in AGGREGATOR.render_policy_failure_report(aggregate)
+    assert "passes the one-seed development gate" in AGGREGATOR.render_policy_failure_report(aggregate)
 
 
 def test_collect_rejects_unpaired_s3_scene_inputs(tmp_path: Path) -> None:

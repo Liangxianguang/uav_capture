@@ -448,15 +448,25 @@ def render_policy_failure_report(aggregate: dict[str, Any]) -> str:
     ]
     for scene, rate in fixed_cbf.items():
         lines.append(f"- `{scene}` CBF Cooperative Safe Capture: `{100.0 * rate:.1f}%`.")
-    lines.extend(
-        [
-            "",
-            "## Decision",
-            "",
-            "The raw actor fails before task-level pursuit in every S3 episode, while CBF removes collisions but leaves distributed timeouts. Together with the V4/V5 contract audit, this rejects the fresh V5 baseline as a candidate and selects P2-0 fixed-contract recovery: equal-sequence training on a newly collected fixed S1/S2 archive plus the frozen V5 random archive. Do not start MAPPO, change CBF margins, or open seed block 647201 before this data-only recovery passes fixed regression.",
-            "",
-        ]
-    )
+    if aggregate["candidate_gate_passed"]:
+        decision = (
+            "The shape-aware warm-start retained-BC checkpoint passes the one-seed "
+            "development gate. Freeze the effective configuration, expert-archive "
+            "provenance, checkpoint-selection rule, and CBF parameters, then train "
+            "two additional independent seeds. Do not open seed block 647201 until "
+            "all three checkpoints pass the same development gate."
+        )
+    else:
+        decision = (
+            "The raw actor fails before task-level pursuit in every S3 episode, while "
+            "CBF removes collisions but leaves distributed timeouts. Together with the "
+            "V4/V5 contract audit, this rejects the fresh V5 baseline as a candidate "
+            "and selects P2-0 fixed-contract recovery: equal-sequence training on a "
+            "newly collected fixed S1/S2 archive plus the frozen V5 random archive. "
+            "Do not start MAPPO, change CBF margins, or open seed block 647201 before "
+            "this data-only recovery passes fixed regression."
+        )
+    lines.extend(["", "## Decision", "", decision, ""])
     return "\n".join(lines)
 
 
