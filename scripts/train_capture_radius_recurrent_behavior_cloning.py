@@ -104,6 +104,27 @@ def action_scale_for_settings(config: dict[str, Any], settings: dict[str, Any]) 
     raise ValueError("action_scale_mode must be 'per_axis_safe' or 'full_range'.")
 
 
+def resolve_initialization_checkpoint(args: argparse.Namespace, settings: dict[str, Any]) -> Path | None:
+    """Resolve one explicit CLI or YAML warm-start checkpoint.
+
+    Keeping the path in the YAML makes a retained-BC construction replayable;
+    accepting the CLI form preserves existing one-off experiment commands.
+    """
+    configured = settings.get("initialize_from")
+    if args.initialize_from is not None and configured is not None:
+        raise ValueError("Use either --initialize-from or imitation.initialize_from, not both.")
+    candidate = args.initialize_from if args.initialize_from is not None else configured
+    if candidate is None:
+        return None
+    path = Path(candidate)
+    if not path.is_absolute():
+        path = args.config.parent / path
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Initialization checkpoint does not exist: {resolved}")
+    return resolved
+
+
 def load_prediction_model(checkpoint_path: Path, device: torch.device) -> HistoryTargetPredictor:
     checkpoint = torch.load(checkpoint_path.resolve(), map_location="cpu", weights_only=True)
     model_config = checkpoint.get("model")
@@ -749,6 +770,7 @@ def main() -> None:
     configured_datasets = settings.get("expert_datasets")
     if args.expert_dataset is not None and configured_datasets is not None:
         raise ValueError("Use either --expert-dataset or imitation.expert_datasets, not both.")
+    initialization_checkpoint = resolve_initialization_checkpoint(args, settings)
     output = args.output
     if args.resume_expert_collection:
         if args.expert_dataset is not None or configured_datasets is not None:
@@ -852,7 +874,7 @@ def main() -> None:
     ).to(device)
     initialization = initialize_recurrent_actor(
         policy,
-        args.initialize_from.resolve() if args.initialize_from is not None else None,
+        initialization_checkpoint,
         local_observation_dim=int(local_data.shape[-1]),
         centralized_state_dim=centralized_state_dim,
         action_scale=action_scale,

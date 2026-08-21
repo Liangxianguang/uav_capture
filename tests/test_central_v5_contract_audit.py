@@ -82,6 +82,25 @@ def test_recovery_yaml_declares_fixed_and_random_sources() -> None:
     assert "bc_baseline_seed661401" in settings["expert_datasets"][1]
 
 
+def test_shapeaware_retained_yaml_declares_auditable_warm_start() -> None:
+    root = Path(__file__).resolve().parents[1]
+    fixed = yaml.safe_load(
+        (root / "configs" / "capture_radius_recurrent_behavior_cloning_central_v5_fixed_shapeaware.yaml").read_text(
+            encoding="utf-8"
+        )
+    )["imitation"]
+    retained = yaml.safe_load(
+        (root / "configs" / "capture_radius_recurrent_behavior_cloning_central_v5_shapeaware_retained.yaml").read_text(
+            encoding="utf-8"
+        )
+    )["imitation"]
+    assert fixed["episodes"] == 640
+    assert fixed["epochs"] == 96
+    assert fixed["learning_rate"] == 0.0003
+    assert retained["expert_dataset_source_balance"] == "equal_sequences"
+    assert "fixed_shapeaware_seed661601/checkpoint.pt" in retained["initialize_from"]
+
+
 def test_source_integrity_validates_recorded_training_hashes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import scripts.audit_central_v5_contract as module
 

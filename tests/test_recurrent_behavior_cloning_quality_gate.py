@@ -191,6 +191,31 @@ def test_recurrent_bc_warm_start_requires_a_compatible_checkpoint(tmp_path: Path
     assert torch.equal(target.actor_base_body[0].weight, source.actor_base_body[0].weight)
 
 
+def test_yaml_initialization_checkpoint_is_resolved_relative_to_training_config(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "fixed" / "checkpoint.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"checkpoint")
+    config = tmp_path / "configs" / "candidate.yaml"
+    config.parent.mkdir()
+    config.write_text("imitation: {}\n", encoding="utf-8")
+    args = TRAINER.argparse.Namespace(config=config, initialize_from=None)
+
+    resolved = TRAINER.resolve_initialization_checkpoint(
+        args, {"initialize_from": "../fixed/checkpoint.pt"}
+    )
+
+    assert resolved == checkpoint.resolve()
+
+
+def test_cli_and_yaml_initialization_checkpoints_are_mutually_exclusive(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    args = TRAINER.argparse.Namespace(config=tmp_path / "candidate.yaml", initialize_from=checkpoint)
+
+    with pytest.raises(ValueError, match="either --initialize-from or imitation.initialize_from"):
+        TRAINER.resolve_initialization_checkpoint(args, {"initialize_from": "checkpoint.pt"})
+
+
 def test_expert_collection_checkpoint_round_trips_exact_resume_state(tmp_path: Path) -> None:
     rng = np.random.default_rng(661401)
     rng.random(5)
