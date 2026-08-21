@@ -448,6 +448,7 @@ def render_policy_failure_report(aggregate: dict[str, Any]) -> str:
     ]
     for scene, rate in fixed_cbf.items():
         lines.append(f"- `{scene}` CBF Cooperative Safe Capture: `{100.0 * rate:.1f}%`.")
+    gates = aggregate["candidate_gates"]
     if aggregate["candidate_gate_passed"]:
         decision = (
             "The shape-aware warm-start retained-BC checkpoint passes the one-seed "
@@ -456,15 +457,45 @@ def render_policy_failure_report(aggregate: dict[str, Any]) -> str:
             "two additional independent seeds. Do not open seed block 647201 until "
             "all three checkpoints pass the same development gate."
         )
+    elif not gates["all_fixed_cbf_at_least_98_percent"]:
+        failed_scenes = [
+            scene
+            for scene, rate in fixed_cbf.items()
+            if rate < 0.98
+        ]
+        decision = (
+            "The checkpoint passes neither the complete fixed-scene regression nor "
+            "the one-seed development gate. Fixed CBF regression is below the "
+            f"pre-registered 98% threshold for: {', '.join(failed_scenes)}. "
+            "Treat this as a P3-A fixed-coverage failure: first diagnose the exact "
+            "fixed-scene safety failure, then pre-register one data-coverage-only "
+            "recovery. Do not rerun evaluation to select a favorable outcome, start "
+            "MAPPO, change CBF margins, or open seed block 647201."
+        )
+    elif not gates["s3_collision_at_most_2_percent"] or not gates["s3_boundary_at_most_2_percent"]:
+        decision = (
+            "The checkpoint fails the S3 execution-safety gate. Freeze the learning "
+            "checkpoint and diagnose raw versus CBF-default execution before any "
+            "change. Do not use locked seed block 647201 or attribute CBF safety "
+            "correction to the raw actor."
+        )
+    elif not gates["s3_cooperative_safe_capture_at_least_85_percent"]:
+        decision = (
+            "The checkpoint fails the S3 cooperative-capture gate. Diagnose the "
+            "episode-level failure index and choose at most one pre-registered, "
+            "failure-driven training-data recovery; do not open seed block 647201."
+        )
+    elif not gates["s3_transit_at_least_99_percent"]:
+        decision = (
+            "The checkpoint fails the S3 transit gate. Diagnose transit feasibility "
+            "and execution records before changing any training or CBF setting; do "
+            "not open seed block 647201."
+        )
     else:
         decision = (
-            "The raw actor fails before task-level pursuit in every S3 episode, while "
-            "CBF removes collisions but leaves distributed timeouts. Together with the "
-            "V4/V5 contract audit, this rejects the fresh V5 baseline as a candidate "
-            "and selects P2-0 fixed-contract recovery: equal-sequence training on a "
-            "newly collected fixed S1/S2 archive plus the frozen V5 random archive. "
-            "Do not start MAPPO, change CBF margins, or open seed block 647201 before "
-            "this data-only recovery passes fixed regression."
+            "The checkpoint fails a development-integrity gate. Preserve the artifacts "
+            "and write a rejection report before considering any new candidate; do not "
+            "open seed block 647201."
         )
     lines.extend(["", "## Decision", "", decision, ""])
     return "\n".join(lines)

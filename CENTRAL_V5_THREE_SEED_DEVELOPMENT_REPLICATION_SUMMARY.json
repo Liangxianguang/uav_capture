@@ -1,0 +1,88 @@
+{
+  "evaluation_type": "central_v5_three_seed_development_replication_audit",
+  "not_a_locked_test": true,
+  "statistical_unit": "independent retained-BC training seeds",
+  "required_training_seed_count": 3,
+  "development_checkpoint_count": 3,
+  "development_candidate_pass_count": 2,
+  "development_candidate_fail_count": 1,
+  "locked_seed_block": 647201,
+  "locked_test_opened": false,
+  "decision": "replication_rejected_do_not_open_locked_test",
+  "models": [
+    {
+      "training_seed": 661602,
+      "run_dir": "F:\\uav_capture\\three_d_encirclement\\results\\central_v5\\shapeaware_retained_seed661602",
+      "checkpoint_sha256": "849b5fd97664e7d11d0d96d9a95c2e4c0179dcdcaf3d720b51a516b50e313ae4",
+      "summary_path": "F:\\uav_capture\\three_d_encirclement\\CENTRAL_V5_SHAPEAWARE_RETAINED_VALIDATION_SUMMARY.json",
+      "summary_sha256": "7c2168ca7d1e16a55f316dfc524bd3edc33765ccd015d238d2a5a7f23bdbd17f",
+      "candidate_gate_passed": true,
+      "failed_gates": [],
+      "fixed_cbf_cooperative_safe_capture_rate": {
+        "s1_cylinder": 1.0,
+        "s1_box": 1.0,
+        "s1_wall": 1.0,
+        "s2": 1.0
+      },
+      "s3_cbf": {
+        "episodes": 60,
+        "cooperative_safe_capture_rate": 0.9166666666666666,
+        "collision_rate": 0.016666666666666666,
+        "boundary_violation_rate": 0.016666666666666666,
+        "transit_success_rate": 1.0
+      },
+      "raw_cbf_static_scenes_exactly_paired": true,
+      "static_scene_sha256": "066b690d766a919a6c452eaa9fc9bf2b5b80093a8a32e920c1425274f0d4c1ab"
+    },
+    {
+      "training_seed": 661604,
+      "run_dir": "F:\\uav_capture\\three_d_encirclement\\results\\central_v5\\shapeaware_retained_seed661604",
+      "checkpoint_sha256": "44424cd4d0579ab6c5771e38c8ee799060c5ab304bea71d5af29b64ccb587558",
+      "summary_path": "F:\\uav_capture\\three_d_encirclement\\CENTRAL_V5_SHAPEAWARE_RETAINED_SEED661604_VALIDATION_SUMMARY.json",
+      "summary_sha256": "9ab1c274f7c541a4641c104eb2970bd2bc6c132a91004f7203ca56ff812b2c4e",
+      "candidate_gate_passed": true,
+      "failed_gates": [],
+      "fixed_cbf_cooperative_safe_capture_rate": {
+        "s1_cylinder": 1.0,
+        "s1_box": 1.0,
+        "s1_wall": 1.0,
+        "s2": 1.0
+      },
+      "s3_cbf": {
+        "episodes": 60,
+        "cooperative_safe_capture_rate": 0.9666666666666667,
+        "collision_rate": 0.016666666666666666,
+        "boundary_violation_rate": 0.016666666666666666,
+        "transit_success_rate": 1.0
+      },
+      "raw_cbf_static_scenes_exactly_paired": true,
+      "static_scene_sha256": "066b690d766a919a6c452eaa9fc9bf2b5b80093a8a32e920c1425274f0d4c1ab"
+    },
+    {
+      "training_seed": 661606,
+      "run_dir": "F:\\uav_capture\\three_d_encirclement\\results\\central_v5\\shapeaware_retained_seed661606",
+      "checkpoint_sha256": "4fe54f86b033b1d5290ffdaa8d1fb097f7e8b8491071e64f7baf1f8dbbb36bf3",
+      "summary_path": "F:\\uav_capture\\three_d_encirclement\\CENTRAL_V5_SHAPEAWARE_RETAINED_SEED661606_VALIDATION_SUMMARY.json",
+      "summary_sha256": "0835e79fad3eb6fd4ce60ca69e1282792b2eb71a810c6023ce9aa6600cb2d47e",
+      "candidate_gate_passed": false,
+      "failed_gates": [
+        "all_fixed_cbf_at_least_98_percent"
+      ],
+      "fixed_cbf_cooperative_safe_capture_rate": {
+        "s1_cylinder": 1.0,
+        "s1_box": 1.0,
+        "s1_wall": 0.95,
+        "s2": 1.0
+      },
+      "s3_cbf": {
+        "episodes": 60,
+        "cooperative_safe_capture_rate": 0.9833333333333333,
+        "collision_rate": 0.016666666666666666,
+        "boundary_violation_rate": 0.016666666666666666,
+        "transit_success_rate": 1.0
+      },
+      "raw_cbf_static_scenes_exactly_paired": true,
+      "static_scene_sha256": "066b690d766a919a6c452eaa9fc9bf2b5b80093a8a32e920c1425274f0d4c1ab"
+    }
+  ]
+}

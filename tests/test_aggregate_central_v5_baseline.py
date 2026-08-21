@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -123,6 +124,48 @@ def test_collect_validates_v5_artifact_contract_and_reports_gates(tmp_path: Path
     assert "one-training-seed development-validation" in report
     assert "Raw actor and CBF execution are separate artifacts" in report
     assert "passes the one-seed development gate" in AGGREGATOR.render_policy_failure_report(aggregate)
+
+
+def test_failure_report_selects_fixed_coverage_recovery_for_failed_fixed_gate(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "checkpoint.pt").write_bytes(b"checkpoint")
+    (run_dir / "expert_sequence_dataset.npz").write_bytes(b"archive")
+    (run_dir / "config.yaml").write_text("effective_imitation:\n  episodes: 320\n", encoding="utf-8")
+    (run_dir / "expert_dataset_manifest.json").write_text(
+        json.dumps(
+            {
+                "accepted_episodes": 320,
+                "rejected_episodes": 0,
+                "collection_attempts": 320,
+                "expert_rejection_rate": 0.0,
+                "expert_safe_capture_rate": 1.0,
+                "expert_cooperative_requirement_rate": 1.0,
+                "episodes": [{"safe_capture_success": True, "cooperative_requirement_met": True}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "training.csv").write_text("epoch,action_mse\n1,0.1\n", encoding="utf-8")
+    root = tmp_path / "evaluations"
+    run_id = "bc_baseline_seed661401"
+    for scene in AGGREGATOR.FIXED_SCENES:
+        for mode in AGGREGATOR.MODES:
+            _write_artifact(root / f"{run_id}_{scene}_{mode}_20", cbf=mode == "cbf", s3=False)
+    for mode in AGGREGATOR.MODES:
+        _write_artifact(root / f"{run_id}_s3_validation_{mode}_60", cbf=mode == "cbf", s3=True)
+
+    aggregate = AGGREGATOR.collect(run_dir, root, run_id)
+    rejected = copy.deepcopy(aggregate)
+    rejected["candidate_gate_passed"] = False
+    rejected["candidate_gates"]["all_fixed_cbf_at_least_98_percent"] = False
+    rejected["fixed_regression"]["s1_wall"]["cbf"]["metrics"]["cooperative_safe_capture_rate"] = 0.95
+
+    report = AGGREGATOR.render_policy_failure_report(rejected)
+
+    assert "P3-A fixed-coverage failure" in report
+    assert "s1_wall" in report
+    assert "fresh V5 baseline" not in report
 
 
 def test_collect_rejects_unpaired_s3_scene_inputs(tmp_path: Path) -> None:

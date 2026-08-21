@@ -1,0 +1,81 @@
+{
+  "audit_type": "central_v5_shapeaware_retained_bc_training_audit",
+  "not_an_evaluation": true,
+  "fixed_stage": {
+    "run_dir": "F:\\uav_capture\\three_d_encirclement\\results\\central_v5\\fixed_shapeaware_seed661603",
+    "checkpoint_sha256": "019ecc2e8d5a92ff2b155a81711ccea20b315d44a1f84464326867635b120f52",
+    "archive_sha256": "f3dd9499515322cfbe96ede38226c7aab3983ad819ba753fa4cf4b52533207d6",
+    "requested_episodes": 640,
+    "accepted_episodes": 640,
+    "rejected_episodes": 0,
+    "collection_attempts": 640,
+    "rejection_rate": 0.0,
+    "maximum_rejection_rate": 0.25,
+    "all_accepted_safe": true,
+    "all_accepted_cooperative": true,
+    "layout_accepted_episodes": {
+      "box": 112,
+      "cylinder": 296,
+      "cylinder_box": 84,
+      "mixed": 39,
+      "wall": 109
+    },
+    "sequence_count": 647,
+    "frame_count": 20710,
+    "training": {
+      "epochs": 96,
+      "all_losses_finite": true,
+      "first_action_mse": 2.6308753933848403,
+      "final_action_mse": 0.028584117387853016
+    },
+    "passed": true
+  },
+  "retained_stage": {
+    "run_dir": "F:\\uav_capture\\three_d_encirclement\\results\\central_v5\\shapeaware_retained_seed661604",
+    "checkpoint_sha256": "44424cd4d0579ab6c5771e38c8ee799060c5ab304bea71d5af29b64ccb587558",
+    "archive_sha256": "57b6377e56ddc5e7ad1b26e16a2e0231e84df7aa7cbee5923dbe770a6f622787",
+    "initialization_checkpoint": "F:\\uav_capture\\three_d_encirclement\\results\\central_v5\\fixed_shapeaware_seed661603\\checkpoint.pt",
+    "initialization_sha256": "019ecc2e8d5a92ff2b155a81711ccea20b315d44a1f84464326867635b120f52",
+    "warm_start_matches_fixed_checkpoint": true,
+    "source_balance": "equal_sequences",
+    "source_selection_balanced": true,
+    "source_rows": [
+      {
+        "original_sequences": 647,
+        "selected_sequences": 647,
+        "accepted_episodes": 640,
+        "expert_rejection_rate": 0.0,
+        "all_accepted_safe": true,
+        "all_accepted_cooperative": true
+      },
+      {
+        "original_sequences": 457,
+        "selected_sequences": 647,
+        "accepted_episodes": 320,
+        "expert_rejection_rate": 0.08571428571428572,
+        "all_accepted_safe": true,
+        "all_accepted_cooperative": true
+      }
+    ],
+    "all_sources_safe_and_cooperative": true,
+    "sequence_count": 1294,
+    "frame_count": 41408,
+    "training": {
+      "epochs": 64,
+      "all_losses_finite": true,
+      "first_action_mse": 1.2856685828279566,
+      "final_action_mse": 0.09105545236372653
+    },
+    "source_hashes": {
+      "scripts/train_capture_radius_recurrent_behavior_cloning.py": "b263160a62afe46b1c6544cc010c4b1f06a60e7b7ce9781ac7f6dff537d334de",
+      "src/encirclement3d/learning.py": "2cb49096c19d8e82966ff503f16e59151fa2d310b12168e44f3418b7779780fd",
+      "src/encirclement3d/observation_encoding.py": "7fc2328cabda73971f141bc60682c01899d2fcff4270a3bf49f883921a84f8f6",
+      "src/encirclement3d/prediction.py": "6fb10e1c0768140a6d62244c27f20e11071d04aa0a7622c176d0fedf60136423",
+      "src/encirclement3d/pursuit_env.py": "ea15252dcfd793ae0e3583cd5d8bb5c442f47490900b63aa131f275d1e4998fe",
+      "src/encirclement3d/pursuit_controllers.py": "86a4b1e0e0ba49ebf69d1a78e17ba1d29caa06d58737366ee7fd1ac36d8fe680",
+      "src/encirclement3d/showcase.py": "6820e1ca62b15e86e3381d0cbda0d02b43a0974d2ff387fbdeefc2710eba3092"
+    },
+    "passed": true
+  },
+  "candidate_training_integrity_passed": true
+}

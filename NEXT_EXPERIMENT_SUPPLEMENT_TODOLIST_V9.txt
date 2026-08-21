@@ -1,0 +1,287 @@
+三维部分可观测多无人机协同捕获：V5 墙体回归恢复、正式检验与扩展计划（V9）
+日期：2026-08-21
+仓库：https://github.com/Liangxianguang/uav_capture
+
+======================================================================
+0. 本计划只解决一个问题
+======================================================================
+
+研究目标：
+    在冻结的三维部分可观测运动学合同下，验证 4 架追捕无人机能否在中央混合
+    静态障碍与持续逃逸目标场景中，借助“retained behavior cloning policy + CBF
+    安全执行层”稳定完成安全协同捕获。
+
+任务合同（任何步骤均不得改变）：
+    - 4 pursuers + 1 evader；捕获半径 r_capture = 0.80 m。
+    - Cooperative Safe Capture：首次捕获前无障碍物/机间碰撞、无越界，且至少
+      2/4 架追捕机进入中央障碍区域；目标不要求进入中央区。
+    - 环境：三维运动学、圆柱/立方体/墙体静态障碍、边界、固定时域。
+    - 观测：现有合成部分可观测条件（nominal、delay/noise/dropout）；不得称为
+      真实相机感知。
+    - 必须把 raw actor 与 policy + CBF 分开报告。CBF 是执行安全层，不能将其
+      安全收益全部归因于学习策略。
+
+本阶段的唯一近期目标：
+    用一个“固定墙体示范覆盖”单因素恢复，消除 V5 三 seed 复现中的固定墙体
+    回归不稳定；若恢复版本通过预注册的三 seed 开发验证，再第一次打开 V5
+    locked-test（647201）。
+
+不在本轮加入：
+    MAPPO、动态障碍、视觉检测器、PyBullet、真实动力学、实飞或 CBF 调参。
+    这些都会改变问题，不能用来掩盖当前固定墙体回归的失败。
+
+======================================================================
+1. 当前证据与准确结论（先固定，不重复运行）
+======================================================================
+
+[x] V4 正式历史基线已完成 3-seed S3 locked-test（647001）：
+    retained-BC + CBF Cooperative Safe Capture = 75.3% +/- 6.5%。
+
+[x] V5 shape-aware retained-BC 的三个开发训练结果如下；它们均只使用
+    development block 646101，尚不是 locked-test：
+
+    retained training seed       fixed CBF (cyl/box/wall/S2)    S3 CBF     gate
+    661602                       100/100/100/100%               55/60      PASS
+    661604                       100/100/100/100%               58/60      PASS
+    661606                       100/100/95/100%                59/60      FAIL
+
+    对 seed 661606：S3 + CBF 为 98.3%（59/60），Collision = 1.7%，
+    Boundary = 1.7%，Transit = 100%，但固定 s1_wall + CBF 是 19/20 = 95%，
+    因而不满足预注册的“每个固定场景 >= 98%”门槛。
+
+[x] seed 661606 的固定墙体失败可精确定位：
+    evaluation seed = 660514；35 steps 后 safety_failure；已满足 4/4 zone entry，
+    但发生碰撞，未捕获。它是诊断对象，不是允许从评估集挑选训练样本的理由。
+
+[ ] 因三个 seed 没有全部通过开发 gate，647201 未打开，不能声称 V5 已稳定，
+    不能发布 V5 locked-test 结论，也不能用 V5 替代 V4 正式基线。
+
+当前决策：
+    这不是“继续训练同一模型”或“重新随机跑到成功”为止的问题。唯一合理的
+    P3-A 分支是：先诊断固定墙体失败，再仅改善 fixed-stage 内墙体情形的示范
+    覆盖，保持训练预算、网络、随机 S3 archive、CBF 和任务判定不变。
+
+======================================================================
+2. 贯穿全程的冻结规则与产物规则
+======================================================================
+
+[ ] 开发 block 固定为 646101；V5 locked block 固定为 647201；V4 historical
+    locked block 为 647001。647201 和 647001 均不得用于模型、数据、CBF 参数或
+    可视化样例选择。
+[ ] 不改 capture 半径、2/4 条件、碰撞/边界规则、时域或 CBF default 参数来
+    提高成功率。
+[ ] 当前用户修改的 src/encirclement3d/pursuit_env.py 必须保持不暂存、不提交、
+    不覆盖、不回滚；开始本阶段前记录 SHA-256：
+    ea15252dcfd793ae0e3583cd5d8bb5c442f47490900b63aa131f275d1e4998fe。
+[ ] 每一次训练/评估记录：git commit、effective YAML、Python/PyTorch/CUDA/GPU、
+    code/config/checkpoint/archive/episode CSV 的 SHA-256、完整命令和 RNG seed。
+[ ] 不提交 checkpoint.pt、NPZ、CSV、TensorBoard event、GIF、MP4 等大文件；仅
+    提交代码、YAML、脚本、测试、文本报告、JSON manifest/summary。
+[ ] 每个决策都保留通过或拒绝报告；禁止删除负结果，禁止在同一 development
+    split 上无限试错。
+
+必须持续报告的 episode-level 指标：
+    Capture、Safe Capture、Cooperative Safe Capture、Collision、Boundary、Timeout、
+    Transit、Time-to-Capture、最小净空、每架路径长度、CBF correction（mean/
+    median/P95/max）及终止原因。
+
+======================================================================
+3. P0：先收口当前 V5 replication 证据（不训练）
+======================================================================
+
+目标：使已完成的三 seed 开发结果可审计，并纠正报告文字与事实不一致的问题。
+
+[ ] P0.1 审计三个 development summary：每个 checkpoint SHA 与训练目录一致；
+    raw/CBF 的 S3 静态地图、初始状态、目标 profile 与 episode seed 完全配对。
+[ ] P0.2 为 seed 661604、661606 补齐训练审计，分别写明 fixed warm-start、
+    两 source archive、equal-sequence 选择数、64 个有限 loss epoch 和 hashes。
+[ ] P0.3 修正 seed 661606 的 failure-analysis 模板文字。报告必须明确：
+    “S3 通过、固定 s1_wall 回归失败，因此该 seed 不可进入 locked-test，选择
+    P3-A 墙体覆盖恢复”；不得保留“fresh baseline recovery”的旧结论。
+[ ] P0.4 新建 CENTRAL_V5_THREE_SEED_DEVELOPMENT_REPLICATION_REPORT.md 和
+    对应 JSON：汇总 661602/661604/661606，结论为“2/3 通过，未打开 647201”。
+[ ] P0.5 为上述报告生成的脚本增加定向测试；仅从现有 artifacts 重建报告，不重训、
+    不重评估，也不修改结果文件。
+[ ] P0.6 运行相关 pytest；确认 git status 中 pursuit_env.py 仍为唯一用户代码
+    修改。提交并推送本阶段的文本报告/脚本/测试（G5）。
+
+通过条件：三 seed 状态、hash、失败原因与原始 artifact 一致。
+停止条件：若 artifact/hash 不一致，先查明复现性问题；在审计完成前不得做 P1。
+
+======================================================================
+4. P1：固定墙体失败诊断与数据变更预注册（不训练）
+======================================================================
+
+目标：判明 seed 660514 的失败机制，并在看任何新结果之前，把唯一允许的
+数据改动写成可复现的预注册合同。
+
+[ ] P1.1 以原 checkpoint、原 CBF-default、原地图和 seed 660514 做一次纯回放；
+    导出每个 timestep 的 pursuer/target pose、速度、action、CBF correction、最小
+    障碍/机间/边界距离、碰撞对象与 observation/message age。
+[ ] P1.2 与相同 fixed-wall batch 中成功 episode 对照，报告：发生何种碰撞、何时
+    偏离、是墙体净空还是机间净空主导、CBF 是否饱和、zone-entry 是否异常。
+[ ] P1.3 输出 WALL_FIXED_REGRESSION_DIAGNOSTIC.md、一个 top-down PNG 与一个
+    3D PNG。图是诊断证据，不作为模型选择的“好看样例”。
+[ ] P1.4 写 V5_WALL_COVERAGE_P3A_PREREGISTRATION.md/JSON，并在训练前冻结：
+    (a) 失败所属的泛化墙体情形及其可测的分桶条件；
+    (b) fixed archive 中被替换/补足的 wall demonstration 数量；
+    (c) 每个 layout 总数、总 accepted episode 数（仍为 640）与质量门槛；
+    (d) 新 expert seeds 的范围；明确排除所有 fixed evaluation seed（包括 660514）
+        及 646101/647201 评估 episode；
+    (e) 随机 S3 archive、网络、epoch、LR、action scale、CBF-default 都不变。
+
+P1 数据变更的唯一允许形式：
+    保持 fixed stage 的 layout 总量和训练总预算不变，仅在 wall layout 内以
+    安全且 cooperative 的 rule-expert demonstration 替换代表性不足的子情形。
+    不能增加其他 layout、难例 S3、观测增强、奖励项或策略网络；不能把失败地图
+    或其评估 seed 直接加入训练。
+
+通过条件：诊断能由逐步记录支持；预注册只改变“wall 子情形覆盖”一个因素。
+停止条件：若失败不是 wall coverage 可解释的问题（如环境/CBF 实现 bug），停止
+    数据恢复，先单独修复并重新审计合同；不得把 bug 当作学习方法收益。
+
+======================================================================
+5. P2：P3-A 墙体覆盖 pilot（唯一开发候选）
+======================================================================
+
+目标：用一个全新训练 seed 检验预注册的墙体覆盖是否同时修复固定回归，并不损害
+随机 S3 表现。该 pilot 只用于是否值得做三 seed 复现，不是正式结果。
+
+[ ] P2.1 新建专用 YAML/启动器，run_id 前缀统一为 wallcoverage_retained_；
+    不覆盖任何 shapeaware_retained_ 结果目录。
+[ ] P2.2 fixed stage 使用 seed 661701，retained stage 使用 seed 661702：
+    - fixed archive：640 个合格 safe + cooperative expert episode；layout 总量与
+      原 shape-aware fixed curriculum 相同，只有 wall 内子分桶按 P1 预注册替换；
+    - retained：从 fixed checkpoint warm-start；fixed/random 两 archive 选取完全
+      相同的 sequence 数；random archive 仍为冻结的 V5 random archive；
+    - 训练：64 epochs、LR = 5e-5、hidden_dim = 128、action_scale_mode = full_range。
+[ ] P2.3 训练审计：accepted/rejected、每 layout 与 wall 子桶覆盖、source balance、
+    initialization SHA、全部 finite loss、archive/checkpoint SHA 都必须写入。
+[ ] P2.4 固定回归：S1 cylinder、box、wall、S2 mixed；raw 和 CBF 各 20 episode，
+    沿用原固定地图与 seed。四项 CBF Cooperative Safe Capture 必须都 >= 98%。
+[ ] P2.5 S3 development：646101 中 raw 60 与 CBF 60。逐 episode 验证静态地图、
+    初始状态、target profile、episode seed 的 raw/CBF 完全配对。
+[ ] P2.6 输出 training audit、fixed regression、S3 summary、failure index 和
+    P3-A pilot decision report；报告困难组（delayed_noisy、3/4/5 obstacles、
+    narrow clearance、两种目标运动）的样本数和终止原因。
+
+P2 通过线（全部满足）：
+    - 4 个固定 CBF 回归均 >= 98%；
+    - S3 + CBF Cooperative Safe Capture >= 85%；Collision <= 2%；Boundary <= 2%；
+      Transit >= 99%；
+    - raw/CBF S3 静态场景 SHA 完全一致；
+    - 无训练完整性、示范安全性或 source-balance 问题。
+
+P2 决策：
+    全部通过 -> 冻结该唯一候选，进入 P3。
+    任一固定回归失败或 S3 退化 -> 写 P3-A_REJECTION_REPORT，停止 V5 调参；
+    保留 V4 作为正式基线，并将 V5 记为可解释的负结果。不得改第二个因素。
+
+======================================================================
+6. P3：冻结候选后的三 seed 开发复现
+======================================================================
+
+目标：避免把单个 pilot 误报为改进。P2 通过后，先冻结代码、YAML、数据构造规则
+和 CBF，再用三个独立训练 seed 验证稳定性。
+
+[ ] P3.1 创建 FROZEN_V5_WALL_COVERAGE_REPLICATION_MANIFEST.json，冻结 git commit、
+    P1 preregistration hash、fixed/random archive rules、CBF-default、训练预算、
+    评估协议、软件环境和目录命名。
+[ ] P3.2 三个独立 training pair：
+    fixed/retained = 661701/661702、661703/661704、661705/661706。
+    每个都从空的 wallcoverage_ 结果目录开始；不得复用前一模型 checkpoint。
+[ ] P3.3 对每个 retained checkpoint 完成训练审计、固定 S1/S2 raw/CBF 20 episode、
+    以及相同 646101 的配对 S3 raw/CBF 60 episode。
+[ ] P3.4 写 CENTRAL_V5_WALL_COVERAGE_THREE_SEED_DEVELOPMENT_REPORT.md/JSON：
+    每个 seed 独立列出门槛、困难分组、95% Wilson CI、checkpoint hash 和 paired
+    scene SHA；不得把 episode 当作独立 training seed。
+
+P3 开门规则：
+    只有 3/3 retained checkpoint 都满足 P2 全部开发门槛，才能第一次读取/运行
+    locked block 647201。只要 1 个失败，即写 three-seed rejection report，不打开
+    647201，不再调参。
+
+======================================================================
+7. P4：V5 S3 独立 locked-test（仅 P3 通过后）
+======================================================================
+
+目标：给出当前运动学合同下可重复的正式统计结论，而非展示性的单条轨迹。
+
+[ ] P4.1 在打开前提交/推送 P3 的冻结 manifest、三 seed development reports、
+    报告生成脚本和定向测试；锁定本地 git commit 与环境信息。
+[ ] P4.2 对三个 checkpoint 分别运行 647201 的 S3 raw 100 与 S3 + CBF 100 episode。
+    每个 raw/CBF 对必须使用同一 checkpoint、静态地图、初始状态、target profile
+    与 episode seed，且检查 static-scene SHA 完全相同。
+[ ] P4.3 使用既有 locked 聚合器生成 NEXT_PHASE_LOCKED_TEST_SUMMARY.json、
+    NEXT_PHASE_LOCKED_TEST_REPORT.md 和 NEXT_PHASE_POLICY_FAILURE_ANALYSIS_REPORT.md。
+[ ] P4.4 报告每 seed、3-seed mean +/- sample std、Cooperative Safe Capture 的
+    Wilson 95% CI、困难分组、终止原因、最小净空、路径长度、CBF correction，及与
+    V4 locked-test 的绝对差和相对差。V4 只作历史基线，不参与选择。
+
+V5 正式通过线：
+    三个 seed 均满足：S3 + CBF Cooperative Safe Capture >= 85%，Collision <= 2%，
+    Boundary <= 2%，Transit >= 99%，且 raw/CBF 配对检查通过。
+
+结论模板：
+    全部通过 -> “在本冻结的三维、合成部分可观测、静态混合障碍、运动学合同下，
+    retained-BC + CBF 可稳定完成协同安全捕获”。
+    未通过 -> “开发候选有效但没有在独立 locked-test 稳定复现”；不得使用“稳健”、
+    “泛化”或“真实无人机捕获”等过强表述。
+
+======================================================================
+8. P5：可视化与论文最小证据包（只在 P4 后）
+======================================================================
+
+[ ] P5.1 只从 locked 647201 选择媒体：成功样例采用最小 episode index 的成功轨迹；
+    若存在失败，失败样例采用最小 episode index 的真实失败；若无失败，选择 CBF
+    correction 最大的成功样例并明确标为“困难成功”，不伪造失败。
+[ ] P5.2 每个样例导出 top-down PNG、3D PNG、GIF、H.264 MP4、trajectory.npz 和
+    episode.json；显示三类障碍、起点、轨迹、动态捕获圈、捕获高亮、冻结帧和
+    Capture 标记。媒体与 episode/trajectory 用 SHA-256 关联。
+[ ] P5.3 主表至少含：V4 retained-BC + CBF、V5 final raw、V5 final + CBF、
+    rule expert + CBF（可行性上界，非学习基线）；raw/CBF 分列。
+[ ] P5.4 论文/README 说明边界：当前的“捕获”是进入几何捕获半径的事件，不代表
+    物理接触、碰撞吸附、网捕、目标失能或实飞成功。
+
+======================================================================
+9. V5 收口后才启动的真实性扩展（独立课题，不混入本轮结论）
+======================================================================
+
+E1 动力学转移（优先级最高）
+[ ] 冻结 V5 策略和 CBF，先不重训；向执行模型逐项加入速度/加速度限制、转角/姿态
+    限制、控制滞后、执行噪声。
+[ ] 每次只改变一种动力学失配，保留纯运动学 oracle 对照；报告捕获率、碰撞、
+    轨迹可行性、控制饱和比例与性能退化曲线。
+[ ] 若需重训，将其命名为新研究问题，重新划分 train/development/locked，不与 V5
+    运动学结论合并。
+
+E2 合成感知闭环（优先级第二）
+[ ] 在冻结的几何环境中引入 FOV、障碍遮挡、漏检、检测位置噪声和延迟；目标位置
+    只能由带时间戳的 tracker state 提供。
+[ ] 同时保留 oracle observation 对照；报告可见率、观测年龄、漏检率、重捕获时间
+    和对 Cooperative Safe Capture 的影响。
+[ ] 不将该合成传感器称为真实视觉；真实检测器接入另立数据集与标定协议。
+
+E3 OOD 静态地图
+[ ] 冻结策略，仅测试未见障碍尺寸、密度、非对称布局和通道宽度；ID/OOD 分表。
+[ ] 每张地图先由 rule expert + CBF 验证存在安全可行解；无解地图单列为不可行，
+    不计入策略失败。
+
+E4 最后阶段
+[ ] 动态障碍、多目标、真实检测器、PyBullet/SITL/实飞均需单独的环境定义、可行性
+    oracle、风险控制和独立数据划分；它们是下一篇工作，不是 V5 的补丁。
+
+======================================================================
+10. 提交节点与最终完成判据
+======================================================================
+
+[ ] G5：P0 三 seed replication 审计与报告修正。
+[ ] G6：P1 失败诊断、P3-A 预注册、数据构造 YAML/脚本/测试。
+[ ] G7：P2 pilot 的训练审计、开发验证与通过/拒绝报告。
+[ ] G8：P3 frozen manifest、三 seed development report、P4 locked-test report、
+    failure analysis 和 P5 证据说明。
+[ ] 每个节点先执行相关 tests，再 git push origin main；禁止 force push。
+
+本轮真正完成的定义：
+    不是“生成一个捕获视频”，而是 P4 的三个独立 locked-test seed 全部达到通过线，
+    并具备逐回合 artifact、配对检查、hash、失败分析和锁定后可视化证据。
