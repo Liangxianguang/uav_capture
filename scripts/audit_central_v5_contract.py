@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 from typing import Any
 
 import numpy as np
@@ -110,6 +111,45 @@ def _run_artifacts(run_dir: Path | None) -> dict[str, Any] | None:
     return result
 
 
+def _source_integrity(run_dir: Path | None) -> dict[str, Any] | None:
+    """Compare recorded training hashes to the active workspace without editing it."""
+    if run_dir is None:
+        return None
+    hash_path = run_dir.resolve() / "source_hashes.json"
+    if not hash_path.is_file():
+        return {"source_hashes_present": False}
+    recorded = json.loads(hash_path.read_text(encoding="utf-8"))
+    if not isinstance(recorded, dict):
+        raise ValueError("source_hashes.json must contain an object.")
+    rows: list[dict[str, Any]] = []
+    for relative, expected in sorted(recorded.items()):
+        path = PROJECT_ROOT / relative
+        actual = _sha256(path) if path.is_file() else None
+        rows.append(
+            {
+                "path": relative,
+                "present": path.is_file(),
+                "matches_recorded_hash": actual == expected,
+                "recorded_sha256": expected,
+                "current_sha256": actual,
+            }
+        )
+    status = subprocess.run(
+        ["git", "status", "--short", "--", *[str(row["path"]) for row in rows]],
+        cwd=PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    dirty_paths = [line[3:].strip().replace("\\", "/") for line in status.stdout.splitlines() if len(line) > 3]
+    return {
+        "source_hashes_present": True,
+        "all_recorded_sources_match_workspace": all(row["matches_recorded_hash"] for row in rows),
+        "workspace_dirty_recorded_sources": dirty_paths,
+        "sources": rows,
+    }
+
+
 def _retention_report_evidence(path: Path | None) -> dict[str, Any]:
     if path is None:
         return {"present": False, "fixed_archive_declared": False, "equal_sequence_balancing_declared": False}
@@ -176,6 +216,7 @@ def audit(
         and not findings["fixed_archive_inherited"]
         and findings["v5_uses_local_collection"]
     )
+    source_integrity = _source_integrity(run_dir)
     return {
         "audit_type": "central_v4_v5_retained_bc_contract",
         "v4_config": str(v4_config_path.resolve()),
@@ -186,6 +227,7 @@ def audit(
         "v4_retention_evidence": retention_evidence,
         "findings": findings,
         "run_artifacts": _run_artifacts(run_dir),
+        "source_integrity": source_integrity,
         "interpretation": (
             "V5 does not inherit the V4 fixed-scene archive and therefore cannot be treated as a faithful "
             "retained-BC reconstruction. Recover fixed-scene coverage before hard-example training."
@@ -222,6 +264,18 @@ def render_markdown(document: dict[str, Any]) -> str:
     lines.extend(["", "## Decision", "", f"{document['interpretation']}", ""])
     if document.get("run_artifacts"):
         lines.extend(["## V5 run artifact snapshot", "", "```json", json.dumps(document["run_artifacts"], indent=2), "```", ""])
+    integrity = document.get("source_integrity")
+    if integrity:
+        lines.extend(
+            [
+                "## Source integrity",
+                "",
+                f"- Recorded sources match active workspace: `{integrity.get('all_recorded_sources_match_workspace')}`",
+                f"- Dirty recorded source paths: `{', '.join(integrity.get('workspace_dirty_recorded_sources', [])) or 'none'}`",
+                "- Dirty sources are not modified by this audit. They must remain hash-pinned in any follow-up result.",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 

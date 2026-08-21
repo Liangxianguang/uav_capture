@@ -184,5 +184,63 @@
       ]
     }
   },
+  "source_integrity": {
+    "source_hashes_present": true,
+    "all_recorded_sources_match_workspace": true,
+    "workspace_dirty_recorded_sources": [
+      "src/encirclement3d/pursuit_env.py"
+    ],
+    "sources": [
+      {
+        "path": "scripts/train_capture_radius_recurrent_behavior_cloning.py",
+        "present": true,
+        "matches_recorded_hash": true,
+        "recorded_sha256": "5a45b1d43280551dbf57b4eadd94ff945fae971e5333e8f1a4a4da00077dfd6c",
+        "current_sha256": "5a45b1d43280551dbf57b4eadd94ff945fae971e5333e8f1a4a4da00077dfd6c"
+      },
+      {
+        "path": "src/encirclement3d/learning.py",
+        "present": true,
+        "matches_recorded_hash": true,
+        "recorded_sha256": "2cb49096c19d8e82966ff503f16e59151fa2d310b12168e44f3418b7779780fd",
+        "current_sha256": "2cb49096c19d8e82966ff503f16e59151fa2d310b12168e44f3418b7779780fd"
+      },
+      {
+        "path": "src/encirclement3d/observation_encoding.py",
+        "present": true,
+        "matches_recorded_hash": true,
+        "recorded_sha256": "7fc2328cabda73971f141bc60682c01899d2fcff4270a3bf49f883921a84f8f6",
+        "current_sha256": "7fc2328cabda73971f141bc60682c01899d2fcff4270a3bf49f883921a84f8f6"
+      },
+      {
+        "path": "src/encirclement3d/prediction.py",
+        "present": true,
+        "matches_recorded_hash": true,
+        "recorded_sha256": "6fb10e1c0768140a6d62244c27f20e11071d04aa0a7622c176d0fedf60136423",
+        "current_sha256": "6fb10e1c0768140a6d62244c27f20e11071d04aa0a7622c176d0fedf60136423"
+      },
+      {
+        "path": "src/encirclement3d/pursuit_controllers.py",
+        "present": true,
+        "matches_recorded_hash": true,
+        "recorded_sha256": "86a4b1e0e0ba49ebf69d1a78e17ba1d29caa06d58737366ee7fd1ac36d8fe680",
+        "current_sha256": "86a4b1e0e0ba49ebf69d1a78e17ba1d29caa06d58737366ee7fd1ac36d8fe680"
+      },
+      {
+        "path": "src/encirclement3d/pursuit_env.py",
+        "present": true,
+        "matches_recorded_hash": true,
+        "recorded_sha256": "ea15252dcfd793ae0e3583cd5d8bb5c442f47490900b63aa131f275d1e4998fe",
+        "current_sha256": "ea15252dcfd793ae0e3583cd5d8bb5c442f47490900b63aa131f275d1e4998fe"
+      },
+      {
+        "path": "src/encirclement3d/showcase.py",
+        "present": true,
+        "matches_recorded_hash": true,
+        "recorded_sha256": "6820e1ca62b15e86e3381d0cbda0d02b43a0974d2ff387fbdeefc2710eba3092",
+        "current_sha256": "6820e1ca62b15e86e3381d0cbda0d02b43a0974d2ff387fbdeefc2710eba3092"
+      }
+    ]
+  },
   "interpretation": "V5 does not inherit the V4 fixed-scene archive and therefore cannot be treated as a faithful retained-BC reconstruction. Recover fixed-scene coverage before hard-example training."
 }

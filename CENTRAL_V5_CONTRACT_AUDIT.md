@@ -82,3 +82,9 @@ V5 does not inherit the V4 fixed-scene archive and therefore cannot be treated a
   }
 }
 ```
+
+## Source integrity
+
+- Recorded sources match active workspace: `True`
+- Dirty recorded source paths: `src/encirclement3d/pursuit_env.py`
+- Dirty sources are not modified by this audit. They must remain hash-pinned in any follow-up result.

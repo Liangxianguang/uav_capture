@@ -136,6 +136,37 @@ def _artifact_metrics(directory: Path, *, mode: str, s3: bool) -> dict[str, Any]
     }
 
 
+def _static_scene_digest(path: Path) -> tuple[str, int]:
+    """Hash only scenario inputs, excluding mode-dependent rollout outcomes."""
+    records: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if not isinstance(record, dict):
+            raise ValueError(f"{path} contains a non-object scene record.")
+        static = {key: record[key] for key in ("episode_index", "spec", "scenario")}
+        records.append(json.dumps(static, sort_keys=True, separators=(",", ":")))
+    if len(records) != 60:
+        raise ValueError(f"{path} has {len(records)} scenes, expected 60.")
+    digest = hashlib.sha256("\n".join(records).encode("utf-8")).hexdigest()
+    return digest, len(records)
+
+
+def _validate_s3_scene_pairing(raw_directory: Path, cbf_directory: Path) -> dict[str, Any]:
+    raw_digest, raw_count = _static_scene_digest(raw_directory / "scenes.jsonl")
+    cbf_digest, cbf_count = _static_scene_digest(cbf_directory / "scenes.jsonl")
+    paired = raw_digest == cbf_digest and raw_count == cbf_count
+    if not paired:
+        raise ValueError("V5 S3 raw and CBF artifacts do not use identical static scenes.")
+    return {
+        "static_scenes_exactly_paired": True,
+        "episodes": raw_count,
+        "raw_static_scene_sha256": raw_digest,
+        "cbf_static_scene_sha256": cbf_digest,
+    }
+
+
 def _training_quality(run_dir: Path) -> dict[str, Any]:
     manifest = _read_json(run_dir / "expert_dataset_manifest.json")
     effective = yaml.safe_load((run_dir / "config.yaml").read_text(encoding="utf-8"))
@@ -191,6 +222,10 @@ def collect(run_dir: Path, evaluation_root: Path, run_id: str) -> dict[str, Any]
         mode: _read_json(evaluation_root / f"{run_id}_s3_validation_{mode}_60" / "failure_index.json")
         for mode in MODES
     }
+    scene_pairing = _validate_s3_scene_pairing(
+        evaluation_root / f"{run_id}_s3_validation_raw_60",
+        evaluation_root / f"{run_id}_s3_validation_cbf_60",
+    )
     quality = _training_quality(run_dir)
     cbf = s3["cbf"]["metrics"]
     fixed_cbf_rates = [fixed[scene]["cbf"]["metrics"]["cooperative_safe_capture_rate"] for scene in FIXED_SCENES]
@@ -209,6 +244,7 @@ def collect(run_dir: Path, evaluation_root: Path, run_id: str) -> dict[str, Any]
         "fixed_regression": fixed,
         "s3_validation": s3,
         "failure_indices": failure_indices,
+        "s3_scene_pairing": scene_pairing,
         "candidate_gates": gates,
         "candidate_gate_passed": all(gates.values()) and quality["passed"],
     }
@@ -274,6 +310,17 @@ def render_markdown(aggregate: dict[str, Any]) -> str:
             f"{correction['mean']:.3f} / {correction['median']:.3f} / {correction['p95']:.3f} |"
         )
 
+    pairing = aggregate["s3_scene_pairing"]
+    lines.extend(
+        [
+            "",
+            "## S3 Raw/CBF Pairing",
+            "",
+            f"- Static maps, initial positions, target profile, and episode seeds exactly paired: `{pairing['static_scenes_exactly_paired']}`",
+            f"- Static-scene SHA-256: `{pairing['raw_static_scene_sha256']}`",
+        ]
+    )
+
     labels = {
         "observation_condition": "Observation condition",
         "obstacle_count": "Obstacle count",
@@ -305,6 +352,46 @@ def render_markdown(aggregate: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_policy_failure_report(aggregate: dict[str, Any]) -> str:
+    """Render the short decision record that selects the next P2 branch."""
+    raw = aggregate["s3_validation"]["raw"]["metrics"]
+    cbf = aggregate["s3_validation"]["cbf"]["metrics"]
+    raw_index = aggregate["failure_indices"]["raw"]["summary"]
+    cbf_index = aggregate["failure_indices"]["cbf"]["summary"]
+    fixed = aggregate["fixed_regression"]
+    fixed_cbf = {
+        scene: artifact["cbf"]["metrics"]["cooperative_safe_capture_rate"] for scene, artifact in fixed.items()
+    }
+    lines = [
+        "# V5 Policy Failure Analysis",
+        "",
+        "This is a development-validation diagnostic for one training seed. It does not open the V5 next locked-test block.",
+        "",
+        "## Paired S3 result",
+        "",
+        f"- Raw/CBF static scenes exactly paired: `{aggregate['s3_scene_pairing']['static_scenes_exactly_paired']}`",
+        f"- Raw Cooperative Safe Capture: `{raw['cooperative_safe_capture_successes']}/{raw['episodes']}`; collision `{100.0 * raw['collision_rate']:.1f}%`.",
+        f"- CBF Cooperative Safe Capture: `{cbf['cooperative_safe_capture_successes']}/{cbf['episodes']}`; collision `{100.0 * cbf['collision_rate']:.1f}%`; boundary `{100.0 * cbf['boundary_violation_rate']:.1f}%`.",
+        f"- Raw failure stages: `{raw_index['failure_stages']}`.",
+        f"- CBF failure stages: `{cbf_index['failure_stages']}`.",
+        "",
+        "## Fixed-scene regression",
+        "",
+    ]
+    for scene, rate in fixed_cbf.items():
+        lines.append(f"- `{scene}` CBF Cooperative Safe Capture: `{100.0 * rate:.1f}%`.")
+    lines.extend(
+        [
+            "",
+            "## Decision",
+            "",
+            "The raw actor fails before task-level pursuit in every S3 episode, while CBF removes collisions but leaves distributed timeouts. Together with the V4/V5 contract audit, this rejects the fresh V5 baseline as a candidate and selects P2-0 fixed-contract recovery: equal-sequence training on a newly collected fixed S1/S2 archive plus the frozen V5 random archive. Do not start MAPPO, change CBF margins, or open seed block 647201 before this data-only recovery passes fixed regression.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
@@ -312,6 +399,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-md", type=Path, required=True)
+    parser.add_argument("--output-failure-md", type=Path)
     return parser.parse_args()
 
 
@@ -320,6 +408,8 @@ def main() -> None:
     aggregate = collect(args.run_dir.resolve(), args.evaluation_root.resolve(), args.run_id)
     args.output_json.write_text(json.dumps(aggregate, indent=2), encoding="utf-8")
     args.output_md.write_text(render_markdown(aggregate), encoding="utf-8")
+    if args.output_failure_md is not None:
+        args.output_failure_md.write_text(render_policy_failure_report(aggregate), encoding="utf-8")
     print(json.dumps({"output_json": str(args.output_json), "output_md": str(args.output_md)}, indent=2))
 
 

@@ -96,5 +96,6 @@ Invoke-V5Python @(
     "--evaluation-root", $EvaluationRoot,
     "--run-id", $RunId,
     "--output-json", $OutputJson,
-    "--output-md", $OutputMarkdown
+    "--output-md", $OutputMarkdown,
+    "--output-failure-md", "S3_POLICY_FAILURE_ANALYSIS_REPORT.md"
 )

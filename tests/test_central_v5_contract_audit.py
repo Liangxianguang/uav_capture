@@ -2,9 +2,12 @@
 
 from pathlib import Path
 
+import json
+import hashlib
+import pytest
 import yaml
 
-from scripts.audit_central_v5_contract import audit
+from scripts.audit_central_v5_contract import _source_integrity, audit
 
 
 def _write_config(path: Path, *, datasets: list[str], balance: str | None, stages: list[dict]) -> None:
@@ -77,3 +80,23 @@ def test_recovery_yaml_declares_fixed_and_random_sources() -> None:
     assert len(settings["expert_datasets"]) == 2
     assert "fixed_contract_archive" in settings["expert_datasets"][0]
     assert "bc_baseline_seed661401" in settings["expert_datasets"][1]
+
+
+def test_source_integrity_validates_recorded_training_hashes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import scripts.audit_central_v5_contract as module
+
+    project = tmp_path / "project"
+    project.mkdir()
+    source = project / "source.py"
+    source.write_text("value = 1\n", encoding="utf-8")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    run_dir.joinpath("source_hashes.json").write_text(
+        json.dumps({"source.py": hashlib.sha256(source.read_bytes()).hexdigest()}), encoding="utf-8"
+    )
+    monkeypatch.setattr(module, "PROJECT_ROOT", project)
+
+    result = _source_integrity(run_dir)
+
+    assert result is not None
+    assert result["all_recorded_sources_match_workspace"] is True
