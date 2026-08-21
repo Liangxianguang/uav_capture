@@ -1,0 +1,93 @@
+{
+  "experiment": "central_v5_shapeaware_retained_bc_p4_replication",
+  "frozen_after_one_seed_development_validation": true,
+  "development_checkpoint": {
+    "run_id": "shapeaware_retained_seed661602",
+    "checkpoint_sha256": "849b5fd97664e7d11d0d96d9a95c2e4c0179dcdcaf3d720b51a516b50e313ae4",
+    "development_seed_block": 646101,
+    "candidate_gate_passed": true
+  },
+  "task_contract": {
+    "pursuers": 4,
+    "evaders": 1,
+    "capture_radius_m": 0.8,
+    "required_defender_zone_entries": 2,
+    "target_zone_entry_required": false,
+    "execution_stack": "policy_plus_cbf",
+    "raw_actor_reported_separately": true
+  },
+  "training_contract": {
+    "fixed_stage": {
+      "episodes": 640,
+      "curriculum": "v4_shape_aware_three_stage",
+      "learning_rate": 0.0003,
+      "epochs": 96,
+      "hidden_dim": 128,
+      "action_scale_mode": "full_range"
+    },
+    "retained_stage": {
+      "source_balance": "equal_sequences",
+      "sources": [
+        "new_fixed_shapeaware_archive",
+        "frozen_v5_random_archive_seed661401"
+      ],
+      "learning_rate": 0.00005,
+      "epochs": 64,
+      "hidden_dim": 128,
+      "action_scale_mode": "full_range"
+    }
+  },
+  "evaluation_contract": {
+    "fixed_scenes": {
+      "seed": 660501,
+      "episodes_per_scene_and_mode": 20,
+      "scenes": [
+        "s1_cylinder",
+        "s1_box",
+        "s1_wall",
+        "s2"
+      ]
+    },
+    "s3_development": {
+      "seed_block": 646101,
+      "episodes_per_mode": 60,
+      "raw_and_cbf_static_scenes_must_match": true
+    },
+    "s3_locked": {
+      "seed_block": 647201,
+      "episodes_per_checkpoint": 100,
+      "not_opened": true
+    }
+  },
+  "development_gate": {
+    "s3_cooperative_safe_capture_at_least": 0.85,
+    "s3_collision_at_most": 0.02,
+    "s3_boundary_at_most": 0.02,
+    "s3_transit_at_least": 0.99,
+    "all_fixed_cbf_cooperative_safe_capture_at_least": 0.98
+  },
+  "replication_seed_pairs": [
+    {
+      "fixed_seed": 661603,
+      "retained_seed": 661604,
+      "run_id": "shapeaware_retained_seed661604"
+    },
+    {
+      "fixed_seed": 661605,
+      "retained_seed": 661606,
+      "run_id": "shapeaware_retained_seed661606"
+    }
+  ],
+  "runtime": {
+    "python": "3.11.15",
+    "pytorch": "2.7.1+cu126",
+    "cuda": "12.6",
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU"
+  },
+  "user_owned_dirty_source": {
+    "path": "src/encirclement3d/pursuit_env.py",
+    "sha256_during_development": "ea15252dcfd793ae0e3583cd5d8bb5c442f47490900b63aa131f275d1e4998fe",
+    "staged_or_committed_by_this_plan": false
+  },
+  "locked_test_open_condition": "All three retained checkpoints pass the frozen development gate."
+}
