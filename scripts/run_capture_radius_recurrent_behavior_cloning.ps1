@@ -9,7 +9,8 @@ param(
     [int]$SequenceLength = 32,
     [int]$SequenceBatchSize = 16,
     [int]$PredictionHistoryLength = 8,
-    [int]$PredictionHorizonIndex = 2
+    [int]$PredictionHorizonIndex = 2,
+    [switch]$ResumeExpertCollection
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,6 +32,9 @@ if (-not [string]::IsNullOrWhiteSpace($PredictionCheckpoint)) {
         "--prediction-history-length", $PredictionHistoryLength,
         "--prediction-horizon-index", $PredictionHorizonIndex
     )
+}
+if ($ResumeExpertCollection) {
+    $Arguments += "--resume-expert-collection"
 }
 & conda run @Arguments
 if ($LASTEXITCODE -ne 0) { throw "Recurrent behavior cloning failed with exit code $LASTEXITCODE." }

@@ -189,3 +189,41 @@ def test_recurrent_bc_warm_start_requires_a_compatible_checkpoint(tmp_path: Path
     assert metadata is not None
     assert metadata["source_seed"] == 42
     assert torch.equal(target.actor_base_body[0].weight, source.actor_base_body[0].weight)
+
+
+def test_expert_collection_checkpoint_round_trips_exact_resume_state(tmp_path: Path) -> None:
+    rng = np.random.default_rng(661401)
+    rng.random(5)
+    expected_next_random = float(rng.random())
+    rng = np.random.default_rng(661401)
+    rng.random(5)
+    local = np.arange(2 * 4 * 63, dtype=np.float32).reshape(2, 4, 63)
+    actions = np.zeros((2, 4, 3), dtype=np.float32)
+    resets = np.array([1.0, 0.0], dtype=np.float32)
+    accepted = [{"episode": 0, "seed": 661401, "accepted": True}]
+    rejected = [{"episode": None, "seed": 661402, "accepted": False}]
+
+    TRAINER.write_collection_checkpoint(
+        tmp_path,
+        local_frames=local,
+        action_frames=actions,
+        reset_frames=resets,
+        accepted_rows=accepted,
+        rejected_rows=rejected,
+        total_attempts=2,
+        centralized_state_dim=46,
+        rng_state=rng.bit_generator.state,
+    )
+    restored = TRAINER.load_collection_checkpoint(tmp_path)
+
+    restored_local, restored_actions, restored_resets, restored_accepted, restored_rejected, attempts, state_dim, state = restored
+    restored_rng = np.random.default_rng()
+    restored_rng.bit_generator.state = state
+    assert np.array_equal(restored_local, local)
+    assert np.array_equal(restored_actions, actions)
+    assert np.array_equal(restored_resets, resets)
+    assert restored_accepted == accepted
+    assert restored_rejected == rejected
+    assert attempts == 2
+    assert state_dim == 46
+    assert float(restored_rng.random()) == expected_next_random

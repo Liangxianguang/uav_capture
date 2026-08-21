@@ -42,6 +42,11 @@ def parse_args() -> argparse.Namespace:
         help="Reuse a prior expert_sequence_dataset.npz after verifying its manifest.",
     )
     parser.add_argument(
+        "--resume-expert-collection",
+        action="store_true",
+        help="Resume an interrupted locally collected expert archive in --output.",
+    )
+    parser.add_argument(
         "--initialize-from",
         type=Path,
         help="Initialize the recurrent actor from a compatible audited checkpoint.",
@@ -161,6 +166,114 @@ def expert_episode_quality(
     }
 
 
+def collection_checkpoint_paths(output: Path) -> tuple[Path, Path]:
+    """Return the data and metadata paths for an interrupted expert collection."""
+    return output / "expert_collection_checkpoint.npz", output / "expert_collection_progress.json"
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(f"Cannot serialize {type(value).__name__} to JSON.")
+
+
+def write_collection_checkpoint(
+    output: Path,
+    *,
+    local_frames: np.ndarray,
+    action_frames: np.ndarray,
+    reset_frames: np.ndarray,
+    accepted_rows: list[dict[str, Any]],
+    rejected_rows: list[dict[str, Any]],
+    total_attempts: int,
+    centralized_state_dim: int,
+    rng_state: dict[str, Any],
+) -> None:
+    """Atomically persist only the raw expert collection needed for resumption."""
+    data_path, metadata_path = collection_checkpoint_paths(output)
+    temporary_data_path = data_path.with_name(f"{data_path.stem}.tmp.npz")
+    temporary_metadata_path = metadata_path.with_name(f"{metadata_path.stem}.tmp.json")
+    np.savez_compressed(
+        temporary_data_path,
+        local_observations=local_frames,
+        actions=action_frames,
+        reset_masks=reset_frames,
+    )
+    temporary_data_path.replace(data_path)
+    temporary_metadata_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "accepted_episodes": len(accepted_rows),
+                "rejected_episodes": len(rejected_rows),
+                "collection_attempts": int(total_attempts),
+                "centralized_state_dim": int(centralized_state_dim),
+                "rng_state": rng_state,
+                "episodes": accepted_rows,
+                "rejected_expert_episodes": rejected_rows,
+            },
+            indent=2,
+            default=_json_default,
+        ),
+        encoding="utf-8",
+    )
+    temporary_metadata_path.replace(metadata_path)
+
+
+def load_collection_checkpoint(output: Path) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    int,
+    int,
+    dict[str, Any],
+]:
+    """Load one compatible interrupted collection without changing episode order."""
+    data_path, metadata_path = collection_checkpoint_paths(output)
+    if not data_path.is_file() or not metadata_path.is_file():
+        raise FileNotFoundError("Expert collection checkpoint and progress JSON must both exist to resume.")
+    with np.load(data_path) as archive:
+        required = {"local_observations", "actions", "reset_masks"}
+        missing = sorted(required.difference(archive.files))
+        if missing:
+            raise ValueError(f"Expert collection checkpoint is missing: {', '.join(missing)}")
+        local_frames = np.asarray(archive["local_observations"], dtype=np.float32)
+        action_frames = np.asarray(archive["actions"], dtype=np.float32)
+        reset_frames = np.asarray(archive["reset_masks"], dtype=np.float32)
+    if local_frames.ndim != 3 or action_frames.shape != (*local_frames.shape[:2], 3):
+        raise ValueError("Expert collection checkpoint has incompatible local-observation or action shapes.")
+    if reset_frames.shape != (local_frames.shape[0],):
+        raise ValueError("Expert collection checkpoint has incompatible reset-mask shape.")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not isinstance(metadata, dict) or int(metadata.get("schema_version", -1)) != 1:
+        raise ValueError("Expert collection progress JSON has an unsupported schema.")
+    accepted_rows = metadata.get("episodes")
+    rejected_rows = metadata.get("rejected_expert_episodes")
+    rng_state = metadata.get("rng_state")
+    if not isinstance(accepted_rows, list) or not isinstance(rejected_rows, list) or not isinstance(rng_state, dict):
+        raise ValueError("Expert collection progress JSON is missing resumable episode data.")
+    if int(metadata.get("accepted_episodes", -1)) != len(accepted_rows):
+        raise ValueError("Expert collection accepted episode count is inconsistent.")
+    if int(metadata.get("rejected_episodes", -1)) != len(rejected_rows):
+        raise ValueError("Expert collection rejected episode count is inconsistent.")
+    total_attempts = int(metadata.get("collection_attempts", -1))
+    centralized_state_dim = int(metadata.get("centralized_state_dim", -1))
+    if total_attempts < len(accepted_rows) or centralized_state_dim <= 0:
+        raise ValueError("Expert collection progress JSON has invalid counters.")
+    return (
+        local_frames,
+        action_frames,
+        reset_frames,
+        accepted_rows,
+        rejected_rows,
+        total_attempts,
+        centralized_state_dim,
+        rng_state,
+    )
+
+
 def collect_expert_dataset(
     config: dict[str, Any],
     settings: dict[str, Any],
@@ -168,12 +281,15 @@ def collect_expert_dataset(
     prediction_model: HistoryTargetPredictor | None,
     prediction_history_length: int,
     prediction_horizon_index: int,
+    *,
+    output: Path | None = None,
+    resume: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any], int]:
     seed = int(settings["seed"])
     rng = np.random.default_rng(seed)
-    local_frames: list[np.ndarray] = []
-    action_frames: list[np.ndarray] = []
-    reset_frames: list[bool] = []
+    local_chunks: list[np.ndarray] = []
+    action_chunks: list[np.ndarray] = []
+    reset_chunks: list[np.ndarray] = []
     episode_rows: list[dict[str, Any]] = []
     centralized_state_dim: int | None = None
     requested_episodes = int(settings["episodes"])
@@ -183,80 +299,146 @@ def collect_expert_dataset(
     accepted_episodes = 0
     total_attempts = 0
     rejected_rows: list[dict[str, Any]] = []
-    while accepted_episodes < requested_episodes:
-        if total_attempts >= requested_episodes * maximum_attempts_per_episode:
-            raise RuntimeError(
-                "Unable to collect the requested number of accepted expert episodes within "
-                "expert_max_attempts_per_episode. Inspect rejected_expert_episodes in the manifest."
-            )
-        rollout_seed = seed + total_attempts
-        env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
-        observation, episode_metadata = sample_training_episode(
-            env,
-            settings,
-            rng,
-            seed=rollout_seed,
-            progress=accepted_episodes / max(requested_episodes - 1, 1),
-        )
-        controller = SafetyFilteredPursuitController(DynamicEncirclementController(env))
-        observer = (
-            LearnedPredictionObserver(
+    checkpoint_interval = int(settings.get("expert_collection_checkpoint_every_accepted_episodes", 0))
+    if checkpoint_interval < 0:
+        raise ValueError("expert_collection_checkpoint_every_accepted_episodes must be non-negative.")
+    if resume:
+        if output is None:
+            raise ValueError("Resuming expert collection requires an output directory.")
+        (
+            previous_local,
+            previous_actions,
+            previous_resets,
+            episode_rows,
+            rejected_rows,
+            total_attempts,
+            previous_state_dim,
+            rng_state,
+        ) = load_collection_checkpoint(output)
+        rng.bit_generator.state = rng_state
+        local_chunks.append(previous_local)
+        action_chunks.append(previous_actions)
+        reset_chunks.append(previous_resets)
+        accepted_episodes = len(episode_rows)
+        centralized_state_dim = previous_state_dim
+        if accepted_episodes >= requested_episodes:
+            raise ValueError("Resumable expert collection already has the requested number of accepted episodes.")
+    attempt_committed = True
+    rng_state_before_attempt: dict[str, Any] | None = None
+    try:
+        while accepted_episodes < requested_episodes:
+            if total_attempts >= requested_episodes * maximum_attempts_per_episode:
+                raise RuntimeError(
+                    "Unable to collect the requested number of accepted expert episodes within "
+                    "expert_max_attempts_per_episode. Inspect rejected_expert_episodes in the manifest."
+                )
+            attempt_committed = False
+            rng_state_before_attempt = rng.bit_generator.state
+            rollout_seed = seed + total_attempts
+            env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
+            observation, episode_metadata = sample_training_episode(
                 env,
-                prediction_model,
-                device,
-                history_length=prediction_history_length,
-                horizon_index=prediction_horizon_index,
+                settings,
+                rng,
+                seed=rollout_seed,
+                progress=accepted_episodes / max(requested_episodes - 1, 1),
             )
-            if prediction_model is not None
-            else None
-        )
-        local = observe(env, observer, observation, reset=True)
-        if centralized_state_dim is None:
-            centralized_state_dim = int(env.centralized_state().shape[-1])
-        rollout_local_frames: list[np.ndarray] = []
-        rollout_action_frames: list[np.ndarray] = []
-        rollout_reset_frames: list[bool] = []
-        obstacle_zone_x = episode_metadata.get("obstacle_zone_x")
-        defender_zone_entered = np.zeros(env.n_defenders, dtype=bool)
-        if obstacle_zone_x is not None:
-            low, high = (float(value) for value in obstacle_zone_x)
-            defender_zone_entered |= (env.defender_positions[:, 0] >= low) & (env.defender_positions[:, 0] <= high)
-        while True:
-            rollout_local_frames.append(local)
-            rollout_reset_frames.append(len(rollout_local_frames) == 1)
-            action = np.asarray(controller.act(observation), dtype=np.float32)
-            rollout_action_frames.append(action)
-            observation, _reward, terminated, truncated, info = env.step(action)
+            controller = SafetyFilteredPursuitController(DynamicEncirclementController(env))
+            observer = (
+                LearnedPredictionObserver(
+                    env,
+                    prediction_model,
+                    device,
+                    history_length=prediction_history_length,
+                    horizon_index=prediction_horizon_index,
+                )
+                if prediction_model is not None
+                else None
+            )
+            local = observe(env, observer, observation, reset=True)
+            if centralized_state_dim is None:
+                centralized_state_dim = int(env.centralized_state().shape[-1])
+            rollout_local_frames: list[np.ndarray] = []
+            rollout_action_frames: list[np.ndarray] = []
+            rollout_reset_frames: list[bool] = []
+            obstacle_zone_x = episode_metadata.get("obstacle_zone_x")
+            defender_zone_entered = np.zeros(env.n_defenders, dtype=bool)
             if obstacle_zone_x is not None:
+                low, high = (float(value) for value in obstacle_zone_x)
                 defender_zone_entered |= (env.defender_positions[:, 0] >= low) & (env.defender_positions[:, 0] <= high)
-            if terminated or truncated:
-                quality = expert_episode_quality(info, defender_zone_entered, episode_metadata, settings)
-                row = {
-                    "episode": accepted_episodes if bool(quality["accepted"]) else None,
-                    "attempt": total_attempts,
-                    "seed": rollout_seed,
-                    "obstacle_count": int(env.obstacle_count),
-                    "target_speed_scale": float(env.target_speed_scale),
-                    "collision": bool(info["collision"]),
-                    "steps": int(env.step_count),
-                    "termination_reason": str(info["termination_reason"]),
-                    **episode_metadata,
-                    **quality,
-                }
-                if bool(quality["accepted"]):
-                    local_frames.extend(rollout_local_frames)
-                    action_frames.extend(rollout_action_frames)
-                    reset_frames.extend(rollout_reset_frames)
-                    episode_rows.append(row)
-                    accepted_episodes += 1
-                else:
-                    rejected_rows.append(row)
-                break
-            local = observe(env, observer, observation)
-        total_attempts += 1
-    local_values = np.asarray(local_frames, dtype=np.float32)
-    action_values = np.asarray(action_frames, dtype=np.float32)
-    reset_values = np.asarray(reset_frames, dtype=np.float32)
+            while True:
+                rollout_local_frames.append(local)
+                rollout_reset_frames.append(len(rollout_local_frames) == 1)
+                action = np.asarray(controller.act(observation), dtype=np.float32)
+                rollout_action_frames.append(action)
+                observation, _reward, terminated, truncated, info = env.step(action)
+                if obstacle_zone_x is not None:
+                    defender_zone_entered |= (env.defender_positions[:, 0] >= low) & (env.defender_positions[:, 0] <= high)
+                if terminated or truncated:
+                    quality = expert_episode_quality(info, defender_zone_entered, episode_metadata, settings)
+                    row = {
+                        "episode": accepted_episodes if bool(quality["accepted"]) else None,
+                        "attempt": total_attempts,
+                        "seed": rollout_seed,
+                        "obstacle_count": int(env.obstacle_count),
+                        "target_speed_scale": float(env.target_speed_scale),
+                        "collision": bool(info["collision"]),
+                        "steps": int(env.step_count),
+                        "termination_reason": str(info["termination_reason"]),
+                        **episode_metadata,
+                        **quality,
+                    }
+                    if bool(quality["accepted"]):
+                        local_chunks.append(np.asarray(rollout_local_frames, dtype=np.float32))
+                        action_chunks.append(np.asarray(rollout_action_frames, dtype=np.float32))
+                        reset_chunks.append(np.asarray(rollout_reset_frames, dtype=np.float32))
+                        episode_rows.append(row)
+                        accepted_episodes += 1
+                    else:
+                        rejected_rows.append(row)
+                    break
+                local = observe(env, observer, observation)
+            accepted_this_attempt = bool(quality["accepted"])
+            total_attempts += 1
+            attempt_committed = True
+            if (
+                output is not None
+                and checkpoint_interval
+                and accepted_this_attempt
+                and accepted_episodes % checkpoint_interval == 0
+            ):
+                write_collection_checkpoint(
+                    output,
+                    local_frames=np.concatenate(local_chunks, axis=0),
+                    action_frames=np.concatenate(action_chunks, axis=0),
+                    reset_frames=np.concatenate(reset_chunks, axis=0),
+                    accepted_rows=episode_rows,
+                    rejected_rows=rejected_rows,
+                    total_attempts=total_attempts,
+                    centralized_state_dim=int(centralized_state_dim),
+                    rng_state=rng.bit_generator.state,
+                )
+    except BaseException:
+        # An interrupted in-flight rollout has consumed curriculum RNG but has
+        # not created a label. Replay it on resume with the same attempt seed.
+        if rng_state_before_attempt is not None and not attempt_committed:
+            rng.bit_generator.state = rng_state_before_attempt
+        if output is not None and centralized_state_dim is not None and episode_rows:
+            write_collection_checkpoint(
+                output,
+                local_frames=np.concatenate(local_chunks, axis=0),
+                action_frames=np.concatenate(action_chunks, axis=0),
+                reset_frames=np.concatenate(reset_chunks, axis=0),
+                accepted_rows=episode_rows,
+                rejected_rows=rejected_rows,
+                total_attempts=total_attempts,
+                centralized_state_dim=int(centralized_state_dim),
+                rng_state=rng.bit_generator.state,
+            )
+        raise
+    local_values = np.concatenate(local_chunks, axis=0).astype(np.float32, copy=False)
+    action_values = np.concatenate(action_chunks, axis=0).astype(np.float32, copy=False)
+    reset_values = np.concatenate(reset_chunks, axis=0).astype(np.float32, copy=False)
     manifest = {
         "episodes": episode_rows,
         "rejected_expert_episodes": rejected_rows,
@@ -568,7 +750,15 @@ def main() -> None:
     if args.expert_dataset is not None and configured_datasets is not None:
         raise ValueError("Use either --expert-dataset or imitation.expert_datasets, not both.")
     output = args.output
-    if output.exists() and any(output.iterdir()):
+    if args.resume_expert_collection:
+        if args.expert_dataset is not None or configured_datasets is not None:
+            raise ValueError("--resume-expert-collection only supports locally collected expert data.")
+        if output.joinpath("checkpoint.pt").is_file() or output.joinpath("expert_sequence_dataset.npz").is_file():
+            raise ValueError("Cannot resume expert collection after a completed training artifact was written.")
+        data_path, metadata_path = collection_checkpoint_paths(output)
+        if not data_path.is_file() or not metadata_path.is_file():
+            raise FileNotFoundError("--resume-expert-collection requires a saved collection checkpoint in --output.")
+    elif output.exists() and any(output.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output}")
     output.mkdir(parents=True, exist_ok=True)
     device = select_device(str(settings["device"]))
@@ -590,7 +780,10 @@ def main() -> None:
             prediction_model,
             args.prediction_history_length,
             args.prediction_horizon_index,
+            output=output,
+            resume=bool(args.resume_expert_collection),
         )
+        manifest["resumed_expert_collection"] = bool(args.resume_expert_collection)
         maximum_rejection_rate = float(settings.get("expert_max_rejection_rate", 1.0))
         if not 0.0 <= maximum_rejection_rate <= 1.0:
             raise ValueError("expert_max_rejection_rate must lie in [0, 1].")
