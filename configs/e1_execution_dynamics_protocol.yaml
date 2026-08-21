@@ -1,0 +1,69 @@
+research_task:
+  name: e1_frozen_v4_execution_dynamics_robustness
+  scope: defender-side bounded action execution over the frozen kinematic pursuit task
+  excluded_scope:
+    - real_flight_calibration
+    - pybullet_or_sitl_transfer
+    - target_dynamics_change
+    - policy_retraining
+environment_config: capture_radius_pursuit_central_v4_flee.yaml
+seed_blocks:
+  smoke: 681001
+  development: 681101
+  locked_test: 681201
+execution_profiles:
+  E0:
+    enabled: false
+    action_delay_steps: 0
+    max_speed_scale: 1.0
+    max_acceleration_scale: 1.0
+    noise_std_mps: 0.0
+    noise_clip_sigma: 3.0
+  E1:
+    enabled: true
+    action_delay_steps: 0
+    max_speed_scale: 1.0
+    max_acceleration_scale: 0.75
+    noise_std_mps: 0.0
+    noise_clip_sigma: 3.0
+  E2:
+    enabled: true
+    action_delay_steps: 0
+    max_speed_scale: 1.0
+    max_acceleration_scale: 0.50
+    noise_std_mps: 0.0
+    noise_clip_sigma: 3.0
+  E3:
+    enabled: true
+    action_delay_steps: 1
+    max_speed_scale: 1.0
+    max_acceleration_scale: 1.0
+    noise_std_mps: 0.0
+    noise_clip_sigma: 3.0
+  E4:
+    enabled: true
+    action_delay_steps: 2
+    max_speed_scale: 1.0
+    max_acceleration_scale: 1.0
+    noise_std_mps: 0.0
+    noise_clip_sigma: 3.0
+  E5:
+    enabled: true
+    action_delay_steps: 0
+    max_speed_scale: 1.0
+    max_acceleration_scale: 1.0
+    noise_std_mps: 0.25
+    noise_clip_sigma: 3.0
+  E6:
+    enabled: true
+    action_delay_steps: 1
+    max_speed_scale: 1.0
+    max_acceleration_scale: 0.75
+    noise_std_mps: 0.25
+    noise_clip_sigma: 3.0
+primary_profile: E6
+evaluation_budget:
+  smoke_episodes_per_profile: 10
+  development_s3_episodes_per_profile: 60
+  locked_s3_episodes_per_profile: 100
+  fixed_episodes_per_scene: 20
