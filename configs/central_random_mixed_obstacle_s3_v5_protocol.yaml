@@ -1,0 +1,50 @@
+protocol_name: central_random_mixed_obstacle_s3_v5_robust_capture
+phase: F0_frozen_development_protocol
+task: partially_observable_3d_capture_radius_random_central_mixed_obstacles
+not_a_replacement_for_existing_locked_benchmarks: true
+parent_v4_locked_test_seed_block: 647001
+seed_blocks:
+  train: 645101
+  validation: 646101
+  locked_test: 647201
+episodes_per_split:
+  train: 40
+  validation: 60
+  locked_test: 100
+s3:
+  target_crossing_required: false
+  required_defender_zone_entries: 2
+  obstacle_count_range: [3, 5]
+  initial_side_distances: [6.0, 6.5, 7.0, 7.5]
+  defender_sides: [left, right]
+  target_speed_scales: [0.45, 0.55]
+  target_crossing_speed_scales: [0.90]
+  target_motion_modes: [flee_persistence, s_curve]
+  observation_conditions:
+    - name: nominal
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.15
+        observation_noise_std: 0.03
+        message_delay_steps: 2
+        message_dropout_probability: 0.05
+    - name: delayed_noisy
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.22
+        observation_noise_std: 0.06
+        message_delay_steps: 4
+        message_dropout_probability: 0.10
+  max_sampling_attempts: 500
+failure_analysis:
+  episode_level_artifacts_required: true
+  hard_example_rules:
+    termination_reasons: [timeout, safety_failure]
+    min_clearance_below_m: 0.30
+    max_cbf_action_correction_above: 0.25
+  preserve_v4_locked_artifacts: true
+
+research_task:
+  name: central_v5_s3_robust_capture
+  primary_scope: hard_example_and_partial_observation_robustness
+  excluded_scope: physical_capture_real_sensor_closure_and_flight_control

@@ -84,7 +84,7 @@ Capture Rate，不能把 CBF 修正后的结果全部归因于策略网络。
 
     [ ] F0.1 复制并登记 V4 基线的 YAML、git commit、checkpoint SHA-256、环境信息，
           生成 baseline_manifest.json；原 checkpoint 只读保存。
-    [ ] F0.2 建立与 V4 不重叠的开发 validation seed block（建议 647101）和最终
+    [ ] F0.2 建立与 V4 不重叠的开发 validation seed block（建议 646101）和最终
           next-locked seed block（建议 647201）；在运行前写入 YAML 并提交。
     [ ] F0.3 固定新的场景采样规则：障碍数 3-5，类型 cylinder/box/wall，障碍仅在
           中央区内，膨胀后地图必须可达；记录被拒绝地图及原因。

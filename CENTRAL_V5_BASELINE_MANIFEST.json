@@ -1,0 +1,68 @@
+{
+  "manifest_type": "central_v5_robust_capture_baseline",
+  "created_at": "2026-08-21",
+  "protocol": {
+    "path": "configs/central_random_mixed_obstacle_s3_v5_protocol.yaml",
+    "sha256": "35d3cdcd8a7f7250c620e53569ab79c7edc7864d7b122884330a89e0dcc8da26",
+    "train_seed_block": 645101,
+    "validation_seed_block": 646101,
+    "next_locked_seed_block": 647201,
+    "parent_v4_locked_seed_block": 647001,
+    "episodes": {
+      "train": 40,
+      "validation": 60,
+      "next_locked_test": 100
+    }
+  },
+  "frozen_execution_contract": {
+    "defenders": 4,
+    "targets": 1,
+    "capture_radius_m": 0.8,
+    "required_defender_zone_entries": 2,
+    "target_crossing_required": false,
+    "execution_stack": "retained_behavior_cloning_plus_cbf",
+    "raw_actor_is_reported_separately": true
+  },
+  "baseline_checkpoints": [
+    {
+      "training_seed": 661201,
+      "sha256": "ccab4a9fa899082c7a363c7f0b24a58bd13ecdfb59fc9a2e265dddfad320de8d"
+    },
+    {
+      "training_seed": 661202,
+      "sha256": "8baeec9c8e21d5dd6bcb3a5848e1edd3ac3ba05b99d2930799a88d3a91e42494"
+    },
+    {
+      "training_seed": 661203,
+      "sha256": "a0c809607954996f7367db8f7ce346cec62552de235aa21f3a91f95b78f8c22b"
+    }
+  ],
+  "v4_locked_baseline": {
+    "s3_cbf_cooperative_safe_capture_rate_mean": 0.753,
+    "s3_cbf_cooperative_safe_capture_rate_sample_std": 0.065,
+    "s3_cbf_collision_rate_mean": 0.047,
+    "s3_cbf_boundary_violation_rate_mean": 0.047,
+    "s3_cbf_transit_success_rate_mean": 0.99,
+    "source_report": "CENTRAL_V4_LOCKED_TEST_REPORT.md",
+    "source_report_sha256": "bf9d6f8d149a50ca0d83712306b2da3dae76a1b24743a446ed999ee0849832c7",
+    "source_summary": "CENTRAL_V4_LOCKED_TEST_SUMMARY.json",
+    "source_summary_sha256": "55307fee52a1c0892847c709707775aefd8f83af2752f686fa2bd492a18227f8"
+  },
+  "provenance": {
+    "parent_git_commit": "0f7d630afceacb886eb90232208f426da8a86a02",
+    "plan": "NEXT_PHASE_S3_ROBUST_CAPTURE_TODOLIST_V5.txt",
+    "plan_sha256": "9544c0965525607593a3875521173e446b426be7a163d27d9a206e9dd667dea6",
+    "v4_d1_report": "CENTRAL_V4_D1_VALIDATION_REPORT.md",
+    "v4_d1_report_sha256": "9a4220404f1537a37841e805520acd0fb299ec5af807839319d88d9f5a9c2a91"
+  },
+  "artifact_status": {
+    "locked_episode_artifacts_present_in_worktree": false,
+    "locked_episode_artifacts_required_for_episode_level_failure_index": true,
+    "available_evidence": [
+      "CENTRAL_V4_LOCKED_TEST_REPORT.md",
+      "CENTRAL_V4_LOCKED_TEST_SUMMARY.json",
+      "CENTRAL_V4_D1_VALIDATION_REPORT.md"
+    ],
+    "decision": "Do not fabricate an episode-level failure index from grouped summary counts; regenerate new validation artifacts under the V5 protocol first."
+  }
+}
