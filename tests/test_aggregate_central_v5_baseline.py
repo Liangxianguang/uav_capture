@@ -153,3 +153,31 @@ def test_collect_rejects_unpaired_s3_scene_inputs(tmp_path: Path) -> None:
     import pytest
     with pytest.raises(ValueError, match="identical static scenes"):
         AGGREGATOR.collect(run_dir, root, run_id)
+
+
+def test_training_quality_accepts_balanced_reused_archives(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "checkpoint.pt").write_bytes(b"checkpoint")
+    (run_dir / "expert_sequence_dataset.npz").write_bytes(b"archive")
+    (run_dir / "config.yaml").write_text("effective_imitation:\n  episodes: 320\n", encoding="utf-8")
+    nested = {"episodes": [{"safe_capture_success": True, "cooperative_requirement_met": True}]}
+    (run_dir / "expert_dataset_manifest.json").write_text(
+        json.dumps(
+            {
+                "source_balance": "equal_sequences",
+                "reused_expert_datasets": [
+                    {"original_sequences": 3, "selected_sequences": 5, "manifest": nested},
+                    {"original_sequences": 5, "selected_sequences": 5, "manifest": nested},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "training.csv").write_text("epoch,action_mse\n1,0.1\n", encoding="utf-8")
+
+    quality = AGGREGATOR._training_quality(run_dir)
+
+    assert quality["data_provenance"] == "reused_expert_archives"
+    assert quality["source_selection_balanced"] is True
+    assert quality["passed"] is True

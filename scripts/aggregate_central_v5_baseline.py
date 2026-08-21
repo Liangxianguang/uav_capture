@@ -173,37 +173,83 @@ def _training_quality(run_dir: Path) -> dict[str, Any]:
     if not isinstance(effective, dict) or not isinstance(effective.get("effective_imitation"), dict):
         raise ValueError("Training config artifact has no effective_imitation mapping.")
     settings = effective["effective_imitation"]
-    requested = int(settings["episodes"])
-    accepted = int(manifest["accepted_episodes"])
-    rejection_rate = float(manifest["expert_rejection_rate"])
-    allowed_rejection_rate = float(settings.get("expert_max_rejection_rate", 1.0))
-    episodes = manifest.get("episodes")
-    if not isinstance(episodes, list):
-        raise ValueError("Expert manifest episodes must be a list.")
-    all_safe = all(bool(row.get("safe_capture_success")) for row in episodes)
-    all_cooperative = all(bool(row.get("cooperative_requirement_met")) for row in episodes)
-    return {
+    common = {
         "run_dir": str(run_dir),
         "checkpoint_sha256": _sha256(run_dir / "checkpoint.pt"),
         "expert_dataset_sha256": _sha256(run_dir / "expert_sequence_dataset.npz"),
-        "requested_episodes": requested,
-        "accepted_episodes": accepted,
-        "rejected_episodes": int(manifest["rejected_episodes"]),
-        "collection_attempts": int(manifest["collection_attempts"]),
-        "rejection_rate": rejection_rate,
-        "maximum_rejection_rate": allowed_rejection_rate,
-        "expert_safe_capture_rate": float(manifest["expert_safe_capture_rate"]),
-        "expert_cooperative_requirement_rate": float(manifest["expert_cooperative_requirement_rate"]),
         "training_epochs": len(_read_rows(run_dir / "training.csv")),
         "all_losses_finite": all(math.isfinite(float(row["action_mse"])) for row in _read_rows(run_dir / "training.csv")),
-        "all_accepted_safe": all_safe,
-        "all_accepted_cooperative": all_cooperative,
-        "passed": (
+    }
+    if "accepted_episodes" in manifest:
+        requested = int(settings["episodes"])
+        accepted = int(manifest["accepted_episodes"])
+        rejection_rate = float(manifest["expert_rejection_rate"])
+        allowed_rejection_rate = float(settings.get("expert_max_rejection_rate", 1.0))
+        episodes = manifest.get("episodes")
+        if not isinstance(episodes, list):
+            raise ValueError("Expert manifest episodes must be a list.")
+        all_safe = all(bool(row.get("safe_capture_success")) for row in episodes)
+        all_cooperative = all(bool(row.get("cooperative_requirement_met")) for row in episodes)
+        return {
+            **common,
+            "data_provenance": "locally_collected_expert_episodes",
+            "requested_episodes": requested,
+            "accepted_episodes": accepted,
+            "rejected_episodes": int(manifest["rejected_episodes"]),
+            "collection_attempts": int(manifest["collection_attempts"]),
+            "rejection_rate": rejection_rate,
+            "maximum_rejection_rate": allowed_rejection_rate,
+            "expert_safe_capture_rate": float(manifest["expert_safe_capture_rate"]),
+            "expert_cooperative_requirement_rate": float(manifest["expert_cooperative_requirement_rate"]),
+            "all_accepted_safe": all_safe,
+            "all_accepted_cooperative": all_cooperative,
+            "passed": (
             accepted == requested
             and rejection_rate <= allowed_rejection_rate
             and all_safe
             and all_cooperative
-        ),
+            and common["all_losses_finite"]
+            ),
+        }
+    sources = manifest.get("reused_expert_datasets")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError("Expert manifest must describe local episodes or non-empty reused_expert_datasets.")
+    source_rows: list[dict[str, Any]] = []
+    for index, source in enumerate(sources):
+        if not isinstance(source, dict):
+            raise ValueError("Each reused expert dataset source must be a mapping.")
+        source_manifest = source.get("manifest")
+        if not isinstance(source_manifest, dict):
+            raise ValueError("Each reused expert dataset source must include its manifest.")
+        episodes = source_manifest.get("episodes")
+        all_safe = bool(isinstance(episodes, list) and episodes) and all(
+            bool(row.get("safe_capture_success")) for row in episodes
+        )
+        all_cooperative = bool(isinstance(episodes, list) and episodes) and all(
+            bool(row.get("cooperative_requirement_met")) for row in episodes
+        )
+        source_rows.append(
+            {
+                "source_index": index,
+                "original_sequences": int(source["original_sequences"]),
+                "selected_sequences": int(source["selected_sequences"]),
+                "accepted_episodes": source_manifest.get("accepted_episodes"),
+                "expert_rejection_rate": source_manifest.get("expert_rejection_rate"),
+                "all_accepted_safe": all_safe,
+                "all_accepted_cooperative": all_cooperative,
+            }
+        )
+    selected = [row["selected_sequences"] for row in source_rows]
+    balanced = str(manifest.get("source_balance")) != "equal_sequences" or len(set(selected)) == 1
+    sources_safe = all(row["all_accepted_safe"] and row["all_accepted_cooperative"] for row in source_rows)
+    return {
+        **common,
+        "data_provenance": "reused_expert_archives",
+        "source_balance": manifest.get("source_balance"),
+        "source_rows": source_rows,
+        "all_sources_safe_and_cooperative": sources_safe,
+        "source_selection_balanced": balanced,
+        "passed": bool(sources_safe and balanced and common["all_losses_finite"]),
     }
 
 
@@ -269,16 +315,38 @@ def render_markdown(aggregate: dict[str, Any]) -> str:
         "",
         f"- Checkpoint SHA-256: `{training['checkpoint_sha256']}`",
         f"- Expert archive SHA-256: `{training['expert_dataset_sha256']}`",
-        f"- Accepted expert episodes: `{training['accepted_episodes']}/{training['requested_episodes']}`",
-        f"- Expert rejection rate: `{100.0 * training['rejection_rate']:.2f}%` (limit `{100.0 * training['maximum_rejection_rate']:.2f}%`)",
-        f"- All accepted demonstrations safe/cooperative: `{training['all_accepted_safe']}/{training['all_accepted_cooperative']}`",
-        f"- Training epochs with finite imitation loss: `{training['training_epochs']}` / `{training['all_losses_finite']}`",
-        "",
-        "## Fixed S1/S2 Regression",
+        f"- Data provenance: `{training['data_provenance']}`",
+    ]
+    if training["data_provenance"] == "locally_collected_expert_episodes":
+        lines.extend(
+            [
+                f"- Accepted expert episodes: `{training['accepted_episodes']}/{training['requested_episodes']}`",
+                f"- Expert rejection rate: `{100.0 * training['rejection_rate']:.2f}%` (limit `{100.0 * training['maximum_rejection_rate']:.2f}%`)",
+                f"- All accepted demonstrations safe/cooperative: `{training['all_accepted_safe']}/{training['all_accepted_cooperative']}`",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"- Archive source balance: `{training['source_balance']}`; selected sequences balanced: `{training['source_selection_balanced']}`",
+                f"- All source demonstrations safe/cooperative: `{training['all_sources_safe_and_cooperative']}`",
+            ]
+        )
+        for source in training["source_rows"]:
+            lines.append(
+                f"- Source {source['source_index']}: `{source['selected_sequences']}/{source['original_sequences']}` sequences selected; "
+                f"safe/cooperative `{source['all_accepted_safe']}/{source['all_accepted_cooperative']}`."
+            )
+    lines.extend(
+        [
+            f"- Training epochs with finite imitation loss: `{training['training_epochs']}` / `{training['all_losses_finite']}`",
+            "",
+            "## Fixed S1/S2 Regression",
         "",
         "| Scene | Execution | Cooperative Safe Capture | Collision | Boundary | Transit |",
-        "| --- | --- | ---: | ---: | ---: | ---: |",
-    ]
+            "| --- | --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
     for scene, executions in aggregate["fixed_regression"].items():
         for mode, artifact in executions.items():
             metrics = artifact["metrics"]
