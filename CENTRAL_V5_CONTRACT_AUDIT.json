@@ -1,0 +1,188 @@
+{
+  "audit_type": "central_v4_v5_retained_bc_contract",
+  "v4_config": "F:\\uav_capture\\three_d_encirclement\\configs\\capture_radius_recurrent_behavior_cloning_central_v4_s3_retained.yaml",
+  "v5_config": "F:\\uav_capture\\three_d_encirclement\\configs\\capture_radius_recurrent_behavior_cloning_central_v5_baseline.yaml",
+  "environment_config": "F:\\uav_capture\\three_d_encirclement\\configs\\capture_radius_pursuit_central_v4_flee.yaml",
+  "v4_contract": {
+    "seed": 661201,
+    "episodes": 320,
+    "expert_datasets": [],
+    "expert_dataset_source_balance": null,
+    "training_obstacle_counts": [
+      3
+    ],
+    "training_target_speed_scales": [
+      0.45,
+      0.55
+    ],
+    "training_target_motion_modes": [
+      "flee_persistence",
+      "s_curve"
+    ],
+    "training_required_defender_zone_entries": 2,
+    "action_scale_mode": "full_range",
+    "learning_rate": 5e-05,
+    "hidden_dim": 128,
+    "epochs": 64,
+    "training_showcase_stages": [
+      {
+        "defender_sides": [
+          "left",
+          "right"
+        ],
+        "initial_side_distances": [
+          6.0,
+          6.5,
+          7.0,
+          7.5
+        ],
+        "layouts": [
+          "mixed"
+        ],
+        "randomized_central_probability": 0.85,
+        "randomized_obstacle_count_range": [
+          3,
+          5
+        ],
+        "required_defender_zone_entries": 2,
+        "showcase_probability": 1.0,
+        "target_crossing_probability": 0.0,
+        "target_motion_modes": [
+          "flee_persistence",
+          "s_curve"
+        ],
+        "target_speed_scales": [
+          0.45,
+          0.55
+        ],
+        "until_progress": 1.0
+      }
+    ]
+  },
+  "v5_contract": {
+    "seed": 661401,
+    "episodes": 320,
+    "expert_datasets": [],
+    "expert_dataset_source_balance": null,
+    "training_obstacle_counts": [
+      3
+    ],
+    "training_target_speed_scales": [
+      0.45,
+      0.55
+    ],
+    "training_target_motion_modes": [
+      "flee_persistence",
+      "s_curve"
+    ],
+    "training_required_defender_zone_entries": 2,
+    "action_scale_mode": "full_range",
+    "learning_rate": 5e-05,
+    "hidden_dim": 128,
+    "epochs": 64,
+    "training_showcase_stages": [
+      {
+        "defender_sides": [
+          "left",
+          "right"
+        ],
+        "initial_side_distances": [
+          6.0,
+          6.5,
+          7.0,
+          7.5
+        ],
+        "layouts": [
+          "mixed"
+        ],
+        "randomized_central_probability": 0.85,
+        "randomized_obstacle_count_range": [
+          3,
+          5
+        ],
+        "required_defender_zone_entries": 2,
+        "showcase_probability": 1.0,
+        "target_crossing_probability": 0.0,
+        "target_motion_modes": [
+          "flee_persistence",
+          "s_curve"
+        ],
+        "target_speed_scales": [
+          0.45,
+          0.55
+        ],
+        "until_progress": 1.0
+      }
+    ]
+  },
+  "v4_retention_evidence": {
+    "present": true,
+    "path": "F:\\uav_capture\\three_d_encirclement\\CENTRAL_V4_S3_RETENTION_VALIDATION_REPORT.md",
+    "sha256": "fb49b981e8a19c66e1c7eb79564388d1b260c5893953ed536c8b7d6d3246dab6",
+    "fixed_archive_declared": true,
+    "equal_sequence_balancing_declared": true,
+    "checkpoint_sha256": "ccab4a9fa899082c7a363c7f0b24a58bd13ecdfb59fc9a2e265dddfad320de8d"
+  },
+  "findings": {
+    "fixed_archive_inherited": false,
+    "v4_fixed_archive_declared": true,
+    "v5_uses_local_collection": true,
+    "equal_sequence_balance_preserved": false,
+    "action_scale_mode_match": true,
+    "hidden_dim_match": true,
+    "zone_entry_requirement_match": true,
+    "stage_contract_changed": false,
+    "environment_config_sha256": "2bbf3ca133fe13d58d4e4995b026624aacde111d0f0ce81983a65393b706244f",
+    "v4_retention_report_available": true,
+    "high_risk_data_contract_gap": true
+  },
+  "run_artifacts": {
+    "run_dir": "F:\\uav_capture\\three_d_encirclement\\results\\central_v5\\bc_baseline_seed661401",
+    "checkpoint.pt": {
+      "present": true,
+      "sha256": "4cfa2de38ce4cea8462f02a9e91b73ce9a2d4e0a4bf9b9aa356c5e4118cf51c5"
+    },
+    "expert_sequence_dataset.npz": {
+      "present": true,
+      "sha256": "de5386e512e3458b902c438cf1ada94cc6ab81acfa1a1f591d2ccbaf6bcbbaac"
+    },
+    "expert_dataset_manifest.json": {
+      "present": true,
+      "sha256": "28dd7dbcfda63cab753349170a74153234050029e614a4f99c2dc4b35b659882"
+    },
+    "config.yaml": {
+      "present": true,
+      "sha256": "6d35594b47f4d30dfef506333b58f7c5ad0fc7ddfe23b6dfbf4a9dd2a87f878b"
+    },
+    "manifest": {
+      "accepted_episodes": 320,
+      "rejected_episodes": 30,
+      "collection_attempts": 350,
+      "expert_rejection_rate": 0.08571428571428572,
+      "expert_safe_capture_rate": 1.0,
+      "expert_cooperative_requirement_rate": 1.0,
+      "sequence_length": 32,
+      "sequence_count": 457,
+      "frame_count": 14643
+    },
+    "dataset_shapes": {
+      "local_observations": [
+        457,
+        32,
+        4,
+        63
+      ],
+      "actions": [
+        457,
+        32,
+        4,
+        3
+      ],
+      "reset_masks": [
+        457,
+        32
+      ]
+    }
+  },
+  "interpretation": "V5 does not inherit the V4 fixed-scene archive and therefore cannot be treated as a faithful retained-BC reconstruction. Recover fixed-scene coverage before hard-example training."
+}
