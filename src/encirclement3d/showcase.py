@@ -563,6 +563,7 @@ def sample_training_episode(
     )
     target_crossing_probability = float(stage.get("target_crossing_probability", 0.0))
     pursuit_overrides = stage.get("pursuit_overrides", {})
+    layout_overrides = stage.get("layout_overrides", {})
     required_defender_zone_entries = int(
         stage.get("required_defender_zone_entries", settings.get("training_required_defender_zone_entries", 1))
     )
@@ -584,6 +585,38 @@ def sample_training_episode(
         raise ValueError("randomized_central_probability must lie in [0, 1].")
     if not isinstance(pursuit_overrides, dict):
         raise ValueError("pursuit_overrides must be a mapping when provided.")
+    if not isinstance(layout_overrides, dict):
+        raise ValueError("layout_overrides must be a mapping when provided.")
+    unknown_layouts = sorted(set(layout_overrides).difference(str(layout) for layout in layouts))
+    if unknown_layouts:
+        raise ValueError("layout_overrides contains layouts not enabled by this stage: " + ", ".join(unknown_layouts))
+    allowed_layout_override_fields = {
+        "initial_side_distances",
+        "defender_sides",
+        "target_speed_scales",
+        "target_motion_modes",
+        "target_crossing_probability",
+        "target_crossing_speed_scales",
+    }
+    for layout_name, override in layout_overrides.items():
+        if not isinstance(override, dict):
+            raise ValueError(f"layout_overrides.{layout_name} must be a mapping.")
+        unknown_fields = sorted(set(override).difference(allowed_layout_override_fields))
+        if unknown_fields:
+            raise ValueError(
+                f"layout_overrides.{layout_name} contains unsupported field(s): " + ", ".join(unknown_fields)
+            )
+        for field in (
+            "initial_side_distances",
+            "defender_sides",
+            "target_speed_scales",
+            "target_motion_modes",
+            "target_crossing_speed_scales",
+        ):
+            if field in override and (not isinstance(override[field], list) or not override[field]):
+                raise ValueError(f"layout_overrides.{layout_name}.{field} must be a non-empty list.")
+        if "target_crossing_probability" in override and not 0.0 <= float(override["target_crossing_probability"]) <= 1.0:
+            raise ValueError(f"layout_overrides.{layout_name}.target_crossing_probability must lie in [0, 1].")
     unknown_pursuit_keys = sorted(set(pursuit_overrides).difference(env.pursuit))
     if unknown_pursuit_keys:
         raise ValueError(
@@ -636,13 +669,22 @@ def sample_training_episode(
         }
     if rng.random() < probability:
         layout = str(rng.choice(layouts))
-        side_distance = float(rng.choice(np.asarray(distances, dtype=np.float64)))
-        target_speed_scale = float(rng.choice(np.asarray(speeds, dtype=np.float64)))
-        defender_side = str(rng.choice(defender_sides))
-        target_motion_mode = str(rng.choice(target_motion_modes))
-        target_crossing_required = bool(rng.random() < target_crossing_probability)
+        layout_override = dict(layout_overrides.get(layout, {}))
+        layout_distances = layout_override.get("initial_side_distances", distances)
+        layout_speeds = layout_override.get("target_speed_scales", speeds)
+        layout_defender_sides = layout_override.get("defender_sides", defender_sides)
+        layout_motion_modes = layout_override.get("target_motion_modes", target_motion_modes)
+        layout_crossing_probability = float(
+            layout_override.get("target_crossing_probability", target_crossing_probability)
+        )
+        layout_crossing_speeds = layout_override.get("target_crossing_speed_scales", crossing_speeds)
+        side_distance = float(rng.choice(np.asarray(layout_distances, dtype=np.float64)))
+        target_speed_scale = float(rng.choice(np.asarray(layout_speeds, dtype=np.float64)))
+        defender_side = str(rng.choice(layout_defender_sides))
+        target_motion_mode = str(rng.choice(layout_motion_modes))
+        target_crossing_required = bool(rng.random() < layout_crossing_probability)
         if target_crossing_required:
-            target_speed_scale = float(rng.choice(np.asarray(crossing_speeds, dtype=np.float64)))
+            target_speed_scale = float(rng.choice(np.asarray(layout_crossing_speeds, dtype=np.float64)))
         scenario = central_mixed_obstacle_scenario(
             side_distance,
             target_crossing_required=target_crossing_required,
@@ -669,6 +711,7 @@ def sample_training_episode(
             "required_defender_zone_entries": required_defender_zone_entries,
             "obstacle_zone_x": list(scenario.obstacle_zone_x),
             "pursuit_overrides": dict(pursuit_overrides),
+            "layout_sampling_override": layout_override,
             "progress": progress,
         }
     env.obstacle_count = int(rng.choice(np.asarray(settings["training_obstacle_counts"], dtype=np.int64)))

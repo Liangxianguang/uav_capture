@@ -1,0 +1,61 @@
+{
+  "diagnostic_type": "central_v5_fixed_wall_regression_decision_record",
+  "not_a_training_or_locked_evaluation": true,
+  "candidate": {
+    "retained_training_seed": 661606,
+    "checkpoint_sha256": "4fe54f86b033b1d5290ffdaa8d1fb097f7e8b8491071e64f7baf1f8dbbb36bf3"
+  },
+  "reference_fixed_regression": {
+    "scene": "s1_wall",
+    "execution": "policy_plus_cbf_default",
+    "episode_seed": 660514,
+    "episodes_csv_sha256": "e9b18873729f5a2afa8dc972296962ac8eb9e1233e01015691808b9dcb701a1e",
+    "replay_trace_sha256": "8bc65e5345b9101783e446fcdd125a39198f4dc81b203d2907470d4e4fffbae1",
+    "reference_match": {
+      "steps": true,
+      "collision": true,
+      "safe_capture_success": true,
+      "termination_reason": true
+    }
+  },
+  "outcome": {
+    "steps": 35,
+    "termination_reason": "safety_failure",
+    "capture_event": false,
+    "safe_capture_success": false,
+    "world_boundary_violation": "target_x_upper",
+    "minimum_obstacle_clearance_m": 1.0250737041632543,
+    "minimum_inter_agent_clearance_m": 0.3909905751590197,
+    "minimum_defender_boundary_clearance_m": 0.4699796288057563,
+    "minimum_target_boundary_clearance_m": 0.0,
+    "minimum_target_distance_m": 0.8477173292836175,
+    "minimum_target_distance_step": 31,
+    "minimum_target_distance_defender_id": 2,
+    "maximum_cbf_action_correction_norm": 0.5533581670203914,
+    "minimum_cbf_barrier_value": 0.040990575159019715
+  },
+  "rule_expert_counterfactual": {
+    "same_geometry_and_seed": true,
+    "use_cbf_default": true,
+    "cooperative_safe_capture": true,
+    "capture_time_seconds": 2.8,
+    "collision": false,
+    "boundary_violation": false,
+    "episodes_csv_sha256": "3ded88ac109420374906f4e68c4b9978defb305d4c723365fba998e67416e843"
+  },
+  "coverage_root_cause": {
+    "fixed_archive_sha256": "05e656d743eb774c690cde97ff2ff1acdbd8c3b131f53f85caea1a70abdb82c5",
+    "accepted_wall_demonstrations": 94,
+    "observed_wall_stratum": {
+      "defender_side": "left",
+      "initial_side_distance_m": 5.5,
+      "target_speed_scale": 0.45,
+      "target_motion_mode": "flee_persistence",
+      "target_crossing_required": false,
+      "required_defender_zone_entries": 2
+    },
+    "fixed_wall_regression_initial_side_distance_m": 5.0
+  },
+  "allowed_next_step": "P3-A wall-only fixed-stage initial-distance coverage recovery",
+  "locked_seed_block_647201_opened": false
+}

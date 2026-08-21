@@ -1,0 +1,35 @@
+{
+  "analysis_type": "central_v5_fixed_archive_layout_coverage",
+  "fixed_run_dir": "F:\\uav_capture\\three_d_encirclement\\results\\central_v5\\fixed_shapeaware_seed661605",
+  "fixed_manifest_sha256": "9aee05ac899aee87e6c40a074af7eb5c1838cd9714f0f6d92da761a85650496d",
+  "fixed_archive_sha256": "05e656d743eb774c690cde97ff2ff1acdbd8c3b131f53f85caea1a70abdb82c5",
+  "layout": "wall",
+  "accepted_expert_episodes": 640,
+  "accepted_layout_episodes": 94,
+  "accepted_episode_count_by_layout": {
+    "box": 85,
+    "cylinder": 303,
+    "cylinder_box": 113,
+    "mixed": 45,
+    "wall": 94
+  },
+  "stratum_fields": [
+    "defender_side",
+    "initial_side_distance",
+    "target_speed_scale",
+    "target_motion_mode",
+    "target_crossing_required",
+    "required_defender_zone_entries"
+  ],
+  "strata": [
+    {
+      "defender_side": "left",
+      "initial_side_distance": 5.5,
+      "target_speed_scale": 0.45,
+      "target_motion_mode": "flee_persistence",
+      "target_crossing_required": false,
+      "required_defender_zone_entries": 2,
+      "accepted_episodes": 94
+    }
+  ]
+}

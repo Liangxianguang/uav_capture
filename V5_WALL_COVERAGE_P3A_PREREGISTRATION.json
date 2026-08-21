@@ -1,0 +1,76 @@
+{
+  "pre_registration_type": "central_v5_p3a_fixed_wall_coverage_recovery",
+  "status": "frozen_before_pilot_training",
+  "pilot_seed_pair": {
+    "fixed_training_seed": 661701,
+    "retained_training_seed": 661702
+  },
+  "single_intervention": {
+    "name": "wall_only_initial_side_distance_coverage",
+    "previous_wall_initial_side_distances_m": [5.5],
+    "new_wall_initial_side_distances_m": [5.0, 5.5],
+    "applies_only_to_fixed_stage_showcase_wall_layout": true,
+    "non_wall_layouts_unchanged": true,
+    "all_motion_and_safety_parameters_unchanged": true
+  },
+  "immutable_task_contract": {
+    "pursuers": 4,
+    "evaders": 1,
+    "capture_radius_m": 0.8,
+    "required_defender_zone_entries": 2,
+    "target_zone_entry_required": false,
+    "cbf_default_parameters_changed": false,
+    "episode_horizon_changed": false
+  },
+  "fixed_stage_quality_gate": {
+    "accepted_episodes_exactly": 640,
+    "maximum_rejection_rate": 0.25,
+    "all_accepted_safe": true,
+    "all_accepted_cooperative": true,
+    "minimum_accepted_wall_examples_per_initial_distance": {
+      "5.0": 25,
+      "5.5": 25
+    },
+    "finite_loss_required": true
+  },
+  "retained_stage_contract": {
+    "warm_start_required": true,
+    "source_balance": "equal_sequences",
+    "frozen_random_archive_sha256": "de5386e512e3458b902c438cf1ada94cc6ab81acfa1a1f591d2ccbaf6bcbbaac",
+    "learning_rate": 0.00005,
+    "epochs": 64,
+    "hidden_dim": 128,
+    "action_scale_mode": "full_range"
+  },
+  "excluded_evaluation_seeds": {
+    "fixed_s1_s2": [660501, 660520],
+    "s3_development": [646101, 646160],
+    "s3_locked": [647201, 647300],
+    "diagnosed_seed": 660514
+  },
+  "development_evaluation": {
+    "fixed_scenes": ["s1_cylinder", "s1_box", "s1_wall", "s2"],
+    "fixed_episodes_per_execution": 20,
+    "s3_seed_block": 646101,
+    "s3_episodes_per_execution": 60,
+    "raw_cbf_static_scenes_must_match": true
+  },
+  "pilot_pass_gate": {
+    "all_fixed_cbf_cooperative_safe_capture_at_least": 0.98,
+    "s3_cbf_cooperative_safe_capture_at_least": 0.85,
+    "s3_cbf_collision_at_most": 0.02,
+    "s3_cbf_boundary_at_most": 0.02,
+    "s3_cbf_transit_at_least": 0.99
+  },
+  "inputs": {
+    "previous_fixed_config_sha256": "b2bff851d89722f5421addbfb6567e1934b6db7f61be0ef927ce1504218e79a9",
+    "pilot_fixed_config_sha256": "83e80a2a175705e9325353901e78c29cb0a2b7d632b83b7ce28b64bd737f4e31",
+    "pilot_retained_config_sha256": "4e85967a3d4c1b85b8d68c6568da260e8764b7e0012c362f329df06619eb660f",
+    "previous_fixed_archive_sha256": "05e656d743eb774c690cde97ff2ff1acdbd8c3b131f53f85caea1a70abdb82c5",
+    "diagnostic_summary_sha256": "1d369411670158e7420234f2a608e3475f87790fc0fae29df91038b56ede947e",
+    "user_owned_pursuit_env_sha256": "ea15252dcfd793ae0e3583cd5d8bb5c442f47490900b63aa131f275d1e4998fe",
+    "showcase_sampler_sha256": "2db09a7d7e7aa18978c8afa225dd7d0ca4894d68017c596ab43848f5d00c73a4",
+    "training_script_sha256": "b263160a62afe46b1c6544cc010c4b1f06a60e7b7ce9781ac7f6dff537d334de"
+  },
+  "locked_seed_block_647201_opened": false
+}

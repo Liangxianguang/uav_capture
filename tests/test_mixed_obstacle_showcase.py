@@ -303,6 +303,58 @@ def test_curriculum_sampler_can_select_a_central_mixed_episode() -> None:
     assert observation["defender_positions"][:, 0].max() < -2.5
 
 
+def test_curriculum_layout_override_changes_only_the_selected_wall_layout() -> None:
+    config = load_config()
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)
+    wall_settings = {
+        "training_obstacle_counts": [0],
+        "training_target_speed_scales": [0.45],
+        "training_showcase_stages": [
+            {
+                "until_progress": 1.0,
+                "showcase_probability": 1.0,
+                "layouts": ["wall"],
+                "initial_side_distances": [5.5],
+                "defender_sides": ["left"],
+                "target_speed_scales": [0.45],
+                "target_motion_modes": ["flee_persistence"],
+                "layout_overrides": {
+                    "wall": {
+                        "initial_side_distances": [5.0],
+                        "target_speed_scales": [0.55],
+                    }
+                },
+            }
+        ],
+    }
+    _observation, wall_metadata = sample_training_episode(
+        env, wall_settings, np.random.default_rng(101), seed=642008, progress=0.7
+    )
+
+    assert wall_metadata["layout"] == "wall"
+    assert wall_metadata["initial_side_distance"] == 5.0
+    assert wall_metadata["target_speed_scale"] == 0.55
+    assert wall_metadata["layout_sampling_override"] == {
+        "initial_side_distances": [5.0],
+        "target_speed_scales": [0.55],
+    }
+
+    cylinder_settings = {
+        **wall_settings,
+        "training_showcase_stages": [
+            {**wall_settings["training_showcase_stages"][0], "layouts": ["cylinder"], "layout_overrides": {}}
+        ],
+    }
+    _observation, cylinder_metadata = sample_training_episode(
+        env, cylinder_settings, np.random.default_rng(102), seed=642009, progress=0.7
+    )
+
+    assert cylinder_metadata["layout"] == "cylinder"
+    assert cylinder_metadata["initial_side_distance"] == 5.5
+    assert cylinder_metadata["target_speed_scale"] == 0.45
+    assert cylinder_metadata["layout_sampling_override"] == {}
+
+
 def test_curriculum_random_episode_has_showcase_compatible_metadata() -> None:
     config = load_config()
     env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.55)

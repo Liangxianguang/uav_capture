@@ -60,7 +60,10 @@ def _accepted_episodes(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     return accepted
 
 
-def audit_fixed_stage(run_dir: Path) -> dict[str, Any]:
+def audit_fixed_stage(
+    run_dir: Path,
+    minimum_wall_examples_by_initial_distance: dict[float, int] | None = None,
+) -> dict[str, Any]:
     manifest = _read_json(run_dir / "expert_dataset_manifest.json")
     settings = _effective_imitation(run_dir)
     accepted = _accepted_episodes(manifest)
@@ -69,6 +72,16 @@ def audit_fixed_stage(run_dir: Path) -> dict[str, Any]:
     rejection_rate = float(manifest["expert_rejection_rate"])
     max_rejection_rate = float(settings.get("expert_max_rejection_rate", 1.0))
     layouts = Counter(str(episode.get("layout", "unknown")) for episode in accepted)
+    wall_distances = Counter(
+        float(episode["initial_side_distance"])
+        for episode in accepted
+        if str(episode.get("layout")) == "wall" and episode.get("initial_side_distance") is not None
+    )
+    required_wall_distances = minimum_wall_examples_by_initial_distance or {}
+    wall_coverage_passed = all(
+        wall_distances.get(distance, 0) >= minimum
+        for distance, minimum in required_wall_distances.items()
+    )
     safe = all(bool(episode.get("safe_capture_success")) for episode in accepted)
     cooperative = all(bool(episode.get("cooperative_requirement_met")) for episode in accepted)
     losses = _loss_audit(run_dir / "training.csv")
@@ -85,6 +98,13 @@ def audit_fixed_stage(run_dir: Path) -> dict[str, Any]:
         "all_accepted_safe": safe,
         "all_accepted_cooperative": cooperative,
         "layout_accepted_episodes": dict(sorted(layouts.items())),
+        "wall_initial_side_distance_accepted_episodes": {
+            str(distance): count for distance, count in sorted(wall_distances.items())
+        },
+        "minimum_wall_examples_by_initial_distance": {
+            str(distance): minimum for distance, minimum in sorted(required_wall_distances.items())
+        },
+        "wall_coverage_passed": wall_coverage_passed,
         "sequence_count": int(manifest["sequence_count"]),
         "frame_count": int(manifest["frame_count"]),
         "training": losses,
@@ -94,6 +114,7 @@ def audit_fixed_stage(run_dir: Path) -> dict[str, Any]:
             and rejection_rate <= max_rejection_rate
             and safe
             and cooperative
+            and wall_coverage_passed
             and losses["all_losses_finite"]
         ),
     }
@@ -158,14 +179,40 @@ def audit_retained_stage(run_dir: Path, fixed: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def collect(fixed_run_dir: Path, retained_run_dir: Path) -> dict[str, Any]:
-    fixed = audit_fixed_stage(fixed_run_dir)
+def _wall_requirements_from_preregistration(path: Path | None) -> dict[float, int]:
+    if path is None:
+        return {}
+    document = _read_json(path)
+    try:
+        requirements = document["fixed_stage_quality_gate"]["minimum_accepted_wall_examples_per_initial_distance"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("Pre-registration has no wall initial-distance quality gate") from error
+    if not isinstance(requirements, dict) or not requirements:
+        raise ValueError("Pre-registration wall initial-distance quality gate must be non-empty")
+    parsed = {float(distance): int(minimum) for distance, minimum in requirements.items()}
+    if any(minimum <= 0 for minimum in parsed.values()):
+        raise ValueError("Pre-registration wall initial-distance minimum must be positive")
+    return parsed
+
+
+def collect(
+    fixed_run_dir: Path,
+    retained_run_dir: Path,
+    preregistration: Path | None = None,
+) -> dict[str, Any]:
+    requirements = _wall_requirements_from_preregistration(preregistration)
+    fixed = audit_fixed_stage(fixed_run_dir, requirements)
     retained = audit_retained_stage(retained_run_dir, fixed)
     return {
         "audit_type": "central_v5_shapeaware_retained_bc_training_audit",
         "not_an_evaluation": True,
         "fixed_stage": fixed,
         "retained_stage": retained,
+        "pre_registration": (
+            {"path": str(preregistration.resolve()), "sha256": _sha256(preregistration)}
+            if preregistration is not None
+            else None
+        ),
         "candidate_training_integrity_passed": fixed["passed"] and retained["passed"],
     }
 
@@ -189,6 +236,7 @@ def render_markdown(audit: dict[str, Any]) -> str:
         f"| Requested / accepted expert episodes | {fixed['requested_episodes']} / {fixed['accepted_episodes']} |",
         f"| Rejected episodes / rejection rate | {fixed['rejected_episodes']} / {_pct(fixed['rejection_rate'])} |",
         f"| Safe / cooperative accepted demonstrations | {fixed['all_accepted_safe']} / {fixed['all_accepted_cooperative']} |",
+        f"| Wall initial-distance coverage passes pre-registration | {fixed['wall_coverage_passed']} |",
         f"| Expert sequences / frames | {fixed['sequence_count']} / {fixed['frame_count']} |",
         f"| Training epochs / finite action-MSE | {fixed['training']['epochs']} / {fixed['training']['all_losses_finite']} |",
         f"| First / final action MSE | {fixed['training']['first_action_mse']:.8f} / {fixed['training']['final_action_mse']:.8f} |",
@@ -201,6 +249,20 @@ def render_markdown(audit: dict[str, Any]) -> str:
     ]
     for layout, count in fixed["layout_accepted_episodes"].items():
         lines.append(f"| {layout} | {count} |")
+    if fixed["minimum_wall_examples_by_initial_distance"]:
+        lines.extend(
+            [
+                "",
+                "Wall initial-distance pre-registration check:",
+                "",
+                "| Initial distance (m) | Accepted wall episodes | Required minimum |",
+                "| ---: | ---: | ---: |",
+            ]
+        )
+        for distance, minimum in fixed["minimum_wall_examples_by_initial_distance"].items():
+            lines.append(
+                f"| {distance} | {fixed['wall_initial_side_distance_accepted_episodes'].get(distance, 0)} | {minimum} |"
+            )
     lines.extend(
         [
             "",
@@ -248,6 +310,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixed-run-dir", type=Path, required=True)
     parser.add_argument("--retained-run-dir", type=Path, required=True)
+    parser.add_argument(
+        "--pre-registration",
+        type=Path,
+        help="Optional P3-A pre-registration JSON with a fixed-wall coverage quality gate.",
+    )
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-md", type=Path, required=True)
     return parser.parse_args()
@@ -255,7 +322,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    audit = collect(args.fixed_run_dir, args.retained_run_dir)
+    audit = collect(args.fixed_run_dir, args.retained_run_dir, args.pre_registration)
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_md.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(audit, indent=2) + "\n", encoding="utf-8")

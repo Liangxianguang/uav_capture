@@ -1,0 +1,62 @@
+experiment_name: capture_radius_recurrent_behavior_cloning_central_v5_fixed_wallcoverage_seed661701
+environment_config: capture_radius_pursuit_central_v4_flee.yaml
+
+# P3-A pilot, pre-registered before training. This is the V5 shape-aware
+# fixed-stage curriculum with one change only: accepted wall demonstrations
+# sample initial side distance from [5.0, 5.5] instead of [5.5]. All other
+# layouts and every motion/observation/safety setting remain unchanged.
+imitation:
+  seed: 661701
+  device: cuda
+  episodes: 640
+  expert_max_attempts_per_episode: 8
+  expert_max_rejection_rate: 0.25
+  expert_collection_checkpoint_every_accepted_episodes: 16
+  expert_require_safe_capture: true
+  expert_require_cooperative_safe_capture: true
+  training_obstacle_counts: [3]
+  training_target_speed_scales: [0.45]
+  training_target_motion_modes: [flee_persistence]
+  training_required_defender_zone_entries: 2
+  training_showcase_stages:
+    - until_progress: 0.30
+      showcase_probability: 1.0
+      randomized_central_probability: 0.0
+      layouts: [cylinder]
+      initial_side_distances: [5.5]
+      defender_sides: [left]
+      target_speed_scales: [0.45]
+      target_motion_modes: [flee_persistence]
+      target_crossing_probability: 0.0
+      required_defender_zone_entries: 2
+    - until_progress: 0.65
+      showcase_probability: 1.0
+      randomized_central_probability: 0.0
+      layouts: [cylinder, box, wall, cylinder_box]
+      initial_side_distances: [5.5]
+      defender_sides: [left]
+      target_speed_scales: [0.45]
+      target_motion_modes: [flee_persistence]
+      target_crossing_probability: 0.0
+      required_defender_zone_entries: 2
+      layout_overrides:
+        wall:
+          initial_side_distances: [5.0, 5.5]
+    - until_progress: 1.0
+      showcase_probability: 1.0
+      randomized_central_probability: 0.0
+      layouts: [cylinder, box, wall, cylinder_box, mixed]
+      initial_side_distances: [5.5]
+      defender_sides: [left]
+      target_speed_scales: [0.45]
+      target_motion_modes: [flee_persistence]
+      target_crossing_probability: 0.0
+      required_defender_zone_entries: 2
+      layout_overrides:
+        wall:
+          initial_side_distances: [5.0, 5.5]
+  learning_rate: 0.0003
+  action_scale_mode: full_range
+  hidden_dim: 128
+  epochs: 96
+  validation_episodes: 10

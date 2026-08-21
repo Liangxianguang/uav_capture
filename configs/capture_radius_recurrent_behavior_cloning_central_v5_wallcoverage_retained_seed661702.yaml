@@ -1,0 +1,35 @@
+experiment_name: capture_radius_recurrent_behavior_cloning_central_v5_wallcoverage_retained_seed661702
+environment_config: capture_radius_pursuit_central_v4_flee.yaml
+
+# P3-A pilot retained stage. Warm-start from the paired wall-coverage fixed
+# stage and balance it by sequence count against the frozen V5 random archive.
+imitation:
+  seed: 661702
+  device: cuda
+  episodes: 320
+  initialize_from: ../results/central_v5/fixed_wallcoverage_seed661701/checkpoint.pt
+  expert_datasets:
+    - ../results/central_v5/fixed_wallcoverage_seed661701/expert_sequence_dataset.npz
+    - ../results/central_v5/bc_baseline_seed661401/expert_sequence_dataset.npz
+  expert_dataset_source_balance: equal_sequences
+  training_obstacle_counts: [3]
+  training_target_speed_scales: [0.45, 0.55]
+  training_target_motion_modes: [flee_persistence, s_curve]
+  training_required_defender_zone_entries: 2
+  training_showcase_stages:
+    - until_progress: 1.0
+      showcase_probability: 1.0
+      randomized_central_probability: 0.85
+      randomized_obstacle_count_range: [3, 5]
+      layouts: [mixed]
+      initial_side_distances: [6.0, 6.5, 7.0, 7.5]
+      defender_sides: [left, right]
+      target_speed_scales: [0.45, 0.55]
+      target_motion_modes: [flee_persistence, s_curve]
+      target_crossing_probability: 0.0
+      required_defender_zone_entries: 2
+  learning_rate: 0.00005
+  action_scale_mode: full_range
+  hidden_dim: 128
+  epochs: 64
+  validation_episodes: 10
