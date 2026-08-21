@@ -1,0 +1,62 @@
+{
+  "decision_type": "central_v5_p3a_wall_coverage_pilot_rejection",
+  "status": "rejected_stop_v5_tuning",
+  "not_a_locked_test": true,
+  "pre_registration_sha256": "a0624632ba19417408d0957ff6e531f0b66607041182e98c83c6d23d4b697f76",
+  "pilot": {
+    "fixed_training_seed": 661701,
+    "retained_training_seed": 661702,
+    "fixed_checkpoint_sha256": "54b543343fff6a26b91c8d686ca63f714a7f54e674c080429aec5117d954554d",
+    "retained_checkpoint_sha256": "09284ff66b4297642d626ad3364999c5e2ed66d890f335fae6fcd234132c898b",
+    "training_integrity_passed": true,
+    "wall_coverage": {
+      "accepted_wall_examples_at_5_0_m": 58,
+      "accepted_wall_examples_at_5_5_m": 53,
+      "minimum_per_stratum": 25,
+      "passed": true
+    },
+    "retained_source_balance": {
+      "mode": "equal_sequences",
+      "fixed_selected_sequences": 646,
+      "frozen_random_selected_sequences": 646,
+      "passed": true
+    }
+  },
+  "completed_fixed_regression_artifacts": {
+    "s1_cylinder_raw": {
+      "episodes": 20,
+      "cooperative_safe_capture_rate": 0.05,
+      "collision_rate": 0.95,
+      "boundary_violation_rate": 0.0,
+      "transit_success_rate": 1.0,
+      "episodes_csv_sha256": "f6e434136a67620a91005f71d9295628795579fae42d7245a8f4ec32112c314c"
+    },
+    "s1_cylinder_cbf": {
+      "episodes": 20,
+      "cooperative_safe_capture_rate": 0.95,
+      "collision_rate": 0.0,
+      "boundary_violation_rate": 0.0,
+      "transit_success_rate": 1.0,
+      "episodes_csv_sha256": "f45b112207b63ef95e0be456146de94dc90c3006e71e3555769c79a61539dc0a",
+      "failed_episode": {
+        "seed": 660508,
+        "termination_reason": "timeout",
+        "collision": false,
+        "boundary_violation": false,
+        "defender_zone_entry_count": 4,
+        "minimum_clearance_m": 0.3747457732466587,
+        "maximum_cbf_action_correction_norm": 0.738535862909248
+      }
+    }
+  },
+  "pre_registered_fixed_cbf_threshold": 0.98,
+  "first_failed_gate": "s1_cylinder_cbf_cooperative_safe_capture_at_least_98_percent",
+  "subsequent_evaluations_not_run": [
+    "s1_box_raw_cbf",
+    "s1_wall_raw_cbf",
+    "s2_raw_cbf",
+    "s3_development_raw_cbf"
+  ],
+  "locked_seed_block_647201_opened": false,
+  "next_action": "stop_v5_tuning_preserve_v4_locked_baseline"
+}
