@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 
-from scripts.build_s3_failure_index import build_index, classify_failure
+from scripts.build_s3_failure_index import build_index, classify_failure, render_report
 
 
 def _row(**overrides: str) -> dict[str, str]:
@@ -85,7 +85,24 @@ def test_build_index_keeps_episode_identity_and_groups(tmp_path) -> None:
     assert index["episode_level"] is True
     assert index["summary"]["episodes"] == 2
     assert index["summary"]["cooperative_failures"] == 1
+    assert index["summary"]["methods"] == ["dynamic_encirclement"]
+    assert index["summary"]["cbf_modes"] == [True]
     assert index["summary"]["failure_stages"] == {"timeout": 1}
     assert index["groups"]["observation_condition"]["nominal"]["episodes"] == 2
     assert index["failures"][0]["episode_seed"] == 646102
     assert set(index["failures"][0]["hard_example_flags"]) == {"task_failure", "low_clearance", "large_cbf_correction"}
+
+
+def test_render_report_distinguishes_policy_artifacts(tmp_path) -> None:
+    path = tmp_path / "episodes.csv"
+    rows = [_row(method="f2", use_cbf="False"), _row(episode_index="1", method="f2", use_cbf="False")]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    report = render_report(build_index(path))
+
+    assert "Policy Artifact" in report
+    assert "deployable learned policy" not in report
+    assert "method(s) `f2`" in report

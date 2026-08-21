@@ -154,6 +154,8 @@ def build_index(
 
     failures = [row for row in indexed if row["failure_stage"] != "cooperative_safe_capture"]
     hard_examples = [row for row in indexed if row["hard_example_flags"]]
+    methods = sorted({str(row["method"]) for row in indexed if row.get("method")})
+    cbf_modes = sorted({bool(row["use_cbf"]) for row in indexed})
     return {
         "index_type": "central_v5_s3_episode_failure_index",
         "episode_level": True,
@@ -165,6 +167,8 @@ def build_index(
         },
         "summary": {
             "episodes": len(indexed),
+            "methods": methods,
+            "cbf_modes": cbf_modes,
             "cooperative_safe_captures": len(indexed) - len(failures),
             "cooperative_failures": len(failures),
             "cooperative_failure_rate": len(failures) / len(indexed),
@@ -180,11 +184,28 @@ def build_index(
 
 def render_report(index: dict[str, Any]) -> str:
     summary = index["summary"]
+    methods = summary.get("methods", [])
+    method_label = ", ".join(str(value) for value in methods) if methods else "unknown"
+    cbf_modes = summary.get("cbf_modes", [])
+    if methods == ["dynamic_encirclement"]:
+        title = "V5 S3 Failure Analysis (Expert Feasibility Validation)"
+        interpretation = (
+            "The expert result establishes that the V5 validation maps have a safe route "
+            "under the current kinematic contract. It is an upper-bound feasibility check, "
+            "not a deployable learned policy."
+        )
+    else:
+        title = "V5 S3 Failure Analysis (Policy Artifact)"
+        interpretation = (
+            "This report identifies episode-level failures of the evaluated policy artifact. "
+            "Raw actor behavior and CBF execution are kept as separate evidence; a CBF result "
+            "must not be credited entirely to the policy network."
+        )
     lines = [
-        "# V5 S3 Failure Analysis (Expert Feasibility Validation)",
+        f"# {title}",
         "",
-        "This report audits a fresh V5 validation artifact generated with `rule expert + CBF`.",
-        "It is a map/dynamics feasibility check, not a learned-policy improvement claim.",
+        f"This report audits an episode-level CSV for method(s) `{method_label}`.",
+        f"CBF modes present: `{', '.join(str(value) for value in cbf_modes) or 'unknown'}`.",
         "",
         f"- Episodes: `{summary['episodes']}`",
         f"- Cooperative Safe Capture: `{summary['cooperative_safe_captures']}/{summary['episodes']}`",
@@ -225,10 +246,7 @@ def render_report(index: dict[str, Any]) -> str:
             "",
             "## Interpretation boundary",
             "",
-            "The expert result establishes that the V5 validation maps have a safe route "
-            "under the current kinematic contract. It does not explain retained-BC failures, "
-            "because no policy checkpoint was evaluated in this run. The same tool must be "
-            "run on policy + CBF `episodes.csv` before selecting hard examples for training.",
+            interpretation,
             "",
         ]
     )
