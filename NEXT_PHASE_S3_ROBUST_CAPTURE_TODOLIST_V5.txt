@@ -82,18 +82,18 @@ Capture Rate，不能把 CBF 修正后的结果全部归因于策略网络。
 四、阶段 F0：实验封存与新 seed 设计
 ======================================================================
 
-    [ ] F0.1 复制并登记 V4 基线的 YAML、git commit、checkpoint SHA-256、环境信息，
+    [x] F0.1 复制并登记 V4 基线的 YAML、git commit、checkpoint SHA-256、环境信息，
           生成 baseline_manifest.json；原 checkpoint 只读保存。
-    [ ] F0.2 建立与 V4 不重叠的开发 validation seed block（建议 646101）和最终
+    [x] F0.2 建立与 V4 不重叠的开发 validation seed block（建议 646101）和最终
           next-locked seed block（建议 647201）；在运行前写入 YAML 并提交。
-    [ ] F0.3 固定新的场景采样规则：障碍数 3-5，类型 cylinder/box/wall，障碍仅在
+    [x] F0.3 固定新的场景采样规则：障碍数 3-5，类型 cylinder/box/wall，障碍仅在
           中央区内，膨胀后地图必须可达；记录被拒绝地图及原因。
-    [ ] F0.4 固定训练/validation/next-locked 的 target-motion seed，不允许运行时
+    [x] F0.4 固定训练/validation/next-locked 的 target-motion seed，不允许运行时
           静默重采样；保留 V4 fixed S1/S2 作为回归集。
-    [ ] F0.5 定义统一结果 schema：capture、safe_capture、cooperative_capture、
+    [x] F0.5 定义统一结果 schema：capture、safe_capture、cooperative_capture、
           timeout、collision、boundary、transit、min_clearance、path_length、
           cbf_correction、zone_entry_time、observation_condition。
-    [ ] F0.6 为每次候选运行保存 config.yaml、git hash、checkpoint SHA-256、
+    [x] F0.6 为每次候选运行保存 config.yaml、git hash、checkpoint SHA-256、
           training.csv、TensorBoard、环境和依赖版本；结果目录不提交大文件。
 
 F0 通过门槛：新 seed block、数据 schema 和基线 manifest 可由另一条命令复现，
@@ -105,16 +105,16 @@ F0 通过门槛：新 seed block、数据 schema 和基线 manifest 可由另一
 
 目标：先确认失败发生在“观测、协同决策、动力学安全约束还是时间预算”，再训练。
 
-    [ ] F1.1 从已有 locked artifacts 汇总每个失败 episode 的阶段标签：
+    [~] F1.1 从已有 locked artifacts 汇总每个失败 episode 的阶段标签：
           未进入中央区、进入后分散、接近阶段停滞、CBF 强修正、碰撞/越界、timeout。
-    [ ] F1.2 将 delayed_noisy、nominal、窄/中净空、3/4/5 障碍、flee_persistence、
+    [~] F1.2 将 delayed_noisy、nominal、窄/中净空、3/4/5 障碍、flee_persistence、
           s_curve、左右出生侧分别生成失败回放索引；不修改原始 locked artifacts。
-    [ ] F1.3 定义难例筛选规则并写入 YAML：例如 timeout、min_clearance < 0.30 m、
+    [~] F1.3 定义难例筛选规则并写入 YAML：例如 timeout、min_clearance < 0.30 m、
           CBF correction > 0.25 或捕获前 zone-entry 不完整；阈值只能在 validation
           阶段确定，不能用最终 locked-test 调整。
-    [ ] F1.4 检查失败是否由时间上限、目标速度或 CBF 安全边界造成；分别记录
+    [x] F1.4 检查失败是否由时间上限、目标速度或 CBF 安全边界造成；分别记录
           timeout 前最后距离、最近距离、追捕机间距和 CBF 修正量。
-    [ ] F1.5 输出 `S3_FAILURE_ANALYSIS_REPORT.md` 和机器可读的 failure_index.json，
+    [~] F1.5 输出 `S3_FAILURE_ANALYSIS_REPORT.md` 和机器可读的 failure_index.json，
           至少包含每类样本数、失败率、代表性轨迹和可复现 seed。
 
 F1 通过门槛：每个失败类别都有可复现样本；不能把所有失败笼统标为“策略不稳定”。
