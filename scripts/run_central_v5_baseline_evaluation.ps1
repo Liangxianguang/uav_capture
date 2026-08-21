@@ -7,7 +7,8 @@ param(
     [ValidateSet("auto", "cuda", "cpu")]
     [string]$Device = "cuda",
     [string]$OutputJson = "CENTRAL_V5_BASELINE_VALIDATION_SUMMARY.json",
-    [string]$OutputMarkdown = "CENTRAL_V5_BASELINE_VALIDATION_REPORT.md"
+    [string]$OutputMarkdown = "CENTRAL_V5_BASELINE_VALIDATION_REPORT.md",
+    [string]$OutputFailureMarkdown = "S3_POLICY_FAILURE_ANALYSIS_REPORT.md"
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,5 +98,5 @@ Invoke-V5Python @(
     "--run-id", $RunId,
     "--output-json", $OutputJson,
     "--output-md", $OutputMarkdown,
-    "--output-failure-md", "S3_POLICY_FAILURE_ANALYSIS_REPORT.md"
+    "--output-failure-md", $OutputFailureMarkdown
 )
