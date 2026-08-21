@@ -9,6 +9,7 @@ run and later for policy + CBF validation artifacts.
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import hashlib
 import json
@@ -24,6 +25,7 @@ GROUP_FIELDS = (
     "defender_side",
     "target_speed_scale",
     "target_motion_mode",
+    "planned_route_clearance_band",
 )
 
 
@@ -35,6 +37,28 @@ def _float(value: Any, default: float | None = None) -> float | None:
     if value is None or str(value).strip() == "":
         return default
     return float(value)
+
+
+def planned_route_clearance_band(row: dict[str, str]) -> str:
+    """Classify the recorded conservative Transit clearance without re-planning."""
+    values: list[float] = []
+    raw_defender_values = row.get("defender_transit_min_clearance_m")
+    if raw_defender_values not in {None, ""}:
+        parsed = ast.literal_eval(str(raw_defender_values))
+        if not isinstance(parsed, list):
+            raise ValueError("defender_transit_min_clearance_m must be a list literal.")
+        values.extend(float(value) for value in parsed)
+    target_value = _float(row.get("target_transit_min_clearance_m"))
+    if target_value is not None:
+        values.append(target_value)
+    if not values:
+        return "unknown"
+    clearance = min(values)
+    if clearance < 0.65:
+        return "narrow: planned clearance <0.65 m"
+    if clearance < 0.80:
+        return "medium: planned clearance 0.65-0.80 m"
+    return "wide: planned clearance >=0.80 m"
 
 
 def _sha256(path: Path) -> str:
@@ -133,6 +157,7 @@ def build_index(
                 "defender_side": row.get("defender_side"),
                 "target_speed_scale": _float(row.get("target_speed_scale")),
                 "target_motion_mode": row.get("target_motion_mode"),
+                "planned_route_clearance_band": planned_route_clearance_band(row),
                 "failure_stage": failure_stage,
                 "hard_example_flags": hard_flags,
                 "capture_event": _bool(row.get("capture_event")),
