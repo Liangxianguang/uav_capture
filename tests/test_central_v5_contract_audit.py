@@ -63,3 +63,17 @@ def test_audit_accepts_equal_balanced_archives_with_matching_stage_contract(tmp_
     assert result["findings"]["high_risk_data_contract_gap"] is False
     assert result["findings"]["equal_sequence_balance_preserved"] is True
     assert result["findings"]["stage_contract_changed"] is False
+
+
+def test_recovery_yaml_declares_fixed_and_random_sources() -> None:
+    root = Path(__file__).resolve().parents[1]
+    document = yaml.safe_load(
+        (root / "configs" / "capture_radius_recurrent_behavior_cloning_central_v5_contract_recovery.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    settings = document["imitation"]
+    assert settings["expert_dataset_source_balance"] == "equal_sequences"
+    assert len(settings["expert_datasets"]) == 2
+    assert "fixed_contract_archive" in settings["expert_datasets"][0]
+    assert "bc_baseline_seed661401" in settings["expert_datasets"][1]
