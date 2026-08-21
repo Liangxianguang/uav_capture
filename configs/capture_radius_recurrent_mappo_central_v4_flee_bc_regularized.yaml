@@ -24,6 +24,8 @@ training:
   hidden_dim: 128
   torch_num_threads: 1
   deterministic_algorithms: true
+  # Generate this archive first with
+  # capture_radius_recurrent_behavior_cloning_central_v4_flee.yaml.
   behavior_cloning_dataset: ../results/central_v4/bc_shapeaware_seed660701/expert_sequence_dataset.npz
   behavior_cloning_coefficient: 1.0
   behavior_cloning_sequence_batch_size: 16
