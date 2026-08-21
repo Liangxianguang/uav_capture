@@ -1,0 +1,46 @@
+{
+  "manifest_version": 1,
+  "purpose": "Required frozen V4 policy sources for the independent E1 execution-dynamics experiment.",
+  "historical_evidence": {
+    "locked_report": "CENTRAL_V4_LOCKED_TEST_REPORT.md",
+    "locked_report_sha256": "bf9d6f8d149a50ca0d83712306b2da3dae76a1b24743a446ed999ee0849832c7",
+    "locked_summary": "CENTRAL_V4_LOCKED_TEST_SUMMARY.json",
+    "locked_summary_sha256": "55307fefee52a1c0892847c709707775aefd8f83af2752f686fa2bd492a18227f8",
+    "historical_locked_seed_block": 647001,
+    "not_reused_by_e1": true
+  },
+  "source_environment": {
+    "yaml": "configs/capture_radius_pursuit_central_v4_flee.yaml",
+    "git_blob_sha1": "226bec16b754470eda81dcf78c3e1e89f17db090"
+  },
+  "required_frozen_checkpoints": [
+    {
+      "training_seed": 661201,
+      "expected_relative_path": "results/central_v4/bc_s3_retained_seed661201/checkpoint.pt",
+      "expected_sha256": "ccab4a9fa899082c7a363c7f0b24a58bd13ecdfb59fc9a2e265dddfad320de8d",
+      "training_yaml": "configs/capture_radius_recurrent_behavior_cloning_central_v4_s3_retained.yaml"
+    },
+    {
+      "training_seed": 661202,
+      "expected_relative_path": "results/central_v4/bc_s3_retained_seed661202/checkpoint.pt",
+      "expected_sha256": "8baeec9c8e21d5dd6bcb3a5848e1edd3ac3ba05b99d2930799a88d3a91e42494",
+      "training_yaml": "configs/capture_radius_recurrent_behavior_cloning_central_v4_s3_retained.yaml"
+    },
+    {
+      "training_seed": 661203,
+      "expected_relative_path": "results/central_v4/bc_s3_retained_seed661203/checkpoint.pt",
+      "expected_sha256": "a0c809607954996f7367db8f7ce346cec62552de235aa21f3a91f95b78f8c22b",
+      "training_yaml": "configs/capture_radius_recurrent_behavior_cloning_central_v4_s3_retained.yaml"
+    }
+  ],
+  "availability_at_manifest_creation": {
+    "all_checkpoint_files_present": false,
+    "interpretation": "The historical report establishes the source contract, but the ignored local checkpoint artifacts must be regenerated or restored before E1 policy evaluation. Their absence is not an E1 result."
+  },
+  "formal_evaluation_preflight": [
+    "Each required checkpoint exists at the expected path and matches its expected SHA-256.",
+    "The E1 environment source uses the recorded V4 pursuit_env git blob, not an uncommitted local variant.",
+    "The E1 protocol and preregistration hashes pass scripts/verify_e1_preregistration.py.",
+    "No E1 locked case has been opened before the preflight passes."
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "preregistration_version": 1,
+  "experiment": "E1_frozen_V4_execution_dynamics_robustness",
+  "status": "frozen_before_any_E1_development_policy_evaluation",
+  "source_code_commit": "cda1178dfde89b90aa83c9837aafcb51472d5d88",
+  "protocol": {
+    "path": "configs/e1_execution_dynamics_protocol.yaml",
+    "sha256": "e7744361a15a37c884ce03986db9b1b321e34d51804b47de8ad18c2fe46846b1",
+    "primary_profile": "E6",
+    "profiles": ["E0", "E1", "E2", "E3", "E4", "E5", "E6"],
+    "seed_blocks": {
+      "smoke": 681001,
+      "development": 681101,
+      "locked_test": 681201
+    },
+    "evaluation_budget": {
+      "smoke_episodes_per_profile": 10,
+      "development_s3_episodes_per_profile": 60,
+      "locked_s3_episodes_per_profile": 100,
+      "fixed_episodes_per_scene": 20
+    }
+  },
+  "source_files": {
+    "src/encirclement3d/execution_dynamics.py": "2e8ee5001a16f00e818f19f3144ae6aad179aa9298a6e541ec3e4f18d4f060f5",
+    "src/encirclement3d/execution_env.py": "de8fd22d46941c38133217f5d94bafe57521e92e72ddace94fbc4ab74c1157ab",
+    "src/encirclement3d/execution_safety.py": "36a70c9abeccd5073e94bf6adf3740116ff920460c18628f8e32807b24febde7",
+    "src/encirclement3d/e1_protocol.py": "456d236cac4f89c86dc6a3199de6a03824c2ac0c558a695b9cbd72ce88dd6ba1",
+    "src/encirclement3d/execution_evaluation.py": "d59d309edde9d84645c44386b78dee5f91459b668739e210cbdf066ba85deb96",
+    "scripts/evaluate_e1_execution_dynamics.py": "8b0385625bf2bf48aa7a3b6363f2aebd0e5bb46afbf233528be817f691dc04f1"
+  },
+  "task_contract": {
+    "pursuers": 4,
+    "evaders": 1,
+    "capture_radius_m": 0.8,
+    "required_pursuer_central_zone_entries": 2,
+    "target_central_zone_entry_required": false,
+    "obstacles": ["cylinder", "box", "wall"],
+    "target_execution_model_changed": false,
+    "observation_and_communication_contract_changed": false
+  },
+  "execution_chain": [
+    "policy_velocity_command",
+    "raw_or_kinematic_CBF_or_execution_aware_CBF_command",
+    "FIFO_delay_queue",
+    "acceleration_and_speed_limit",
+    "bounded_execution_noise",
+    "executed_defender_velocity"
+  ],
+  "execution_modes": ["raw", "kinematic_cbf", "execution_aware_cbf"],
+  "pairing_contract": {
+    "paired_fields": [
+      "policy_checkpoint_sha256",
+      "episode_seed",
+      "layout_seed",
+      "case_sha256",
+      "target_profile",
+      "execution_noise_seed"
+    ],
+    "same_case_required_for_raw_kinematic_execution_aware": true
+  },
+  "primary_outcome": "cooperative_safe_capture_rate",
+  "secondary_outcomes": [
+    "capture_rate",
+    "safe_capture_rate",
+    "collision_rate",
+    "boundary_violation_rate",
+    "transit_success_rate",
+    "time_to_capture",
+    "minimum_clearance",
+    "defender_path_length",
+    "command_execution_error",
+    "command_age",
+    "acceleration_and_speed_saturation",
+    "CBF_correction"
+  ],
+  "statistical_unit": "independently_trained_frozen_V4_checkpoint_seed",
+  "prohibited_after_preregistration": [
+    "Changing_E0_to_E6_or_their_parameters_from_development_outcomes",
+    "Changing_CBF_margins_or_network_weights_from_E1_results",
+    "Opening_seed_block_681201_for_selection_or_visualization",
+    "Using_V4_locked_647001_or_V5_blocks_646101_647201_for_E1_selection",
+    "Removing_a_profile_or_execution_mode_after_observing_development_results"
+  ],
+  "source_manifest": "E1_SOURCE_MANIFEST.json",
+  "formal_locked_preconditions": [
+    "Rule-expert feasibility report is complete for all profiles.",
+    "Three V4 source checkpoints pass E1 source preflight.",
+    "Development evaluation has completed for all three checkpoints, seven profiles, and three execution modes without post-hoc method changes.",
+    "This preregistration and the protocol pass the verifier."
+  ]
+}
