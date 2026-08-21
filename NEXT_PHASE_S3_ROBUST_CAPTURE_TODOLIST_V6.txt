@@ -1,0 +1,314 @@
+三维部分可观测多无人机协同捕获：补充实验与收尾计划（V6）
+日期：2026-08-21
+仓库：https://github.com/Liangxianguang/uav_capture
+
+======================================================================
+0. 一句话目标、研究边界与完成判据
+======================================================================
+
+研究目标：
+    在固定的三维运动学仿真中，验证 4 架追捕无人机能否在部分可观测、
+    中央随机混合静态障碍和持续逃逸目标条件下，通过“学习策略 + CBF
+    安全执行层”稳定实现捕获半径内的协同安全捕获。
+
+本阶段的正式结论只覆盖：
+    - 4 架追捕机对 1 架逃逸机；r_capture = 0.80 m。
+    - 三维运动学环境；障碍物为圆柱、立方体和墙体，位于中央区域。
+    - 部分可观测由状态延迟、噪声和丢失等抽象观测扰动实现，不等同于相机检测。
+    - CBF 是执行栈的一部分；策略原始动作（raw）必须单独报告，不能把 CBF
+      带来的安全性全部归因于网络。
+
+本阶段不主张：
+    - 实飞、实体接触/网捕、飞控闭环或真实相机端到端感知；
+    - 动态障碍、多目标围捕、未知地图同时加入；
+    - 用单个成功视频证明方法有效；
+    - 为获得更好画面修改捕获半径、碰撞规则或锁定测试场景。
+
+主指标和最低通过线（仅在预先声明的 V5 validation 上选模型）：
+    [ ] Cooperative Safe Capture >= 85%。
+    [ ] Collision <= 2%，Boundary violation <= 2%，Transit >= 99%。
+    [ ] S1/S2 四种固定布局均 >= 98%，且没有无法解释的安全性回归。
+    [ ] 同时报告 Capture、Safe Capture、Cooperative Safe Capture、Timeout、
+        Time-to-Capture、最小净空、每架路径长度和 CBF correction。
+    [ ] 最终结论在独立 next-locked block 和 3 个独立训练 seed 上复现；若未达标，
+        如实保留“V4 Retained BC + CBF 是当前最佳基线”的结论。
+
+术语固定：
+    Capture：任一追捕机首次进入目标的 0.80 m 捕获半径。
+    Safe Capture：首次 Capture 前无障碍、机间碰撞和越界。
+    Cooperative Safe Capture：Safe Capture 且 Capture 前至少 2/4 架追捕机
+        进入中央障碍区。目标无需进入或穿过中央区。
+    Transit：独立的地图通行性指标，不是 Capture 的附加前提。
+
+======================================================================
+1. 已有证据与当前状态（不重复做）
+======================================================================
+
+V4 已正式完成并封存：
+    [x] 3 个 retained-BC checkpoint 的 S3 locked-test（300 个 episode）。
+    [x] Retained BC + CBF：Cooperative Safe Capture = 75.3% +/- 6.5%。
+    [x] Raw actor：Cooperative Safe Capture = 2.3% +/- 1.2%，Collision = 97.7% +/- 1.2%。
+    [x] CBF：Collision = 4.7% +/- 1.2%，Boundary = 4.7% +/- 1.2%，Transit = 99%。
+    [x] 固定 S1/S2 + CBF：Cylinder 100%，Box 100%，Wall 98.7% +/- 0.6%，
+        S2 mixed 100%，Transit 均为 100%。
+    [x] 成功与失败轨迹均已生成 top-down PNG、3D PNG、GIF、H.264 MP4；
+        媒体和轨迹 hash 已核验。
+
+V5 已完成：
+    [x] 新开发 validation block = 646101、next-locked block = 647201 已冻结；
+        严禁用 V4 locked block = 647001 调参。
+    [x] 随机场景协议、结果字段、baseline manifest 和失败索引工具已提交。
+    [x] rule expert + CBF 在 V5 validation 的 60 个 episode 中为 59/60（98.33%）
+        Cooperative Safe Capture、零碰撞、零越界、100% Transit。
+        这只证明地图/动力学可行，不是学习策略的结果。
+    [~] retained-BC V5 重建基线 seed 661401 正在训练；不得启动重复训练或中断。
+
+当前缺口：
+    [ ] 尚无 V5 学习策略在 validation 上的逐回合 raw/CBF 对照。
+    [ ] 尚无学习策略失败的 episode-level 归因，因此尚不能合理选择难例训练分布。
+    [ ] 尚无“只改一个主因素”的候选比较，不能断言某个改动有效。
+    [ ] 尚无 3 seed 的独立 next-locked 复现，不能把 V5 作为正式改进结论。
+    [ ] 当前“部分可观测”仍是抽象状态扰动，尚未形成动力学/感知真实性结论。
+
+参考与复现文件：
+    CENTRAL_V4_LOCKED_TEST_REPORT.md
+    CENTRAL_V4_LOCKED_TEST_SUMMARY.json
+    CENTRAL_V5_BASELINE_MANIFEST.json
+    configs/central_random_mixed_obstacle_s3_v5_protocol.yaml
+    S3_FAILURE_ANALYSIS_REPORT.md
+
+======================================================================
+2. P0：完成当前 V5 基线并做运行完整性检查（唯一立即动作）
+======================================================================
+
+目的：先建立与 V4 结构相同、只更换 V5 validation seed block 的学习策略对照，
+      再讨论改进方法。
+
+    [~] P0.1 等待当前运行结束：
+          results/central_v5/bc_baseline_seed661401。
+          不修改正在运行的配置，不启动第二个训练进程。
+    [ ] P0.2 检查输出是否齐全：checkpoint.pt、expert_dataset_manifest.json、
+          training.csv、evaluation.json、config.yaml、environment.txt、source_hashes.json、
+          TensorBoard event 文件。
+    [ ] P0.3 检查训练数据质量：接受 expert episode = 320；rejection rate <= 25%；
+          每条保留演示均满足 Safe Capture 和 Cooperative Safe Capture。
+    [ ] P0.4 检查训练曲线：训练/验证损失无 NaN、无中途截断；保存最终 epoch、
+          最优 checkpoint 选择规则和 TensorBoard 截图/导出数据。
+    [ ] P0.5 计算 checkpoint.pt 和 expert archive 的 SHA-256，写入本次候选 manifest。
+    [ ] P0.6 运行已有定向回归测试；不得暂存或修改用户已有的
+          src/encirclement3d/pursuit_env.py。
+
+P0 退出规则：
+    - 数据质量或训练产物不完整：修复训练/数据生成流程后仅重跑该基线。
+    - 产物完整：进入 P1；此时仍不引入新网络、MAPPO 或新障碍类型。
+
+======================================================================
+3. P1：V5 基线的完整开发评估与逐回合失败归因
+======================================================================
+
+目的：量化学习策略在哪些条件下失败，并区分策略能力、CBF 安全修正、地图难度和
+      时间预算的影响。
+
+    [ ] P1.1 对 seed 661401 checkpoint 跑固定 S1/S2 回归，raw 和 CBF 各一组。
+          使用 V4 已冻结布局与相同 episode 数；输出每布局的 Capture/Safe/
+          Cooperative、Collision、Boundary、Transit、路径长度和 correction。
+    [ ] P1.2 在 V5 validation（seed block 646101，60 episode）跑 S3 raw。
+          不使用 CBF，保存 episodes.csv 和每个 episode 的完整状态字段。
+    [ ] P1.3 在完全相同场景和种子上跑 S3 + CBF；禁止重新采样地图或目标轨迹。
+    [ ] P1.4 对 P1.2/P1.3 的 episodes.csv 分别运行 build_s3_failure_index.py。
+          输出机器可读 failure_index.json；再写
+          S3_POLICY_FAILURE_ANALYSIS_REPORT.md。
+    [ ] P1.5 按以下固定维度分组报告 raw/CBF 差异：
+          - observation_condition：nominal / delayed_noisy；
+          - obstacle_count：3 / 4 / 5；
+          - clearance proxy：narrow / medium / wide；
+          - target_motion：flee_persistence / s_curve；
+          - target_speed_scale；
+          - defender birth side；
+          - termination：capture / timeout / collision / boundary。
+    [ ] P1.6 对每个失败类别记录至少 1 个可重放 seed，并标注失败阶段：
+          未形成接近、进入中央区后分散、CBF 强修正、近距离停滞、timeout、
+          collision 或 boundary。不能把所有失败统称为“策略不稳定”。
+    [ ] P1.7 把 Expert + CBF（已完成）作为可行性上界，与 policy raw / policy + CBF
+          放入同一张表；明确 Expert 不是可部署学习策略。
+
+P1 判定与决策：
+    - S1/S2 + CBF 任一布局 < 98%：先检查回归、动作缩放和 checkpoint，不进入改进训练。
+    - 仅 CBF 版本安全而 raw 极差：保留 CBF 作为执行组件，并在论文中分开归因。
+    - baseline 已达到主指标：不为追求复杂性训练新方法，直接进入 P4/P5 复现。
+    - baseline 未达主指标：只根据 failure index 选择 P2 的一个分支。
+
+======================================================================
+4. P2：单因素改进，按证据顺序进行
+======================================================================
+
+共同约束：
+    - 每轮只改变一个主因素；先 1 个 pilot seed，过 P3 门槛后才扩展。
+    - 训练场景、动作尺度、网络结构、序列长度、优化器、capture 定义和 CBF 默认参数
+      均保持不变，除非该轮明确研究其中一项。
+    - 不在 next-locked block = 647201 上查看或调参。
+    - 每个变体保存 YAML、git hash、训练 seed、数据 archive hash 与拒绝样本原因。
+
+P2-A：难例重采样 BC（默认第一优先级）
+    触发条件：P1 显示 timeout、窄净空、5 障碍或 delayed_noisy 有稳定失败聚集。
+    [ ] A1. 在 P1 已发现的难例条件下，用 rule expert + CBF 生成质量门控演示；
+          expert 也无法安全捕获的地图只记录为不可行，不放入训练集。
+    [ ] A2. 固定原 V4/V5 常规演示，比较两种唯一变化的数据配比：normal:hard = 1:1
+          与 1:2；训练 episode 总数和优化预算保持一致。
+    [ ] A3. 记录各条件的采样量、接受率、拒绝原因、左右出生侧及 archive SHA-256；
+          保证不是只因某一出生侧或简单布局被过采样。
+    [ ] A4. 每个配比先用一个 pilot seed 训练和评估；只保留同时改善 hard group 且
+          S1/S2 不退化的一个候选。
+
+P2-B：观测鲁棒性增强（仅在 A 不足且失败主要来自 delayed_noisy 时）
+    触发条件：P1/P2-A 显示 delayed_noisy 仍明显弱于 nominal，且主要是预测滞后/超调。
+    [ ] B1. 只改变一种训练观测增强，顺序为 delay -> noise -> dropout；每次只打开一项。
+    [ ] B2. 对每一项比较 nominal-only、delayed_noisy-only、mixed；总训练量保持一致。
+    [ ] B3. 结果必须分条件报告；不能以 nominal 提升掩盖 delayed_noisy 退化。
+
+P2-C：轻量协同辅助项（仅在 P1 证明为协同失效时）
+    触发条件：多次失败表现为单机追击、队形塌缩或 2/4 zone entry 持续不满足，
+              而非纯粹窄通道/CBF 限制。
+    [ ] C1. 先生成诊断图：每架追捕机 zone-entry 顺序、最小距离、最终接近方向、
+          agent-agent distance 和 CBF correction 时间序列。
+    [ ] C2. 仅增加一个可解释辅助损失（如分散接近或 zone-entry 进度）；做无/有
+          辅助项消融，不更改 0.80 m 捕获半径或强迫目标穿越中央区。
+    [ ] C3. 若 Capture、最小净空或固定 S1/S2 下降，拒绝该变体。
+
+P2-D：CBF 敏感性诊断（不是学习策略改进）
+    [ ] D1. 在冻结同一策略上比较 raw、CBF-default 和少量预先声明的 safety margin。
+    [ ] D2. 仅使用 validation 分析 safety margin、Collision、Boundary、Timeout、
+          CBF correction、路径长度和 Time-to-Capture 的权衡。
+    [ ] D3. 选择最终 CBF 参数后冻结；不得根据 next-locked 结果再次调节。
+
+明确暂缓：
+    [ ] MAPPO 仅在 A/B 均未过门槛，且失败被证实为长期协同决策不足时才启动。
+          若启动，必须从合格 BC 初始化，并使用行为保持正则；先过 S1/S2 raw/CBF 回归。
+    [ ] 不在本阶段同时加入动态障碍、未知地图、真实视觉或复杂六自由度动力学。
+
+======================================================================
+5. P3：候选筛选、消融与统计标准
+======================================================================
+
+目的：让“改进”来自公平比较，而不是单一视频、单一 seed 或 CBF 参数变化。
+
+同一 V5 validation 场景、种子和 episode 数下，至少形成以下矩阵：
+    [ ] M1. Retained BC baseline + raw。
+    [ ] M2. Retained BC baseline + CBF。
+    [ ] M3. 最佳单因素变体 + raw。
+    [ ] M4. 最佳单因素变体 + CBF。
+    [x] M5. Rule expert + CBF（上界可行性，60 episode）。
+    [ ] M6. 若确实启动 MAPPO，才增加 BC-initialized MAPPO 的 raw/CBF。
+
+每一项必须输出：
+    [ ] episode-level CSV、聚合 JSON、配置和 checkpoint SHA-256。
+    [ ] Capture、Safe Capture、Cooperative Safe Capture、Collision、Boundary、
+        Timeout、Transit。
+    [ ] Time-to-Capture、最小净空、每架路径长度、CBF correction 的均值、标准差、
+        中位数及分位数；不能只报均值。
+    [ ] 按 P1.5 所有因素的分组结果，特别是 delayed_noisy 与 narrow。
+    [ ] Cooperative Safe Capture 的 95% binomial CI；3 seed 时再报告 seed 间样本
+        标准差和总体置信区间。
+    [ ] 拒绝候选列表及拒绝原因，写入 NEXT_PHASE_VALIDATION_REPORT.md。
+
+候选进入 P4 的门槛：
+    [ ] validation Cooperative Safe Capture >= 85%。
+    [ ] Collision <= 2%，Boundary <= 2%，Transit >= 99%。
+    [ ] 固定 S1/S2 + CBF 均 >= 98%。
+    [ ] delayed_noisy 和 narrow 分组至少一项有清晰、可解释的改善；不能只提升容易组。
+    [ ] 没有靠明显加长 episode 时间、恶化最小净空或异常增大 CBF correction 换取成功率。
+
+======================================================================
+6. P4：冻结、三 seed 复现和独立 next-locked-test
+======================================================================
+
+目的：把开发结果转成可复现结论。此阶段开始后不再改训练、CBF、地图、阈值或
+      checkpoint 选择规则。
+
+    [ ] P4.1 冻结最佳方法的 effective YAML、训练步数、数据 archive、CBF 参数、
+          checkpoint 选择规则和 git commit；写入 frozen manifest。
+    [ ] P4.2 若最终方法不同于当前基线，选取 3 个未使用训练 seed；若最终方法就是
+          当前基线，661401 可作为第一个 seed，但其余 seed 必须独立。训练期间
+          不打开 next-locked 结果。
+    [ ] P4.3 每个 seed 都完成固定 S1/S2 raw/CBF、V5 validation raw/CBF 和独立
+          Transit；任何失败 seed 都保留，不能只报告最好 checkpoint。
+    [ ] P4.4 所有模型冻结后才运行 next-locked = 647201：每个 checkpoint 100 个 S3
+          episode，同时重跑 V4 baseline 以保证跨版本比较的执行脚本一致。
+    [ ] P4.5 输出每 seed、总体均值、样本标准差、95% CI、完整分组表和失败索引；
+          报告 V4 baseline 与新候选的绝对差值和相对差值。
+    [ ] P4.6 生成 NEXT_PHASE_LOCKED_TEST_REPORT.md、summary JSON 和
+          NEXT_PHASE_POLICY_FAILURE_ANALYSIS_REPORT.md；记录所有输入/输出 hash。
+
+P4 结论规则：
+    - 仅当 3 seed 都符合安全门槛且总体达到主指标时，写“在本仿真合同下稳定改进”。
+    - 仅单个 seed 提升或 locked 结果未达标：写“开发候选有效但尚未稳健复现”，
+      不替代 V4 正式基线。
+
+======================================================================
+7. P5：结果可视化、复现材料与论文最小证据包
+======================================================================
+
+    [ ] P5.1 只从冻结 next-locked 的原始轨迹中各选 1 条成功与失败样例；不得使用
+          用于调参的 validation 样例充当最终展示。
+    [ ] P5.2 成功样例输出 top-down PNG、3D PNG、GIF、H.264 MP4：展示起点、
+          柱/箱/墙障碍、0.80 m 捕获圈、追捕轨迹、捕获瞬间高亮和冻结帧。
+    [ ] P5.3 失败样例完整展示 timeout/collision/boundary 的真实原因，不删去关键片段。
+    [ ] P5.4 验证 episode.json、trajectory.npz 与 PNG/GIF/MP4 的 SHA-256 关联；
+          视频是解释性证据，统计表才是主证据。
+    [ ] P5.5 在 README/实验报告中写明：捕获是几何捕获半径判定，不代表实体接触、
+          物理拦网或飞行器失能。
+
+每阶段 Git 节点：
+    [ ] G1. P0/P1：feat(experiment): evaluate V5 BC baseline。
+    [ ] G2. P1：docs(experiment): analyze V5 policy failures。
+    [ ] G3. 每个 P2 候选：提交代码、YAML、测试和候选报告；不提交 checkpoint、
+          TensorBoard、CSV、NPZ、GIF、MP4 等大文件。
+    [ ] G4. P3：docs(experiment): compare V5 robustness candidates。
+    [ ] G5. P4/P5：docs(experiment): report V5 locked robustness test。
+    [ ] G6. 提交前跑对应定向测试并记录 Python、PyTorch、CUDA 和 GPU 版本；
+          保持 src/encirclement3d/pursuit_env.py 的用户未提交修改不被暂存。
+    [ ] G7. 每个完成节点执行 git push origin main；禁止 force push。
+
+======================================================================
+8. P6：V5 完成后才启动的真实性扩展（单独立题，不计入当前主结果）
+======================================================================
+
+这部分回答“在更真实条件下是否仍能捕获”，但不能与当前 V5 主实验混合调参。
+只有 P4 完成或正式记录未达标后，再从下面选择一个方向。
+
+P6-A：动力学转移（优先于实飞）
+    [ ] 在 PyBullet/现有闭环动力学环境中复现冻结策略的决策频率、速度/加速度限制、
+        控制滞后和执行噪声；保持相同捕获与安全判定。
+    [ ] 先校准单机位置响应和制动距离，再跑少量 S1/S2/S3 transfer benchmark。
+    [ ] 报告“运动学训练 -> 动力学评估”的性能落差；不把该落差误称为算法提升。
+
+P6-B：感知闭环替代抽象观测
+    [ ] 明确传感器假设（如相对位置观测、检测噪声、漏检、视场遮挡），先用合成观测
+        替换真值状态；保留 ground-truth oracle 对照。
+    [ ] 单独报告感知误差、观测年龄、漏检率和捕获率，不能把“delayed_noisy”称作
+        真实视觉结果。
+
+P6-C：地图泛化压力测试
+    [ ] 冻结策略后，使用未见几何参数、障碍数或布局密度的可行地图测试；先用 expert
+        + CBF 验证地图存在安全解。
+    [ ] 将 in-distribution 和 OOD 地图分表，禁止用 OOD 结果反向训练后仍称其为测试。
+
+P6 不做：
+    [ ] 不同时加入动态障碍、多目标、未知地图和视觉，以免无法解释失败来源。
+    [ ] 不在没有动力学校准或观测误差模型时声称接近实飞。
+
+======================================================================
+9. 最短执行顺序（按此顺序推进）
+======================================================================
+
+    1. 完成 P0：等待并审计正在运行的 seed 661401 V5 baseline。
+    2. 完成 P1：固定 S1/S2 + V5 S3 raw/CBF，生成学习策略 failure index。
+    3. 根据 P1 只选择 P2-A、P2-B 或 P2-C 中的一个；默认先做 P2-A。
+    4. 完成 P3 的公平对照；不达门槛则记录失败并只尝试下一单因素，不并行堆方法。
+    5. 合格候选执行 P4 三 seed 和 next-locked；未合格则以 V4 作为正式结果收尾。
+    6. 完成 P5 形成论文证据包；之后才视研究需求启动 P6-A（动力学）或 P6-B（感知）。
+
+停止条件：
+    - P4 达标：当前三维部分可观测协同捕获实验完整，可开始论文撰写。
+    - P4 不达标且所有预注册单因素均失败：停止继续调参，保留负结果与 failure index，
+      将下一工作明确转为“观测鲁棒性”或“动力学转移”的独立问题。
