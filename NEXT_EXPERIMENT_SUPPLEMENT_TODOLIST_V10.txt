@@ -1,0 +1,308 @@
+三维部分可观测多无人机协同捕获：下一阶段实验补充计划（V10）
+日期：2026-08-21
+仓库：https://github.com/Liangxianguang/uav_capture
+
+======================================================================
+0. 这份计划要解决什么问题
+======================================================================
+
+当前已经能够严谨说明的结论：
+    1) V4 已在三维、静态混合障碍、合成部分可观测、运动学环境中完成正式
+       3-seed locked-test。retained policy + CBF 的 S3 Cooperative Safe Capture
+       为 75.3% +/- 6.5%。
+    2) raw policy 的碰撞率很高，主要安全收益来自 CBF；论文和报告必须始终
+       将 raw actor 与 policy + CBF 分开。
+    3) 测量时延与突发遮挡压力测试已完成，现有 belief 特征没有给出稳定增益。
+       这是一条已记录的失败边界，不应重复堆叠同类感知模块。
+    4) V5 的三 seed development 未全部通过，唯一预注册的 P3-A 墙体覆盖恢复
+       也已被拒绝。因此 V5 locked block 647201 永不打开，不再继续调参。
+
+目前最需要补的缺口：
+    运动学仿真中，CBF 输出的“下一时刻速度”被立即、精确地执行；真实无人机
+    会有控制保持、执行延迟、有限加速度和执行误差。尚不知道现有捕获策略在
+    这些执行约束下是否仍能安全捕获，也不知道运动学 CBF 是否因执行失配而失效。
+
+本计划的唯一主目标（E1）：
+    在不改动捕获任务、观测任务和 V4 学习策略的前提下，建立一个可复现的
+    “受限动作执行”三维追逃基准，量化冻结 V4 策略在执行延迟、加速度受限和
+    执行噪声下的性能退化，并比较 raw actor、原运动学 CBF 与执行感知 CBF。
+
+两句研究表述：
+    多无人机协同捕获在理想速度控制下可行，但动作不能被瞬时执行时，安全层的
+    运动学假设可能失效，导致碰撞或捕获率下降。
+    我们用一个参数可追溯的动作执行模型和保守的执行感知 CBF，测量并缓解这种
+    sim-to-sim 执行失配，而不将其误称为实飞验证。
+
+======================================================================
+1. 任务合同与明确不做的事情
+======================================================================
+
+[ ] E1 使用原主线任务合同，不为提高成功率而改判定：
+    - 4 pursuers + 1 evader；r_capture = 0.80 m。
+    - Cooperative Safe Capture：首次捕获前无障碍物碰撞、无机间碰撞、无边界
+      违规，且至少 2/4 架追捕机进入中央障碍区。
+    - 目标无需进入中央区；捕获只表示几何捕获半径事件，不表示物理接触、网捕、
+      目标失能或实体无人机捕获。
+    - 场地、静态圆柱/立方体/墙体障碍、逃逸逻辑、时域、部分可观测接口保持 V4。
+
+[ ] E1 的第一轮只改变追捕机的动作执行模型；目标动力学、障碍物、观测噪声和
+    通信条件均保持原合同。这样每次性能变化都可归因于执行失配，而非混入多个
+    新因素。
+
+[ ] 不使用 V5 development block 646101、V5 locked block 647201 或 V4 historical
+    locked block 647001 来选择 E1 的模型、参数、场景或可视化样例。
+
+[ ] 不在 E1 中加入 MAPPO、真实检测器、PyBullet、SITL、动态障碍、实飞数据、
+    抓网/接触模型或多目标。它们都是后续独立问题，不能作为本轮执行鲁棒性的
+    补丁。
+
+[ ] 用户当前未提交的 src/encirclement3d/pursuit_env.py 必须保持不暂存、不提交、
+    不覆盖、不回滚。开始前重新记录 SHA-256，并确认它是唯一既有用户修改。
+
+======================================================================
+2. E1 的方法定义（先写进配置，再运行任何 development 评估）
+======================================================================
+
+2.1 冻结的策略来源
+
+[ ] 创建 E1_SOURCE_MANIFEST.json，登记三个 V4 正式 retained-policy checkpoint：
+    checkpoint 路径、SHA-256、产生它的 git commit、训练 YAML、训练 seed、CBF
+    源码 hash 和软件环境。三个独立 checkpoint 才是统计重复单位。
+[ ] 若本地没有上述 checkpoint，只允许按冻结的 V4 YAML 重新生成同一来源的
+    checkpoint；不得因 E1 结果重新训练、挑选或微调策略。
+[ ] E1 的 nominal (E0) 回放仅用于验证执行包装器的恒等性；其新 episode 不替代
+    V4 的历史 locked-test 数字。
+
+2.2 受限动作执行链
+
+[ ] 新建独立模块（建议 src/encirclement3d/execution_dynamics.py），不要直接在
+    用户修改的 pursuit_env.py 中叠加 E1 逻辑。默认 disabled 时环境行为必须与
+    当前主线一致。
+[ ] 每个控制步明确记录如下链路：
+        policy velocity command
+          -> raw / kinematic-CBF / execution-aware-CBF command
+          -> FIFO control-delay queue
+          -> acceleration and speed limiter
+          -> bounded execution noise
+          -> executed defender velocity -> position update
+[ ] 执行状态至少包括：上一实际速度、待执行命令队列、控制命令年龄、随机噪声
+    状态和各类饱和标志；reset 必须清空全部状态。
+[ ] 固定离散模型（变量与实际数值均写入 YAML 和 episode JSON）：
+        c_t       = safety-filtered velocity command
+        q_t       = c_(t-d)                 (d 为整数控制步延迟)
+        v_pre     = clip_delta(q_t, v_(t-1), a_exec * dt)
+        v_exec    = clip_speed(v_pre + epsilon_t, v_max_exec)
+        p_(t+1)   = p_t + v_exec * dt
+    epsilon_t 的分布、独立性、随机种子和限幅必须固定；不要声称其来自真实飞控标定。
+[ ] 只使用当前任务已知的状态构造 CBF；执行感知 CBF 不得读取未来目标轨迹、真实
+    全局地图以外的新信息，或绕过现有局部观测/通信合同。
+
+2.3 三个必须并列的执行方式
+
+[ ] Raw：policy command 直接进入受限执行链。
+[ ] K-CBF：现有离散时间运动学 CBF 输出进入同一受限执行链。它是“忽略执行失配”
+    的安全层基线。
+[ ] E-CBF：执行感知 CBF 输出进入同一受限执行链。其延迟、速度、加速度、噪声界
+    必须仅由 2.2 的预注册模型推导；不能看 development 成功率后修改 margin。
+[ ] 三种方式必须在每个 policy checkpoint、episode seed、静态地图、初始状态、
+    target profile 和执行噪声种子上完全配对。
+
+======================================================================
+3. 预注册的执行压力矩阵与数据划分
+======================================================================
+
+在 E1 的所有源码、YAML、协议和测试提交后，创建
+E1_EXECUTION_DYNAMICS_PREREGISTRATION.md/.json。下列 profile 必须在运行任何
+development 政策评估前冻结；具体 m/s、m/s^2 和 dt 均从 effective YAML 导出。
+
+| ID | control delay d | a_exec / a_nominal | noise sigma / v_max | 用途 |
+|----|-----------------|--------------------|---------------------|------|
+| E0 | 0 step          | 1.00               | 0.00                | 恒等性/名义参考 |
+| E1 | 0 step          | 0.75               | 0.00                | 单因素制动不足 |
+| E2 | 0 step          | 0.50               | 0.00                | 强制动不足 |
+| E3 | 1 step          | 1.00               | 0.00                | 单步命令保持 |
+| E4 | 2 steps         | 1.00               | 0.00                | 双步命令保持 |
+| E5 | 0 step          | 1.00               | 0.05                | 有界执行噪声 |
+| E6 | 1 step          | 0.75               | 0.05                | 预注册的组合主压力 |
+
+[ ] E6 是本轮唯一的“主压力条件”；E1-E5 是机制诊断条件。七个 profile 都必须进入
+    正式 locked-test，不能根据 development 结果删除困难条件或新加条件。
+[ ] 噪声只加在执行端，不能泄漏给策略观测；每个 episode 的 noise seed 写入 CSV/
+    JSON，raw/K-CBF/E-CBF 共享该 seed。
+[ ] 使用全新的 E1 episode seed block：
+    - smoke block：681001（仅链路检查，不产生结论）；
+    - development block：681101（调试和代码正确性检查）；
+    - locked block：681201（首次正式运行前不得读取、重放、渲染或用于任何选择）。
+[ ] 固定 S1/S2 场景和随机 S3 地图均由各 block 的 case seed 生成。每个 case 的
+    static-scene SHA、initial-state SHA、target-profile SHA、noise-seed 必须保存，
+    并由评估器自动断言三种执行方式完全配对。
+
+======================================================================
+4. P0：环境增量实现与单元契约（不做正式评估）
+======================================================================
+
+目标：证明新增执行模型没有悄悄改变旧环境，且其数学行为可逐步复现。
+
+[ ] P0.1 新建 execution dynamics dataclass、YAML schema、effective-config 导出和
+    episode-level audit 字段；默认 execution_enabled=false。
+[ ] P0.2 在 E0 下，对固定 reset、固定动作序列进行逐步回放。新增包装器与原环境
+    的状态、reward、termination、capture、collision、CBF action 必须逐步完全相同
+    （浮点量用明确的 1e-12 容差）；否则停止，不进入 E1-E6。
+[ ] P0.3 为 FIFO 延迟、加速度限幅、速度限幅、噪声可复现性、reset、不同 pursuer
+    独立队列和异常 NaN/Inf 输入分别写最小单元测试。
+[ ] P0.4 单独测试 K-CBF 与 E-CBF 均满足速度/加速度可执行域；所有 QP/fallback
+    必须记录 status，禁止静默回退或吞掉不可行状态。
+[ ] P0.5 构造一个手工可验证的“靠近墙体后急转”轨迹：证明执行延迟确实使 K-CBF
+    的实际轨迹不同；同时检查 E-CBF 的保守边界符合预注册的误差界。该轨迹只是
+    单元测试，不是论文成功示例。
+[ ] P0.6 smoke：每 profile 跑 10 个 rule-expert + E-CBF episode 与 10 个冻结 policy
+    episode，检查文件、指标和配对哈希；smoke 数据绝不进聚合结果。
+
+通过条件：所有定向测试通过；E0 恒等性通过；没有 NaN/Inf、隐藏 reset 状态或
+未记录的 CBF fallback。失败时只修实现，不依据 policy 成功率调参数。
+
+======================================================================
+5. P1：先证明地图在各执行条件下可行（不看学习策略优劣）
+======================================================================
+
+目标：区分“学习策略失效”和“给定执行模型下任务物理上不可行”。
+
+[ ] P1.1 对 E0-E6 的 development S3 case，先运行 rule expert + E-CBF；固定场景
+    每 layout 20 episodes，随机 S3 每 profile 60 episodes。
+[ ] P1.2 逐回合保存 Capture、Safe Capture、Cooperative Safe Capture、Collision、
+    Boundary、Timeout、Transit、Time-to-Capture、最小净空、路径长度、各执行
+    饱和比例、command age 与 command-execution error。
+[ ] P1.3 对每个 profile 报告可行性表，并明确规则专家不是学习基线，而是任务
+    可行性 oracle。任何 rule expert + E-CBF 未安全完成的地图均以 case SHA 单列。
+[ ] P1.4 如果某 profile 的 rule expert + E-CBF Cooperative Safe Capture < 95%，或
+    collision/boundary > 5%，先停止该 profile 的策略比较。只能通过新的预注册
+    调整该 profile 的执行强度；不得在原 development 结果上微调 CBF margin。
+
+通过条件：所有固定地图和 7 个 S3 profile 都存在稳定的 rule-expert 可行解。
+停止条件：若 E6 不可行，将 E6 作为“过强/不可行条件”报告，重新预注册一个较弱的
+E6'，并为 E6' 使用全新 development/locked seed block；不覆盖 E6 结果。
+
+======================================================================
+6. P2：冻结 V4 策略的 development 鲁棒性测量（不训练、不选最好 seed）
+======================================================================
+
+目标：先观察执行失配的失效模式，验证 E-CBF 的实现价值；development 只允许修复
+代码错误，不能以指标为依据调整 profile、网络、CBF 或 checkpoint。
+
+[ ] P2.1 对三个冻结 V4 checkpoint、E0-E6、raw/K-CBF/E-CBF 执行完整配对评估：
+    - 固定 S1 cylinder/box/wall/S2 mixed：每场景 20 episodes；
+    - 随机 S3：每 profile 60 episodes；
+    - 同一 checkpoint 的 raw/K-CBF/E-CBF 使用完全相同 case/noise archive。
+[ ] P2.2 生成 per-checkpoint summary、三 checkpoint mean +/- sample std、每个
+    episode 的 Wilson 95% CI。绝不把 60/100 个 episode 误当成 60/100 个独立模型。
+[ ] P2.3 主比较是 E6 下 E-CBF 相对 K-CBF 的变化：Cooperative Safe Capture、
+    collision/boundary、timeout、最小净空、命令执行误差与 CBF correction。次比较
+    是 E1-E5 的单因素退化曲线。
+[ ] P2.4 用匹配 case 的 paired bootstrap 报告 E-CBF - K-CBF 的差异区间；同时保留
+    三个 checkpoint 的逐 seed 数字，不能只报告合并 episode 的百分比。
+[ ] P2.5 对每种终止原因生成 failure index。至少人工检查：最小 episode index 的
+    E6 成功、碰撞和 timeout 各一个轨迹，判断是否为实现错误；不能从中挑选“最好看”
+    样例作为结论。
+[ ] P2.6 仅允许以下修复后重跑 development：实现 bug、配对 hash 不一致、E0 恒等性
+    失败、NaN/Inf 或事先未定义的 protocol 错误。任何修复都要新 commit、说明为何
+    不改变方法，并从头重跑受影响的 development 条件。
+
+P2 结束规则：
+    P2 不是“跑到成功率好看”为止。E0-E6、三种执行方式和三个 checkpoint 均已在
+    P0 前冻结；只要 P0/P1 的正确性和可行性通过，就无论 E-CBF 改善或退化，都进入
+    P3 的独立 locked-test。这样负结果同样具有可信度。
+
+======================================================================
+7. P3：E1 独立 locked-test 与统计结论（正式实验）
+======================================================================
+
+目标：在未被 development 使用的新 case block 上回答“执行约束造成多大退化，
+执行感知 CBF 是否能恢复安全性”。
+
+[ ] P3.1 在首次读取 681201 前，提交并推送：E1 preregistration、源码、YAML、
+    P0/P1/P2 报告生成脚本、定向测试、source manifest。冻结 git commit、Python/
+    PyTorch/CUDA/GPU、三 checkpoint 和 profile hashes。
+[ ] P3.2 不再编辑代码、YAML、CBF 或压力 profile。对三个 checkpoint、E0-E6、
+    raw/K-CBF/E-CBF 运行 locked S3：每个组合 100 episodes。
+[ ] P3.3 同时在 E0 与 E6 上运行 locked 固定 S1 cylinder/box/wall/S2 mixed：
+    每场景每组合 20 episodes。固定场景用于解释局部失败，S3 是主统计结论。
+[ ] P3.4 自动验证每个 raw/K-CBF/E-CBF 三元组的 checkpoint SHA、case SHA、
+    initial-state SHA、target-profile SHA 与 noise-seed SHA 一致；不一致的 run
+    必须标记 invalid，不能进入汇总。
+[ ] P3.5 生成 E1_EXECUTION_DYNAMICS_LOCKED_REPORT.md/.json，至少报告：
+    - 每 policy seed 与三-seed mean +/- sample std；
+    - Capture、Safe Capture、Cooperative Safe Capture、Collision、Boundary、
+      Timeout、Transit 和终止原因；
+    - Time-to-Capture、最小 obstacle/inter-agent/boundary clearance、每架路径长度；
+    - command age、mean/median/P95/max command-execution error、加速度/速度饱和率；
+    - mean/median/P95/max CBF correction 与 QP/fallback 状态；
+    - E-CBF - K-CBF 的 paired-case bootstrap CI；
+    - E0->E1...E6 的退化曲线，而非只展示 E6。
+[ ] P3.6 结论措辞遵守证据强度：
+    - 若 E-CBF 改善：只能说“在本合成受限执行模型中改善了安全捕获/安全指标”。
+    - 若无改善：明确报告“在该模型下未观察到稳定收益”，不得选择性省略。
+    - 无论结果如何，都不得写成“已在真实无人机、真实动力学或实飞中验证”。
+
+======================================================================
+8. P4：可视化、审计与论文证据包（只使用 E1 locked 结果）
+======================================================================
+
+[ ] P4.1 按固定选择规则导出媒体：每个执行方式分别选择 locked E6 中最小 episode
+    index 的 Cooperative Safe Capture；若存在失败，再选择最小 index 的真实失败。
+    不以轨迹好看程度挑选。
+[ ] P4.2 每个样例输出 top-down PNG、3D PNG、GIF、H.264 MP4、trajectory.npz、
+    episode.json。图中显示障碍、边界、原始命令与实际速度（可用颜色/箭头区分）、
+    命令延迟、动态捕获圈、捕获高亮、冻结帧和 Capture 标记。
+[ ] P4.3 为三种方式制作同 case 的三联图/同屏视频。重点展示“相同策略命令在
+    受限执行后为何偏离”，不要用不同随机地图制造视觉差异。
+[ ] P4.4 主表最少比较：V4 historical kinematic reference、E1 E0 raw/K-CBF/E-CBF、
+    E1 E6 raw/K-CBF/E-CBF、rule expert + E-CBF 可行性上界；历史 V4 只作背景，
+    不与 E1 新 seed 直接做显著性检验。
+[ ] P4.5 每个报告、CSV、checkpoint、effective YAML、source code、静态 case archive
+    和媒体写 SHA-256 manifest。Git 只提交代码、YAML、脚本、测试、MD/JSON；不提交
+    checkpoint、NPZ、CSV、TensorBoard、PNG/GIF/MP4。
+
+======================================================================
+9. E1 之后的优先级（不要并行混入 E1）
+======================================================================
+
+E2：系统化静态 OOD 地图（E1 完成后优先）
+[ ] 冻结 E1 表现最完整的执行方式，不再训练；仅测试未见障碍尺寸、数量、非对称
+    布局、狭窄通道和不同高度。ID/OOD 必须分表。
+[ ] 每张 OOD 地图先经 rule expert + 对应 CBF 验证可行；无安全解的地图是不可行
+    case，不能直接计为策略失败。
+[ ] 使用新的 train/development/locked map generators 与 seed block；不能从 E1
+    locked 地图挑选有利布局。
+
+E3：更严格的合成闭环感知（仅在 E2 后）
+[ ] 当前项目已有测量时延/突发遮挡的负结果；下一次感知研究必须明确新问题，例如
+    obstacle-induced line-of-sight occlusion、FOV、漏检与 tracker 失锁。
+[ ] 目标状态只能来自带时间戳的 tracker 输出；保留 oracle observation 对照。
+[ ] 这仍是合成感知，不得称为真实视觉；接入 Anti-UAV 视频检测器须另立数据集、
+    标定、2D-to-3D 状态估计和评价协议。
+
+E4：实体级捕获与高保真验证（最后独立立项）
+[ ] 若研究问题转为“接触/网捕成功”，新增捕获器几何、接触/网张力、相对速度和
+    捕获后目标状态；这会改变当前 capture-radius 合同，必须重新建立基线。
+[ ] PyBullet/SITL/实飞要有飞控响应标定、风险控制、日志同步和独立测试；没有这些
+    数据时，E1 的结果只能称为 sim-to-sim 执行鲁棒性。
+
+======================================================================
+10. 执行顺序、提交节点与完成判据
+======================================================================
+
+推荐执行顺序（不要跳步）：
+    [ ] G0：读取本文件，记录当前 git SHA、pursuit_env.py SHA 和 V4 source manifest。
+    [ ] G1：完成 P0 的独立执行层、YAML、回归/单元测试；提交并推送。
+    [ ] G2：完成 E1 preregistration 与 P1 rule-expert 可行性报告；提交并推送。
+    [ ] G3：完成 P2 三 checkpoint development 测量与 failure analysis；提交并推送。
+    [ ] G4：冻结后运行 P3 locked-test，生成统计报告；提交并推送。
+    [ ] G5：完成 P4 轨迹媒体、图表和可审计证据包；提交并推送。
+    [ ] G6：基于 E1 结论决定是否启动独立 E2；未完成 E1 前不启动 E2/E3/E4。
+
+本轮真正完成的定义：
+    不是再得到一条好看的围捕视频，而是在全新 locked case block 上，对三个独立
+    V4 policy checkpoint、七个预注册执行条件和 raw/K-CBF/E-CBF 三种方式完成
+    配对评估，提供可复查的失败分析、轨迹、配置与哈希，并如实报告执行失配下的
+    安全捕获边界。
+
