@@ -105,110 +105,11 @@ def render_trajectory_perspective_3d(
 ) -> None:
     """Render a fixed three-dimensional perspective from the saved raw trajectory."""
 
-    import matplotlib
+    # Matplotlib's 3-D backend is unstable in the released Windows environment.
+    # The Pillow renderer is shared with the explicit 3-D animation command.
+    from render_3d_capture_animation import render_static_perspective
 
-    matplotlib.use("Agg")
-    from matplotlib import pyplot as plt
-
-    data = np.load(trajectory_path)
-    defenders = np.asarray(data["defender_positions"], dtype=np.float64)
-    target = np.asarray(data["target_positions"], dtype=np.float64)
-    centers = np.asarray(data["obstacle_centers_xy"], dtype=np.float64)
-    radii = np.asarray(data["obstacle_radii"], dtype=np.float64)
-    heights = np.asarray(data["obstacle_heights"], dtype=np.float64)
-    shapes = (
-        np.asarray(data["obstacle_shapes"]).astype(str)
-        if "obstacle_shapes" in data.files
-        else np.full(len(centers), "cylinder", dtype="U16")
-    )
-    half_extents = (
-        np.asarray(data["obstacle_half_extents_xy"], dtype=np.float64)
-        if "obstacle_half_extents_xy" in data.files
-        else np.repeat(radii[:, None], 2, axis=1)
-    )
-    extent = float(data["world_half_extent"])
-    world_height = float(data["world_height"])
-    capture_radius = float(data["capture_radius"])
-    colors = ("#20cdf5", "#ffae36", "#7be75e", "#c082ff")
-
-    figure = plt.figure(figsize=(11.5, 8.0), constrained_layout=True)
-    axis = figure.add_subplot(111, projection="3d")
-    for center, radius, obstacle_height, shape, half_extent in zip(
-        centers, radii, heights, shapes, half_extents, strict=True
-    ):
-        if shape == "cylinder":
-            theta = np.linspace(0.0, 2.0 * np.pi, 32)
-            z = np.linspace(0.0, float(obstacle_height), 8)
-            theta_grid, z_grid = np.meshgrid(theta, z)
-            axis.plot_surface(
-                float(center[0]) + float(radius) * np.cos(theta_grid),
-                float(center[1]) + float(radius) * np.sin(theta_grid),
-                z_grid,
-                color="#65758a",
-                alpha=0.62,
-                linewidth=0,
-            )
-        else:
-            half_x, half_y = float(half_extent[0]), float(half_extent[1])
-            axis.bar3d(
-                float(center[0]) - half_x,
-                float(center[1]) - half_y,
-                0.0,
-                2.0 * half_x,
-                2.0 * half_y,
-                float(obstacle_height),
-                color="#718198" if shape == "box" else "#596b82",
-                alpha=0.66,
-                shade=True,
-            )
-
-    for defender_index in range(defenders.shape[1]):
-        points = defenders[:, defender_index]
-        axis.plot(
-            points[:, 0],
-            points[:, 1],
-            points[:, 2],
-            color=colors[defender_index % len(colors)],
-            linewidth=2.2,
-            label=f"Pursuer {defender_index + 1}",
-        )
-        axis.scatter(*points[-1], color=colors[defender_index % len(colors)], s=38)
-    axis.plot(target[:, 0], target[:, 1], target[:, 2], color="#ff4a5e", linewidth=2.8, label="Target")
-    axis.scatter(*target[-1], color="#ff4a5e", s=52)
-
-    u = np.linspace(0.0, 2.0 * np.pi, 30)
-    v = np.linspace(0.0, np.pi, 16)
-    sphere_x = target[-1, 0] + capture_radius * np.outer(np.cos(u), np.sin(v))
-    sphere_y = target[-1, 1] + capture_radius * np.outer(np.sin(u), np.sin(v))
-    sphere_z = target[-1, 2] + capture_radius * np.outer(np.ones_like(u), np.cos(v))
-    axis.plot_wireframe(
-        sphere_x,
-        sphere_y,
-        sphere_z,
-        color="#5bebbe" if result.get("safe_capture_success") else "#ffd45b",
-        alpha=0.55,
-        linewidth=0.6,
-    )
-
-    axis.set(xlim=(-extent, extent), ylim=(-extent, extent), zlim=(0.0, world_height))
-    axis.set_xlabel("x (m)")
-    axis.set_ylabel("y (m)")
-    axis.set_zlabel("z (m)")
-    axis.set_title(
-        f"{title}\n"
-        + (
-            f"SAFE CAPTURE CONFIRMED (r = {capture_radius:.2f} m)"
-            if result.get("safe_capture_success")
-            else "FAILURE TRAJECTORY"
-        ),
-        pad=18,
-    )
-    axis.view_init(elev=25, azim=-58)
-    axis.set_box_aspect((2.0, 2.0, 1.0))
-    axis.legend(loc="upper left", fontsize=8)
-    axis.grid(True, alpha=0.25)
-    figure.savefig(output_path, dpi=170, facecolor="white")
-    plt.close(figure)
+    render_static_perspective(trajectory_path, output_path, result)
 
 
 def render_animation(

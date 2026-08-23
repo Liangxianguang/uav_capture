@@ -62,6 +62,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--use-cbf", action="store_true")
     parser.add_argument(
+        "--recurrent-reset-interval",
+        type=int,
+        help="Reset recurrent actor state at this many control steps; defaults to checkpoint metadata.",
+    )
+    parser.add_argument(
         "--reference-episodes",
         type=Path,
         help="Reuse policy-independent Transit evidence from the original locked episodes CSV.",
@@ -258,6 +263,8 @@ def main() -> None:
     args = parse_args()
     if (args.checkpoint is None) == (args.baseline is None):
         raise ValueError("Provide exactly one of --checkpoint or --baseline.")
+    if args.recurrent_reset_interval is not None and args.recurrent_reset_interval <= 0:
+        raise ValueError("recurrent-reset-interval must be positive when provided.")
     protocol_path = args.protocol.resolve()
     protocol = load_protocol(protocol_path)
     environment_config = args.environment_config.resolve() if args.environment_config is not None else None
@@ -290,6 +297,7 @@ def main() -> None:
 
     policy: Any = None
     action_scale: float | None = None
+    recurrent_reset_interval: int | None = None
     rows: list[dict[str, Any]] = []
     scenes: list[dict[str, Any]] = []
     for episode_index in range(episodes):
@@ -320,11 +328,19 @@ def main() -> None:
             # prototype, while this object is the actual episode environment.
             configure_target_crossing_episode(validation_env)
         if checkpoint is not None and policy is None:
-            policy, action_scale, _metadata = load_policy(
+            policy, action_scale, checkpoint_metadata = load_policy(
                 checkpoint,
                 validation_env,
                 validation_env.reset(seed=int(spec["episode_seed"])),
                 device,
+            )
+            metadata_reset_interval = checkpoint_metadata.get("recurrent_reset_interval_steps")
+            recurrent_reset_interval = (
+                int(args.recurrent_reset_interval)
+                if args.recurrent_reset_interval is not None
+                else int(metadata_reset_interval)
+                if metadata_reset_interval is not None
+                else None
             )
         transit_override = None
         if reference_rows is not None:
@@ -357,6 +373,7 @@ def main() -> None:
                 use_cbf=bool(args.use_cbf),
                 transit_override=transit_override,
                 validate_scenario=validate_scenario,
+                recurrent_reset_interval=recurrent_reset_interval,
             )
         metadata = scenario_metadata(scenario)
         row.update(
@@ -434,6 +451,7 @@ def main() -> None:
                 "method": args.method if checkpoint is not None else args.baseline,
                 "checkpoint": str(checkpoint) if checkpoint is not None else None,
                 "use_cbf": bool(args.use_cbf),
+                "recurrent_reset_interval_steps": recurrent_reset_interval,
                 "device": str(device),
                 "separate_episode_and_layout_seeds": True,
                 "condition_table_size": int(scenes[0]["spec"]["condition_table_size"]),

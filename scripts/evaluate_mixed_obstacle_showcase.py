@@ -57,6 +57,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-speed-scale", type=float, default=0.55)
     parser.add_argument("--use-cbf", action="store_true")
     parser.add_argument(
+        "--recurrent-reset-interval",
+        type=int,
+        help="Reset recurrent actor state at this many control steps; defaults to checkpoint metadata.",
+    )
+    parser.add_argument(
         "--reference-episodes",
         type=Path,
         help="Reuse policy-independent Transit evidence from the original locked episodes CSV.",
@@ -131,6 +136,8 @@ def main() -> None:
     args = parse_args()
     if args.episodes <= 0:
         raise ValueError("episodes must be positive.")
+    if args.recurrent_reset_interval is not None and args.recurrent_reset_interval <= 0:
+        raise ValueError("recurrent-reset-interval must be positive when provided.")
     if (args.checkpoint is None) == (args.baseline is None):
         raise ValueError("Provide exactly one of --checkpoint or --baseline.")
     checkpoint = args.checkpoint.resolve() if args.checkpoint is not None else None
@@ -179,12 +186,22 @@ def main() -> None:
     if protocol is not None:
         validate_central_capture_protocol_environment(protocol_prototype, protocol)
     if checkpoint is not None:
-        policy, action_scale, _metadata = load_policy(
+        policy, action_scale, checkpoint_metadata = load_policy(
             checkpoint,
             protocol_prototype,
             protocol_prototype.reset(seed=args.seed),
             device,
         )
+        metadata_reset_interval = checkpoint_metadata.get("recurrent_reset_interval_steps")
+        recurrent_reset_interval = (
+            int(args.recurrent_reset_interval)
+            if args.recurrent_reset_interval is not None
+            else int(metadata_reset_interval)
+            if metadata_reset_interval is not None
+            else None
+        )
+    else:
+        recurrent_reset_interval = None
     rows: list[dict[str, object]] = []
     for episode_index in range(args.episodes):
         episode_seed = int(args.seed + episode_index)
@@ -213,6 +230,7 @@ def main() -> None:
                 action_scale=action_scale,
                 use_cbf=args.use_cbf,
                 transit_override=transit_override,
+                recurrent_reset_interval=recurrent_reset_interval,
             )
             row.update({"method": args.method, "checkpoint": str(checkpoint), "device": str(device)})
         rows.append(row)
@@ -235,6 +253,7 @@ def main() -> None:
                 "method": args.method if checkpoint is not None else args.baseline,
                 "checkpoint": str(checkpoint) if checkpoint is not None else None,
                 "use_cbf": bool(args.use_cbf),
+                "recurrent_reset_interval_steps": recurrent_reset_interval,
                 "base_seed": args.seed,
                 "episode_seeds": [int(row["seed"]) for row in rows],
                 "initial_side_distance_m": float(abs(scenario.defender_positions[0, 0])),

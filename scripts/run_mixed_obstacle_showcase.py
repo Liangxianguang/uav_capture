@@ -109,6 +109,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--target-speed-scale", type=float, default=0.55)
     parser.add_argument("--use-cbf", action="store_true")
+    parser.add_argument(
+        "--recurrent-reset-interval",
+        type=int,
+        help="Reset recurrent actor state at this many control steps; defaults to checkpoint metadata.",
+    )
     parser.add_argument("--device", choices=("cpu", "cuda", "auto"), default="cpu")
     parser.add_argument("--fps", type=int, default=12)
     parser.add_argument("--frame-stride", type=int, default=1)
@@ -247,7 +252,10 @@ def rollout_showcase(
     use_cbf: bool,
     transit_override: dict[str, Any] | None = None,
     validate_scenario: bool = True,
+    recurrent_reset_interval: int | None = None,
 ) -> tuple[dict[str, Any], CaptureRadiusPursuit3DEnv]:
+    if recurrent_reset_interval is not None and recurrent_reset_interval <= 0:
+        raise ValueError("recurrent_reset_interval must be positive when provided.")
     env = CaptureRadiusPursuit3DEnv(
         config,
         obstacle_count=len(scenario.obstacles),
@@ -267,12 +275,21 @@ def rollout_showcase(
     message_ages: list[float] = []
     observation_ages: list[float] = []
     cbf_corrections: list[float] = []
+    recurrent_hidden_resets = 0
     path_lengths = np.zeros(env.n_defenders, dtype=np.float64)
     previous_positions = env.defender_positions.copy()
     final_info: dict[str, Any] = {}
     target_collision = False
     with torch.no_grad():
         while True:
+            if (
+                actor_hidden is not None
+                and recurrent_reset_interval is not None
+                and env.step_count > 0
+                and env.step_count % recurrent_reset_interval == 0
+            ):
+                actor_hidden = policy.initial_actor_hidden(env.n_defenders, device=device)
+                recurrent_hidden_resets += 1
             local = torch.as_tensor(local_observation, device=device)
             if actor_hidden is not None:
                 distribution, actor_hidden = policy.distribution_step(local, actor_hidden)
@@ -324,6 +341,8 @@ def rollout_showcase(
         "mean_cbf_action_correction_norm": float(np.mean(cbf_corrections)) if cbf_corrections else 0.0,
         "max_cbf_action_correction_norm": float(max(cbf_corrections)) if cbf_corrections else 0.0,
         "use_cbf": bool(use_cbf),
+        "recurrent_reset_interval_steps": recurrent_reset_interval,
+        "recurrent_hidden_resets": recurrent_hidden_resets,
     }
     return _finalize_showcase_row(
         row,
@@ -448,11 +467,19 @@ def main() -> None:
     )
     if protocol is not None:
         validate_central_capture_protocol_environment(prototype, protocol)
-    policy, action_scale, _metadata = load_policy(
+    policy, action_scale, checkpoint_metadata = load_policy(
         checkpoint,
         prototype,
         prototype.reset(seed=args.seed),
         device,
+    )
+    metadata_reset_interval = checkpoint_metadata.get("recurrent_reset_interval_steps")
+    recurrent_reset_interval = (
+        int(args.recurrent_reset_interval)
+        if args.recurrent_reset_interval is not None
+        else int(metadata_reset_interval)
+        if metadata_reset_interval is not None
+        else None
     )
     row, env = rollout_showcase(
         policy,
@@ -462,6 +489,7 @@ def main() -> None:
         device=device,
         action_scale=action_scale,
         use_cbf=args.use_cbf,
+        recurrent_reset_interval=recurrent_reset_interval,
     )
     row.update({"method": args.method, "checkpoint": str(checkpoint), "device": str(device)})
     trajectory_path = output_dir / "trajectory.npz"

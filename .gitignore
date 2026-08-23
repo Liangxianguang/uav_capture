@@ -34,3 +34,11 @@ third_party/**/gym_pybullet_drones/utils/Logger.py
 **/last_checkpoint*.pt
 *.npz
 *.png
+
+# A single reviewed development checkpoint and its representative media are
+# intentionally versioned for a runnable, inspectable repository release.
+!models/
+!models/v5_development_exact_reactive_seed661606.pt
+!docs/
+!docs/media/
+!docs/media/*
