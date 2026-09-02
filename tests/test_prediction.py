@@ -137,6 +137,30 @@ def test_action_conditioned_candidate_history_and_reranker_are_deterministic() -
     assert np.isfinite(np.asarray(diagnostics.scores)).all()
 
 
+def test_action_conditioned_candidate_history_keeps_outgoing_action_alignment() -> None:
+    config = yaml.safe_load(
+        (PROJECT_ROOT / "configs" / "capture_radius_pursuit_central_v4_flee.yaml").read_text(encoding="utf-8")
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.45)
+    observation = env.reset(seed=520206)
+    base = __import__("encirclement3d.observation_encoding", fromlist=["policy_observations"]).policy_observations(
+        env, observation
+    )
+    predictor = ActionConditionedJEPAPredictor(63, 4, hidden_dim=8, latent_dim=6)
+    history = ActionConditionedCandidateHistory(env, predictor, torch.device("cpu"), history_length=4, action_scale=5.0)
+    history.reset(base)
+    action = np.full((4, 3), 0.25, dtype=np.float32)
+    next_observation, *_ = env.step(action)
+    next_base = __import__("encirclement3d.observation_encoding", fromlist=["policy_observations"]).policy_observations(
+        env, next_observation
+    )
+    history.observe_after_action(next_base, action)
+    _observation_window, past_actions = history._windows()
+    np.testing.assert_allclose(past_actions[:, -1], action / 5.0)
+    candidates = make_action_candidates(np.zeros((4, 3), dtype=np.float32), perturbation_mps=0.0, candidate_count=2)
+    history.predict_candidates(candidates)
+
+
 def test_interaction_aware_jepa_uses_structured_groups_and_factory() -> None:
     from encirclement3d.prediction import build_action_conditioned_predictor
 

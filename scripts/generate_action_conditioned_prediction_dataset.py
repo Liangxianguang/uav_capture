@@ -160,7 +160,14 @@ def assemble_action_conditioned_samples(
         for time_index in range(history_length - 1, length - max_horizon):
             for agent in range(int(policy.shape[1])):
                 samples["inputs"].append(policy[time_index - history_length + 1 : time_index + 1, agent])
-                samples["action_history"].append(actions[time_index - history_length + 1 : time_index + 1, agent])
+                # `actions[k]` is the action that produced observation `k`
+                # (with an initial zero action at k=0).  The world-model
+                # input instead conditions observation O_t on the outgoing
+                # action A_t, which is stored at actions[t + 1].  Shifting
+                # this window by one makes the final slot a valid
+                # counterfactual candidate at deployment rather than the
+                # action already executed to reach the current observation.
+                samples["action_history"].append(actions[time_index - history_length + 2 : time_index + 2, agent])
                 labels = [
                     (target_positions[time_index + horizon] - defender_positions[time_index, agent]) / float(extent)
                     for horizon in horizon_steps
@@ -236,7 +243,7 @@ def main() -> None:
         "information_boundary": {
             "target_truth_used_only_for_offline_labels": True,
             "centralized_state_in_inputs": False,
-            "actions_are_executed_history": True,
+            "action_history_alignment": "outgoing_action_for_each_observation; final_action_is_current_expert_candidate",
         },
         "source_hashes": {
             str(path.relative_to(PROJECT_ROOT)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest()

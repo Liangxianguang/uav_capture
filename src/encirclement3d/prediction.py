@@ -491,8 +491,10 @@ class ActionConditionedCandidateHistory:
         self.history_length = int(history_length)
         self.action_scale = float(action_scale)
         self._history: list[np.ndarray] = []
-        self._action_history: list[np.ndarray] = []
-        self._last_action = np.zeros((env.n_defenders, predictor.action_dim), dtype=np.float32)
+        # Each item is the action *outgoing from* the observation with the
+        # same index.  It therefore has one fewer entry than `_history` until
+        # a candidate is appended virtually during prediction.
+        self._outgoing_action_history: list[np.ndarray] = []
 
     def reset(self, base_observation: np.ndarray) -> None:
         base = np.asarray(base_observation, dtype=np.float32)
@@ -502,8 +504,7 @@ class ActionConditionedCandidateHistory:
                 f"({self.env.n_defenders}, {self.predictor.input_dim}), got {base.shape}."
             )
         self._history = [base.copy()]
-        self._last_action = np.zeros((self.env.n_defenders, self.predictor.action_dim), dtype=np.float32)
-        self._action_history = [self._last_action.copy()]
+        self._outgoing_action_history = []
 
     def observe_after_action(self, base_observation: np.ndarray, action: np.ndarray) -> None:
         base = np.asarray(base_observation, dtype=np.float32)
@@ -512,18 +513,25 @@ class ActionConditionedCandidateHistory:
             raise ValueError(f"Candidate-history observation shape mismatch: {base.shape}.")
         if action_array.shape != (self.env.n_defenders, self.predictor.action_dim):
             raise ValueError(f"Candidate-history action shape mismatch: {action_array.shape}.")
-        self._last_action = action_array.copy()
+        # `action_array` was executed from the last stored observation to
+        # obtain `base`, so append it before the new observation.
+        self._outgoing_action_history.append((action_array / self.action_scale).copy())
         self._history.append(base.copy())
-        self._action_history.append((action_array / self.action_scale).copy())
         if len(self._history) > self.history_length:
             self._history.pop(0)
-            self._action_history.pop(0)
+            self._outgoing_action_history.pop(0)
 
     def _windows(self) -> tuple[np.ndarray, np.ndarray]:
-        if not self._history or not self._action_history:
+        """Return current observation window and its H-1 outgoing actions.
+
+        The final H-th action is deliberately absent: it is supplied by each
+        counterfactual candidate in :meth:`predict_candidates`.
+        """
+        if not self._history:
             raise RuntimeError("reset must be called before candidate prediction.")
         padded_observations = [self._history[0]] * (self.history_length - len(self._history)) + self._history
-        padded_actions = [self._action_history[0]] * (self.history_length - len(self._action_history)) + self._action_history
+        zero = np.zeros((self.env.n_defenders, self.predictor.action_dim), dtype=np.float32)
+        padded_actions = [zero] * (self.history_length - len(self._history)) + self._outgoing_action_history
         return (
             np.transpose(np.stack(padded_observations, axis=0), (1, 0, 2)).copy(),
             np.transpose(np.stack(padded_actions, axis=0), (1, 0, 2)).copy(),
@@ -534,11 +542,13 @@ class ActionConditionedCandidateHistory:
         expected = (candidates.shape[0], self.env.n_defenders, self.predictor.action_dim)
         if candidates.ndim != 3 or candidates.shape != expected:
             raise ValueError(f"Expected candidate action shape {expected}, got {candidates.shape}.")
-        observation_window, action_window = self._windows()
+        observation_window, past_action_window = self._windows()
         batch_size = int(candidates.shape[0])
         observation_batch = np.repeat(observation_window[None, ...], batch_size, axis=0)
-        action_batch = np.repeat(action_window[None, ...], batch_size, axis=0)
-        action_batch[:, :, -1, :] = candidates / self.action_scale
+        past_batch = np.repeat(past_action_window[None, ...], batch_size, axis=0)
+        action_batch = np.concatenate(
+            [past_batch, (candidates / self.action_scale)[:, :, None, :]], axis=2
+        )
         with torch.no_grad():
             mean, log_variance, _latent = self.predictor(
                 torch.as_tensor(
