@@ -1,0 +1,116 @@
+protocol_name: action_conditioned_jepa_pilot_v1
+phase: development_only
+not_a_replacement_for_existing_locked_benchmarks: true
+seed_blocks:
+  train: 721101
+  validation: 722101
+  locked_test: 723101
+episodes_per_split:
+  train: 30
+  validation: 12
+  locked_test: 60
+world:
+  half_extent_xy: 10.0
+  height: 10.0
+  minimum_altitude: 0.5
+  dt: 0.1
+  max_steps: 250
+agents:
+  defenders: 4
+  defender_max_speed: 5.0
+  defender_max_acceleration: 6.0
+  target_max_speed: 3.6
+  target_max_acceleration: 4.0
+  drone_radius: 0.25
+dynamics:
+  backend: kinematic
+task:
+  slot_tracking_gain: 2.5
+  cbf_gamma: 0.25
+  policy_obstacle_geometry: shape_extents_and_type
+  pursuit:
+    capture_radius: 0.80
+    spawn_distance: 4.80
+    detection_range: 14.0
+    visibility_cosine_threshold: -1.0
+    detection_dropout_probability: 0.15
+    observation_noise_std: 0.03
+    message_delay_steps: 2
+    message_dropout_probability: 0.05
+    maximum_message_age_steps: 60
+    belief_update_mode: time_aligned
+    belief_stale_velocity_decay: 0.80
+    belief_velocity_decay_start_age_steps: 3
+    include_prediction_features: false
+    include_uncertainty_features: true
+    prediction_horizon_seconds: 0.55
+    prediction_uncertainty_base: 0.08
+    target_defender_avoidance_distance: 2.20
+    target_defender_avoidance_gain: 4.00
+    target_obstacle_avoidance_distance: 2.20
+    target_obstacle_avoidance_gain: 3.50
+    target_boundary_margin: 1.20
+    target_boundary_gain: 7.00
+    target_heading_persistence: 0.55
+    target_flee_gain: 1.00
+    target_vertical_gain: 0.20
+    controller_obstacle_avoidance_distance: 2.00
+    controller_obstacle_avoidance_gain: 2.80
+    controller_inter_agent_distance: 1.50
+    controller_inter_agent_gain: 2.50
+    safety_margin: 0.35
+    capture_bonus: 25.00
+    collision_penalty: 15.00
+    progress_reward_weight: 3.00
+    distance_reward_weight: 0.12
+    coverage_reward_weight: 0.15
+    max_observation_obstacles: 3
+    obstacle_profile: mixed
+experiments:
+  - name: nominal_flee_mixed
+    episodes: 30
+    obstacle_count: 3
+    target_speed_scale: 0.45
+    pursuit_overrides:
+      target_motion_mode: flee_persistence
+      detection_dropout_probability: 0.15
+      observation_noise_std: 0.03
+      message_delay_steps: 2
+      message_dropout_probability: 0.05
+  - name: delayed_noisy_s_curve
+    episodes: 30
+    obstacle_count: 5
+    target_speed_scale: 0.55
+    pursuit_overrides:
+      target_motion_mode: s_curve
+      detection_dropout_probability: 0.22
+      observation_noise_std: 0.06
+      message_delay_steps: 4
+      message_dropout_probability: 0.10
+  - name: burst_mixed
+    episodes: 30
+    obstacle_count: 4
+    target_speed_scale: 0.55
+    pursuit_overrides:
+      target_motion_mode: burst
+      detection_dropout_probability: 0.18
+      observation_noise_std: 0.04
+      message_delay_steps: 3
+      message_dropout_probability: 0.08
+  - name: random_turn_boxes
+    episodes: 30
+    obstacle_count: 5
+    target_speed_scale: 0.45
+    pursuit_overrides:
+      target_motion_mode: random_turn
+      obstacle_profile: mixed
+      detection_dropout_probability: 0.20
+      observation_noise_std: 0.05
+      message_delay_steps: 3
+      message_dropout_probability: 0.08
+dataset_contract:
+  history_length: 8
+  horizon_steps: [1, 2, 3, 5]
+  action_conditioning: executed_history_only
+  target_truth: offline_labels_only
+  use_locked_test: false
