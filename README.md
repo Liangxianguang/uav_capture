@@ -40,13 +40,18 @@ improvement.
 | V4 random mixed S3 locked test | retained BC + CBF | `75.3% +/- 6.5%` | collision `4.7% +/- 1.2%`, boundary `4.7% +/- 1.2%` |
 | V4 random mixed S3 locked test | raw policy | `2.3% +/- 1.2%` | collision `97.7% +/- 1.2%`; not deployable |
 | V5 random mixed S3 development | exact-reactive seed `661606` + CBF | `57/60 = 95.0%` | collision `0%`, boundary `0%`, Transit `100%`; one seed only |
+| V5 E1-prime execution feasibility | rule expert + execution-aware CBF | `E0: 95.0%`; all-profile gate **FAIL** | E1-E6 fail capture and/or safety thresholds; no policy/locked evaluation opened |
 
 The V4 locked-test report is the current formal benchmark result:
 
 - [V4 locked-test report](CENTRAL_V4_LOCKED_TEST_REPORT.md)
 - [V4 locked-test summary](CENTRAL_V4_LOCKED_TEST_SUMMARY.json)
 - [V4 visualisation audit](CENTRAL_V4_VISUALIZATION_REPORT.md)
+- [V4 archive-faithful RTX 5050 reproduction](docs/CENTRAL_V4_ARCHIVE_FAITHFUL_REPRODUCTION_20260830.md)
 - [V5 development status](CENTRAL_V5_EXACT_REACTIVE_DEVELOPMENT_STATUS.md)
+- [E1-prime feasibility rejection report](E1_PRIME_RULE_EXPERT_FEASIBILITY_REJECTION_REPORT.md)
+- [E1-prime feasibility aggregate](E1_PRIME_RULE_EXPERT_FEASIBILITY_REPORT.md)
+- [最新围捕拦截模型候选与 JEPA 研究备忘录](docs/LATEST_MODEL_CANDIDATES_FOR_PURSUIT_INTERCEPTION_20260902.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the
