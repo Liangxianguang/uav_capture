@@ -231,3 +231,30 @@ PCDP 适合作为第二阶段的多 UAV 协调器，AgilePE 适合作为对手�
 - [Evader-Agnostic Team-Based Pursuit Strategies (arXiv:2511.05812)](https://arxiv.org/abs/2511.05812)
 - [CI-HRL (arXiv:2506.18126)](https://arxiv.org/abs/2506.18126)
 - [SAGE-LLM (arXiv:2602.23719)](https://arxiv.org/abs/2602.23719)
+
+## 13. 第三轮检索：截至 2026-09-02 的新增可迁移方向
+
+本轮再次通过 arXiv 官方 API 检索无人机 world model、embodied tracking、multi-agent CBF 与安全过滤关键词，并读取摘要核对方法边界。新增工作仍只作为候选依据，不改变已锁定的 V4/V5 结论，也不把论文中的成功率直接外推到本项目。
+
+| 候选 | 论文中可迁移的机制 | 当前项目的最小接入方式 | 判断 |
+| --- | --- | --- | --- |
+| **AirDreamer: Generalist Drone Navigation with World Models**（[arXiv:2606.03252](https://arxiv.org/abs/2606.03252)） | world-model 环境理解 + 稀疏奖励，强调未见布局和局部最优逃逸 | 先把 JEPA 的预测目标扩展为 obstacle-relative occupancy/clearance 辅助头；不引入视觉生成 | 对随机混合障碍最有启发，但论文以导航为主，不能直接证明围捕提升；RTX 5050 上应先做结构化 clearance 头 |
+| **PEACE: A Planner-Executor Agent with Constraint Enforcement for UAVs**（[arXiv:2606.00104](https://arxiv.org/abs/2606.00104)，[代码](https://github.com/erdemuysalx/PEACE)） | 高层 planner 与低层 executor 解耦，执行失败后有边界约束和有限重规划 | 将 `approach/spread/encircle/intercept` 作为低频阶段计划，低层仍使用 V5 actor + CBF | 适合解释性和故障恢复，不建议把 LLM 放入实时控制环；可先复用 planner-executor 接口思想 |
+| **DeTrack / AaDWorlds: Altitude-Aware Dual World Model for Drone-Embodied Tracking**（[arXiv:2605.17451](https://arxiv.org/abs/2605.17451)） | 高低高度双 world model，处理目标可见性与飞行安全的冲突 | 给 JEPA 增加高度/视线分桶或 dual-head，分别预测 target motion 与 visibility/clearance | 对三维拦截的高度选择最直接；但其视觉 benchmark 很大，当前应先用结构化高度条件做小型消融 |
+| **A Temporal Barrier Framework for Collision Avoidance in Multi-Agent Autonomous Aerial Vehicles**（[arXiv:2608.14239](https://arxiv.org/abs/2608.14239)） | 用 adversarial time-to-collision（aTTC）构造时间域 CBF，并用神经 surrogate 实时估计 | 在现有 CBF 前增加 aTTC 特征和离散 TTC 分桶；先只做日志/安全过滤对照 | 这是当前安全层最值得试的理论替代，摘要报告 3D pursuit 中更高 waypoint progress；仍必须在本项目动力学上重新验证 |
+| **Scalable Tube-Tightened Multi-Agent Safety via Certified Constraint Reduction**（[arXiv:2608.25323](https://arxiv.org/abs/2608.25323)） | tube-tightened eCBF + Farkas certificate，只保留可证明足够的约束 | 当候选动作数或 UAV 数增加时，对 pairwise agent/obstacle CBF 做 certified reduction | 解决扩展规模后的 QP 计算瓶颈，不是策略提升模型；当前四机规模可作为后续效率实验 |
+| **Runtime Safety Filtering for Learned Small UAS Separation Policies under GNSS Degradation**（[arXiv:2607.10014](https://arxiv.org/abs/2607.10014)） | 在有界观测不确定性下比较 action filtering 与 observation filtering | 对 delayed/noisy 条件增加 worst-case observation correction 对照，不把 CBF 过滤视为唯一方案 | 与当前 `message_age`/观测噪声失败模式高度相关；其摘要称 observation filtering 比 action filtering 更有效，但需保持本项目 CBF 安全层并做 paired test |
+| **Individual CBF-Guided Diffusion for Safe Offline MARL**（[arXiv:2606.12640](https://arxiv.org/abs/2606.12640)） | 将个体 CBF 嵌入 diffusion trajectory generation，再用 inverse dynamics 执行 | 先把现有 candidate reranking 改成短 action-chunk diffusion proposer，CBF 仍做最终过滤 | 适合作为第二阶段高容量 proposer；当前 archive 较小，优先级低于 action-conditioned JEPA 和风险校准 |
+| **Shared Voxel-Map-Based Cooperative Indoor UAV Guidance with MASAC**（[arXiv:2607.25728](https://arxiv.org/abs/2607.25728)） | shared world-frame voxel map + CTDE/MASAC，ego-aligned local crop | 若未来接入真实 LiDAR，用共享占据图替代当前手工障碍向量；先做 map encoder 接口烟雾测试 | 为多机空间融合提供工程路线，但当前仿真已有结构化障碍状态，不应把视觉/体素编码当作近期主线 |
+
+### 13.1 更新后的建议
+
+按“对当前瓶颈的直接性 × RTX 5050 可复现性”排序，建议顺序为：
+
+1. **aTTC-CBF + worst-case observation filtering**：直接针对碰撞、低净空、观测延迟；保留现有 CBF 作为安全兜底。
+2. **JEPA 的 clearance/visibility 多任务头**：吸收 AirDreamer 与 DeTrack 的结构，但保持 63-D 结构化输入，避免视觉 world model 成本。
+3. **DreamLedger/SAGE reliability ledger**：按 target motion、observation condition、layout signature 和 horizon 记录预测兑现率，低信用时退回 deterministic CBF。
+4. **阶段条件 planner-executor**：参考 PEACE/CI-HRL，把围捕阶段作为低频意图，不让 LLM 直接输出实时动作。
+5. **Diffusion proposer 或 certified constraint reduction**：分别在数据量足够或 UAV 数量扩展后再做。
+
+这些方向都必须沿用同一条验证纪律：固定场景回归 → 同场景 paired development → 至少三 seed → 只在预先声明的 gate 通过后才考虑新 locked block。
