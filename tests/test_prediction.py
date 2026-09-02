@@ -9,6 +9,7 @@ from encirclement3d.prediction import (
     ActionConditionedCandidateHistory,
     ActionConditionedCandidateReranker,
     ActionConditionedJEPAPredictor,
+    InteractionAwareActionConditionedJEPAPredictor,
     HistoryTargetPredictor,
     LearnedPredictionObserver,
     deterministic_mse,
@@ -134,3 +135,24 @@ def test_action_conditioned_candidate_history_and_reranker_are_deterministic() -
     assert 0 <= diagnostics.selected_index < 5
     assert len(diagnostics.scores) == 5
     assert np.isfinite(np.asarray(diagnostics.scores)).all()
+
+
+def test_interaction_aware_jepa_uses_structured_groups_and_factory() -> None:
+    from encirclement3d.prediction import build_action_conditioned_predictor
+
+    config = {
+        "input_dim": 63,
+        "horizon_count": 4,
+        "action_dim": 3,
+        "hidden_dim": 16,
+        "latent_dim": 12,
+        "num_layers": 1,
+        "interaction_group_slices": [[0, 15], [15, 33], [33, 48], [48, 63]],
+    }
+    model = build_action_conditioned_predictor("interaction_aware_action_conditioned_jepa", config)
+    assert isinstance(model, InteractionAwareActionConditionedJEPAPredictor)
+    mean, log_variance, latent = model(torch.randn(3, 8, 63), torch.randn(3, 8, 3))
+    assert mean.shape == (3, 4, 3)
+    assert log_variance.shape == mean.shape
+    assert latent.shape == (3, 4, 12)
+    assert torch.isfinite(mean).all()
