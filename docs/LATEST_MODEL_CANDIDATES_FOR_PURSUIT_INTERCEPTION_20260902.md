@@ -186,3 +186,48 @@ PCDP 适合作为第二阶段的多 UAV 协调器，AgilePE 适合作为对手�
 - [Hydra: Navigation World Action Model (arXiv:2608.28995)](https://arxiv.org/abs/2608.28995)
 - [Net-Carrying Drones with Competitive MARL (arXiv:2607.05939)](https://arxiv.org/abs/2607.05939)
 - [TERL (arXiv:2503.12395)](https://arxiv.org/abs/2503.12395), [code](https://github.com/ApricityZ/TERL)
+
+## 11. 第二轮检索：最新可迁移模型与直接追逃方法（2026-09-02）
+
+本轮使用 arXiv 官方 Atom API（T1）检索 `world model`、`action-conditioned`、`UAV pursuit-evasion`、`control barrier function` 和 `multi-agent` 组合查询，再逐条读取论文摘要页核对标题、版本日期和发表备注。以下条目是相对上一版清单新增或需要单独强调的候选；它们仍然是文献启发，**不是本仓库已经验证的模型结果**。
+
+| 候选（核验日期） | 论文中可迁移的机制 | 对当前围捕/拦截系统的具体帮助 | 推荐接入点与最小验证 | 主要边界 |
+| --- | --- | --- | --- | --- |
+| **IMPACT: Attention Is the Interaction Map for Scalable Interaction-Aware World Model Training**（arXiv:2609.00161，2026-08-31） | 用交互感知的注意力/监督分配，减少静态背景对 action-conditioned world model 训练信号的淹没 | 让模型把容量集中在目标--追击机、追击机--追击机、追击机--障碍物的相对运动，而不是无关状态维度 | 在 63-D 结构化输入上加入 pairwise interaction gate；比较普通 JEPA 与 interaction-weighted JEPA 的多步目标误差和 clearance 误差 | 原工作面向视觉 world model；需要自行定义结构化交互图，不能直接沿用视觉指标 |
+| **WorldEcho: Do Robotic World Models Really Follow Actions?**（arXiv:2608.24885，2026-08-25） | 专门测试 off-expert 动作是否真正改变预测未来，并用视觉完整性与 SE(3) 轨迹对齐诊断 action following | 直接对应当前 candidate reranking 的关键风险：如果 predictor 只会复现 expert 轨迹，候选动作排序会产生虚假置信度 | 对每个候选 action chunk 做 action-sensitivity test；报告预测差异、真实 rollout 差异和 action-following gap，再决定是否允许它进入 CBF 前排序 | 论文以视觉预测为主；在本项目中应换成真实位置/速度/clearance 的 action-following 指标 |
+| **DreamLedger: Where to Refuse World-Model Imagination Using Execution-Settled Credit**（arXiv:2608.23863，2026-08-24） | 将预测可靠性记录为按工况、区域和预测时域索引的 execution-settled credit，并在使用预测前进行 gating | 可把 JEPA 的不确定性从一次性 log-variance 改成“该场景/障碍布局/观测 age 下历史上是否可信”，降低错误想象驱动的冒险动作 | 新增 per-condition reliability ledger；低 credit 时缩短 horizon、降低候选扰动或直接走 deterministic CBF fallback | 可靠性账本不是形式安全证明；必须保留现有 CBF 和失败回退，不可把 credit 当作安全证书 |
+| **SAGE / Self-Aware Guided Exploration**（arXiv:2608.29772，2026-08-30） | 世界模型同时输出短时风险与模型不确定性（fear），将稀有失败转成定向数据收集 | 当前 archive 和 pilot 数据量有限，可优先挖掘碰撞、timeout、低净空、高 CBF correction 和观测丢失片段 | 先离线计算 hard-case priority，重采样训练 JEPA/risk head；用固定 validation block 检查是否改善长尾而非只改善平均 loss | 原工作是自动驾驶；主动采样改变训练分布，必须保留原始 validation 和清晰的数据版本记录 |
+| **Instruct-to-Act: Decoupling Planning and Control for Instructable Agents**（arXiv:2608.26788，2026-08-27） | 高频 world-model controller 接受稀疏、低频的高层计划/意图 | 围捕可拆成 `approach → spread → encircle → intercept` 阶段，高层意图能减少低层策略在阶段切换时的抖动 | 将阶段 token 或 progress vector 作为 JEPA/reranker 的条件，不改变 V5 actor；固定场景先做阶段切换和 capture-time 回归 | 原工作含语言/VLM 规划，当前任务不需要 LLM；应使用可解释的几何阶段标签，避免引入额外幻觉源 |
+| **Hydra: Navigation World Action Model**（arXiv:2608.28995，2026-08-29） | 在统一离散 latent 中同时进行候选采样、评估和执行，避免逐个解码高维未来 | 为未来的多 UAV intent/waypoint proposer 提供比单纯 JEPA 更紧的 planner--predictor 接口 | 先只借鉴离散 intent codebook；对 `left/right/above/below/hold` 等候选做 latent 评估，低层仍交给现有 CBF | 视觉实体平台模型较重；RTX 5050 和当前小型结构化 archive 不适合第一阶段完整复现 |
+| **Evader-Agnostic Team-Based Pursuit Strategies in Partially-Observable Environments**（arXiv:2511.05812，2025-11-08） | 离线训练多种理性层级的对手，再在线分类当前 evader 并选择 best response | 适合解决当前固定 rule-expert 造成的对手分布过窄，以及目标切换/遮挡后的恢复慢问题 | 为 E1-prime 增加 opponent-policy pool；先只用于 validation 对手生成，比较单一 rule expert 与多策略池下的捕获和恢复时间 | 论文为两机城市环境；不能把其结果直接外推到四机三维障碍合同 |
+| **CI-HRL: Decentralized Consensus Inference-based Hierarchical RL for Multi-Constrained UAV Pursuit-Evasion**（arXiv:2506.18126，2025-06-22） | 高层目标/定位与低层避障、编队控制分离，并通过邻居消息形成局部共识 | 对当前 `message_age`、通信延迟和队友冗余观测提供结构化建模思路；可把高层围捕进度与低层安全动作解耦 | 在现有 actor 外加轻量 consensus/progress head；按通信完整、延迟、丢包分桶做 paired test | 原任务是合作规避/覆盖，不是单目标捕获；只借鉴层次化接口和通信消融设计 |
+| **SAGE-LLM**（arXiv:2602.23719，2026-02-27） | LLM 高层语义决策 + 图结构检索 + fuzzy-CBF 验证的两层架构 | 可作为未知障碍/突发威胁下的高层规则生成器研究参考，尤其适合把“封锁/绕行/撤退”转成可验证意图 | 不接入低层控制；仅离线把语义意图映射成 STL/CBF 可检查的阶段标签，测试是否提升解释性 | 预印本且依赖 LLM；对当前 63-D 结构化环境可能过度复杂，不能把语言模型输出当作安全保证 |
+
+### 11.1 本轮新增候选的落地优先级
+
+结合当前 V5 已有实现和 RTX 5050 资源，建议先做以下三个低风险验证：
+
+1. **WorldEcho 风格 action-following 检查**：确认 action-conditioned JEPA 对非专家候选确实敏感；若不敏感，先修数据覆盖和训练目标，不扩大 S3 评估。
+2. **IMPACT 风格 interaction gate**：在 63-D 结构化输入中显式区分 target/pursuer/obstacle/teammate 交互，和当前 JEPA 做同数据、同 seed 对照。
+3. **DreamLedger + SAGE 风格可靠性与主动采样**：按条件记录预测兑现率，优先重放低净空、碰撞和 timeout 片段；所有模型选择仍由原始 validation block 决定。
+
+其后再考虑 opponent-policy pool（Evader-Agnostic）、阶段条件控制（Instruct-to-Act/CI-HRL）和离散 latent planner（Hydra）。完整扩散或视觉 world model 暂不列为第一阶段主线，因为当前瓶颈首先是结构化状态预测、执行扰动和安全筛选，而不是像素生成质量。
+
+### 11.2 可复现实验记录要求
+
+- 每个新增模型建立独立的 `results/<model>_*` 命名空间，不覆盖 V4/V5 locked 输出。
+- 统一记录 1/2/4/8 步目标位置误差、clearance 误差、action-following gap、风险 calibration、capture/collision/boundary/timeout 和 CBF correction。
+- 先通过固定场景回归，再做同场景 paired development；至少三训练 seed 后才讨论是否值得开启新的 locked block。
+- 预印本中的成功率、硬件部署和安全表述都只作为假设来源，不能改写本仓库已经锁定的 V4/V5 正式结论。
+
+## 12. 本轮检索参考链接
+
+- [IMPACT (arXiv:2609.00161)](https://arxiv.org/abs/2609.00161)
+- [WorldEcho (arXiv:2608.24885)](https://arxiv.org/abs/2608.24885)
+- [DreamLedger (arXiv:2608.23863)](https://arxiv.org/abs/2608.23863)
+- [SAGE / Self-Aware Guided Exploration (arXiv:2608.29772)](https://arxiv.org/abs/2608.29772)
+- [Instruct-to-Act (arXiv:2608.26788)](https://arxiv.org/abs/2608.26788)
+- [Hydra (arXiv:2608.28995)](https://arxiv.org/abs/2608.28995)
+- [Evader-Agnostic Team-Based Pursuit Strategies (arXiv:2511.05812)](https://arxiv.org/abs/2511.05812)
+- [CI-HRL (arXiv:2506.18126)](https://arxiv.org/abs/2506.18126)
+- [SAGE-LLM (arXiv:2602.23719)](https://arxiv.org/abs/2602.23719)
