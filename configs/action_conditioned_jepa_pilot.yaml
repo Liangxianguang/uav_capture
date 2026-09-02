@@ -1,6 +1,7 @@
 protocol_name: action_conditioned_jepa_pilot_v1
 phase: development_only
 not_a_replacement_for_existing_locked_benchmarks: true
+seed: 721001
 seed_blocks:
   train: 721101
   validation: 722101
