@@ -29,6 +29,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from encirclement3d.prediction import (  # noqa: E402
     ActionConditionedJEPAPredictor,
+    build_action_conditioned_predictor,
     deterministic_mse,
     gaussian_nll,
 )
@@ -46,6 +47,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--latent-dim", type=int, default=64)
     parser.add_argument("--num-layers", type=int, default=1)
+    parser.add_argument(
+        "--model-type",
+        choices=("action_conditioned_jepa", "interaction_aware_action_conditioned_jepa"),
+        default="action_conditioned_jepa",
+    )
+    parser.add_argument(
+        "--interaction-group-slices",
+        type=str,
+        default="0:15,15:33,33:48,48:63",
+        help="Comma-separated start:stop groups for the interaction-aware model.",
+    )
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--latent-loss-weight", type=float, default=1.0)
@@ -60,6 +72,21 @@ def choose_device(name: str) -> torch.device:
             raise RuntimeError("CUDA was requested but is unavailable.")
         return torch.device("cuda")
     return torch.device("cuda" if name == "auto" and torch.cuda.is_available() else "cpu")
+
+
+def parse_interaction_group_slices(value: str) -> list[list[int]]:
+    groups: list[list[int]] = []
+    for token in str(value).split(","):
+        parts = token.strip().split(":")
+        if len(parts) != 2:
+            raise ValueError(f"Invalid interaction group {token!r}; expected start:stop.")
+        start, stop = (int(part) for part in parts)
+        if start < 0 or stop <= start:
+            raise ValueError(f"Invalid interaction group {token!r}.")
+        groups.append([start, stop])
+    if not groups:
+        raise ValueError("At least one interaction group is required.")
+    return groups
 
 
 def load_dataset(path: Path, metadata_path: Path) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, Any]]:
@@ -161,14 +188,17 @@ def main() -> None:
         num_workers=0,
         pin_memory=device.type == "cuda",
     )
-    model = ActionConditionedJEPAPredictor(
-        input_dim=int(train_inputs.shape[-1]),
-        horizon_count=int(train_labels.shape[1]),
-        action_dim=int(train_actions.shape[-1]),
-        hidden_dim=args.hidden_dim,
-        latent_dim=args.latent_dim,
-        num_layers=args.num_layers,
-    ).to(device)
+    model_config: dict[str, Any] = {
+        "input_dim": int(train_inputs.shape[-1]),
+        "horizon_count": int(train_labels.shape[1]),
+        "action_dim": int(train_actions.shape[-1]),
+        "hidden_dim": args.hidden_dim,
+        "latent_dim": args.latent_dim,
+        "num_layers": args.num_layers,
+    }
+    if args.model_type == "interaction_aware_action_conditioned_jepa":
+        model_config["interaction_group_slices"] = parse_interaction_group_slices(args.interaction_group_slices)
+    model = build_action_conditioned_predictor(args.model_type, model_config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     writer = SummaryWriter(log_dir=str(args.output / "tensorboard"), flush_secs=10)
     writer.add_text("Dataset/train_metadata", json.dumps(train_metadata, indent=2), 0)
@@ -191,16 +221,9 @@ def main() -> None:
             best_epoch = epoch
             torch.save(
                 {
-                    "model_type": "action_conditioned_jepa",
+                    "model_type": args.model_type,
                     "model_state_dict": model.state_dict(),
-                    "model": {
-                        "input_dim": int(train_inputs.shape[-1]),
-                        "horizon_count": int(train_labels.shape[1]),
-                        "action_dim": int(train_actions.shape[-1]),
-                        "hidden_dim": args.hidden_dim,
-                        "latent_dim": args.latent_dim,
-                        "num_layers": args.num_layers,
-                    },
+                    "model": model_config,
                     "seed": args.seed,
                     "train_metadata": train_metadata,
                     "validation_metadata": val_metadata,
@@ -214,7 +237,7 @@ def main() -> None:
     (args.output / "run_metadata.json").write_text(
         json.dumps(
             {
-                "model_type": "action_conditioned_jepa",
+                "model_type": args.model_type,
                 "device": str(device),
                 "torch": version("torch"),
                 "python": sys.version.replace(chr(10), " "),
@@ -225,6 +248,7 @@ def main() -> None:
                 "hidden_dim": args.hidden_dim,
                 "latent_dim": args.latent_dim,
                 "num_layers": args.num_layers,
+                "interaction_group_slices": model_config.get("interaction_group_slices"),
                 "learning_rate": args.learning_rate,
                 "weight_decay": args.weight_decay,
                 "latent_loss_weight": args.latent_loss_weight,

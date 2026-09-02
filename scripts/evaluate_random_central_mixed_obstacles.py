@@ -27,7 +27,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
-from encirclement3d.prediction import ActionConditionedJEPAPredictor  # noqa: E402
+from encirclement3d.prediction import (  # noqa: E402
+    ActionConditionedJEPAPredictor,
+    build_action_conditioned_predictor,
+)
 from encirclement3d.showcase import (  # noqa: E402
     configure_target_crossing_episode,
     random_central_mixed_obstacle_scenario,
@@ -143,13 +146,14 @@ def load_action_conditioned_jepa(
     device: torch.device,
 ) -> ActionConditionedJEPAPredictor:
     checkpoint = torch.load(checkpoint_path.resolve(), map_location="cpu", weights_only=True)
-    if checkpoint.get("model_type") != "action_conditioned_jepa":
-        raise ValueError("JEPA checkpoint must have model_type='action_conditioned_jepa'.")
+    model_type = checkpoint.get("model_type")
+    if model_type not in {"action_conditioned_jepa", "interaction_aware_action_conditioned_jepa"}:
+        raise ValueError("Unsupported action-conditioned JEPA checkpoint model_type.")
     model_config = checkpoint.get("model")
     state_dict = checkpoint.get("model_state_dict")
     if not isinstance(model_config, dict) or not isinstance(state_dict, dict):
         raise ValueError("JEPA checkpoint must contain model and model_state_dict.")
-    model = ActionConditionedJEPAPredictor(**model_config)
+    model = build_action_conditioned_predictor(str(model_type), model_config)
     model.load_state_dict(state_dict, strict=True)
     return model.to(device).eval()
 

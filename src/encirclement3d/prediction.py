@@ -127,6 +127,14 @@ class ActionConditionedJEPAPredictor(nn.Module):
         for parameter in self.target_projector.parameters():
             parameter.requires_grad_(False)
 
+    def _encode_observations(self, inputs: torch.Tensor) -> torch.Tensor:
+        """Encode observations before action/history fusion.
+
+        This hook keeps the original checkpoint behavior unchanged while
+        allowing an interaction-aware variant to reweight semantic groups.
+        """
+        return self.observation_encoder(inputs)
+
     def forward(
         self,
         inputs: torch.Tensor,
@@ -145,7 +153,7 @@ class ActionConditionedJEPAPredictor(nn.Module):
                 "Expected action history shape "
                 f"{(inputs.shape[0], inputs.shape[1], self.action_dim)}, got {tuple(actions.shape)}."
             )
-        observation_features = self.observation_encoder(inputs)
+        observation_features = self._encode_observations(inputs)
         action_features = self.action_encoder(actions)
         context, _hidden = self.context_encoder(torch.cat([observation_features, action_features], dim=-1))
         predicted_latent = self.latent_predictor(context[:, -1]).view(
@@ -162,6 +170,84 @@ class ActionConditionedJEPAPredictor(nn.Module):
             )
         with torch.no_grad():
             return torch.tanh(self.target_projector(target))
+
+
+class InteractionAwareActionConditionedJEPAPredictor(ActionConditionedJEPAPredictor):
+    """Action-conditioned JEPA with an IMPACT-inspired interaction gate.
+
+    The input remains the policy-safe observation contract.  For the current
+    shape-aware V5 observation, the default groups are target/belief fields,
+    teammate relative state, legacy obstacle geometry, and shape metadata.
+    Group embeddings are mixed with a learned, context-dependent gate before
+    the recurrent action/history encoder.  This is deliberately a small
+    structured-state model rather than a visual world model, so it can be
+    trained and audited on the RTX 5050 without changing the frozen actor.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        horizon_count: int,
+        action_dim: int = 3,
+        hidden_dim: int = 128,
+        latent_dim: int = 64,
+        num_layers: int = 1,
+        interaction_group_slices: tuple[tuple[int, int], ...] | list[list[int]] | None = None,
+    ) -> None:
+        super().__init__(
+            input_dim=input_dim,
+            horizon_count=horizon_count,
+            action_dim=action_dim,
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            num_layers=num_layers,
+        )
+        if interaction_group_slices is None:
+            # 63-D shape-aware V5 observation: 15 target/belief, 18 teammate,
+            # 15 legacy obstacle, and 15 shape/type metadata dimensions.
+            interaction_group_slices = ((0, 15), (15, 33), (33, 48), (48, 63))
+        normalized = tuple((int(start), int(stop)) for start, stop in interaction_group_slices)
+        if not normalized or any(start < 0 or stop <= start or stop > input_dim for start, stop in normalized):
+            raise ValueError("interaction_group_slices must contain valid non-empty input ranges.")
+        self.interaction_group_slices = normalized
+        self.interaction_group_encoders = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(stop - start, self.hidden_dim),
+                    nn.LayerNorm(self.hidden_dim),
+                    nn.SiLU(),
+                )
+                for start, stop in normalized
+            ]
+        )
+        self.interaction_gate = nn.Sequential(
+            nn.LayerNorm(self.hidden_dim),
+            nn.Linear(self.hidden_dim, len(normalized)),
+        )
+
+    def _encode_observations(self, inputs: torch.Tensor) -> torch.Tensor:
+        base = self.observation_encoder(inputs)
+        group_features = torch.stack(
+            [encoder(inputs[..., start:stop]) for encoder, (start, stop) in zip(self.interaction_group_encoders, self.interaction_group_slices)],
+            dim=-2,
+        )
+        gate = torch.softmax(self.interaction_gate(base), dim=-1).unsqueeze(-1)
+        return base + torch.sum(gate * group_features, dim=-2)
+
+
+def build_action_conditioned_predictor(
+    model_type: str,
+    model_config: dict[str, Any],
+) -> ActionConditionedJEPAPredictor:
+    """Instantiate a serialized action-conditioned predictor variant."""
+    normalized = str(model_type)
+    if normalized == "action_conditioned_jepa":
+        predictor_class = ActionConditionedJEPAPredictor
+    elif normalized == "interaction_aware_action_conditioned_jepa":
+        predictor_class = InteractionAwareActionConditionedJEPAPredictor
+    else:
+        raise ValueError(f"Unsupported action-conditioned predictor model_type: {normalized!r}.")
+    return predictor_class(**model_config)
 
 
 def gaussian_nll(
