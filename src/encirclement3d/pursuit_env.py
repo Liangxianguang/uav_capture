@@ -54,6 +54,7 @@ def _unit(vector: np.ndarray, fallback: np.ndarray | None = None) -> np.ndarray:
 
 _PURSUIT_DEFAULTS: dict[str, Any] = {
     "capture_radius": 0.80,
+    "terminate_on_capture": True,
     "spawn_distance": 4.80,
     "detection_range": 7.50,
     "visibility_cosine_threshold": -1.0,
@@ -194,6 +195,8 @@ def pursuit_settings(task: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("target_burst_duration_steps cannot exceed target_burst_period_steps.")
     if int(settings["map_seed_offset"]) < 0:
         raise ValueError("task.pursuit.map_seed_offset must be non-negative.")
+    if not isinstance(settings["terminate_on_capture"], bool):
+        raise ValueError("task.pursuit.terminate_on_capture must be boolean.")
     return settings
 
 
@@ -539,7 +542,7 @@ class CaptureRadiusPursuit3DEnv:
         # Safe Capture later in the episode.
         safety_failure = bool(metrics.collision or self.world_violation_steps > 0)
         safe_capture = bool(capture_event and not safety_failure)
-        if safe_capture:
+        if safe_capture and self.capture_time_seconds is None:
             self.capture_time_seconds = float(self.step_count * self.dt)
             self.capturing_defender_id = int(metrics.nearest_defender)
 
@@ -549,7 +552,7 @@ class CaptureRadiusPursuit3DEnv:
             termination_reason = "safe_capture"
         else:
             termination_reason = "running"
-        terminated = bool(safety_failure or safe_capture)
+        terminated = bool(safety_failure or (safe_capture and bool(self.pursuit["terminate_on_capture"])) )
         truncated = bool(not terminated and self.step_count >= self.max_steps)
         if truncated:
             termination_reason = "timeout"

@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
+from encirclement3d.prediction import ActionConditionedJEPAPredictor  # noqa: E402
 from encirclement3d.showcase import (  # noqa: E402
     configure_target_crossing_episode,
     random_central_mixed_obstacle_scenario,
@@ -61,6 +62,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episodes", type=int, help="Optional split-size override for smoke runs.")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--use-cbf", action="store_true")
+    parser.add_argument(
+        "--action-conditioned-jepa-checkpoint",
+        type=Path,
+        help="Optional structured action-conditioned JEPA checkpoint for candidate reranking before CBF.",
+    )
+    parser.add_argument("--jepa-history-length", type=int, default=8)
+    parser.add_argument("--jepa-candidate-count", type=int, default=5)
+    parser.add_argument("--jepa-perturbation-mps", type=float, default=0.60)
+    parser.add_argument("--jepa-uncertainty-weight", type=float, default=0.10)
+    parser.add_argument("--jepa-action-change-weight", type=float, default=0.02)
     parser.add_argument(
         "--recurrent-reset-interval",
         type=int,
@@ -125,6 +136,22 @@ def resolved_episode_count(protocol: dict[str, Any], split: str, override: int |
     if episodes <= 0:
         raise ValueError("episodes must be positive.")
     return episodes
+
+
+def load_action_conditioned_jepa(
+    checkpoint_path: Path,
+    device: torch.device,
+) -> ActionConditionedJEPAPredictor:
+    checkpoint = torch.load(checkpoint_path.resolve(), map_location="cpu", weights_only=True)
+    if checkpoint.get("model_type") != "action_conditioned_jepa":
+        raise ValueError("JEPA checkpoint must have model_type='action_conditioned_jepa'.")
+    model_config = checkpoint.get("model")
+    state_dict = checkpoint.get("model_state_dict")
+    if not isinstance(model_config, dict) or not isinstance(state_dict, dict):
+        raise ValueError("JEPA checkpoint must contain model and model_state_dict.")
+    model = ActionConditionedJEPAPredictor(**model_config)
+    model.load_state_dict(state_dict, strict=True)
+    return model.to(device).eval()
 
 
 def episode_spec(protocol: dict[str, Any], split: str, episode_index: int) -> dict[str, Any]:
@@ -265,6 +292,10 @@ def main() -> None:
         raise ValueError("Provide exactly one of --checkpoint or --baseline.")
     if args.recurrent_reset_interval is not None and args.recurrent_reset_interval <= 0:
         raise ValueError("recurrent-reset-interval must be positive when provided.")
+    if args.jepa_history_length <= 0 or args.jepa_candidate_count <= 0:
+        raise ValueError("JEPA history length and candidate count must be positive.")
+    if args.jepa_perturbation_mps < 0.0 or args.jepa_uncertainty_weight < 0.0 or args.jepa_action_change_weight < 0.0:
+        raise ValueError("JEPA perturbation and penalty weights must be non-negative.")
     protocol_path = args.protocol.resolve()
     protocol = load_protocol(protocol_path)
     environment_config = args.environment_config.resolve() if args.environment_config is not None else None
@@ -279,6 +310,14 @@ def main() -> None:
     checkpoint = args.checkpoint.resolve() if args.checkpoint is not None else None
     if checkpoint is not None and not checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint}")
+    jepa_checkpoint = (
+        args.action_conditioned_jepa_checkpoint.resolve()
+        if args.action_conditioned_jepa_checkpoint is not None
+        else None
+    )
+    if jepa_checkpoint is not None and not jepa_checkpoint.is_file():
+        raise FileNotFoundError(f"Action-conditioned JEPA checkpoint does not exist: {jepa_checkpoint}")
+    jepa_predictor = load_action_conditioned_jepa(jepa_checkpoint, device) if jepa_checkpoint is not None else None
     reference_rows: list[dict[str, str]] | None = None
     if args.reference_episodes is not None:
         with args.reference_episodes.resolve().open(newline="", encoding="utf-8") as handle:
@@ -374,6 +413,12 @@ def main() -> None:
                 transit_override=transit_override,
                 validate_scenario=validate_scenario,
                 recurrent_reset_interval=recurrent_reset_interval,
+                jepa_predictor=jepa_predictor,
+                jepa_history_length=args.jepa_history_length,
+                jepa_candidate_count=args.jepa_candidate_count,
+                jepa_perturbation_mps=args.jepa_perturbation_mps,
+                jepa_uncertainty_weight=args.jepa_uncertainty_weight,
+                jepa_action_change_weight=args.jepa_action_change_weight,
             )
         metadata = scenario_metadata(scenario)
         row.update(
@@ -451,6 +496,13 @@ def main() -> None:
                 "method": args.method if checkpoint is not None else args.baseline,
                 "checkpoint": str(checkpoint) if checkpoint is not None else None,
                 "use_cbf": bool(args.use_cbf),
+                "action_conditioned_jepa_checkpoint": str(jepa_checkpoint) if jepa_checkpoint is not None else None,
+                "action_conditioned_jepa_enabled": jepa_predictor is not None,
+                "jepa_history_length": args.jepa_history_length if jepa_predictor is not None else None,
+                "jepa_candidate_count": args.jepa_candidate_count if jepa_predictor is not None else None,
+                "jepa_perturbation_mps": args.jepa_perturbation_mps if jepa_predictor is not None else None,
+                "jepa_uncertainty_weight": args.jepa_uncertainty_weight if jepa_predictor is not None else None,
+                "jepa_action_change_weight": args.jepa_action_change_weight if jepa_predictor is not None else None,
                 "recurrent_reset_interval_steps": recurrent_reset_interval,
                 "device": str(device),
                 "separate_episode_and_layout_seeds": True,

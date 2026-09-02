@@ -20,6 +20,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
 from encirclement3d.observation_encoding import policy_observations  # noqa: E402
+from encirclement3d.prediction import (  # noqa: E402
+    ActionConditionedCandidateHistory,
+    ActionConditionedCandidateReranker,
+    ActionConditionedJEPAPredictor,
+    make_action_candidates,
+)
 from encirclement3d.pursuit_controllers import (  # noqa: E402
     DynamicEncirclementController,
     PursuitCBFSafetyFilter,
@@ -253,6 +259,12 @@ def rollout_showcase(
     transit_override: dict[str, Any] | None = None,
     validate_scenario: bool = True,
     recurrent_reset_interval: int | None = None,
+    jepa_predictor: ActionConditionedJEPAPredictor | None = None,
+    jepa_history_length: int = 8,
+    jepa_candidate_count: int = 5,
+    jepa_perturbation_mps: float = 0.60,
+    jepa_uncertainty_weight: float = 0.10,
+    jepa_action_change_weight: float = 0.02,
 ) -> tuple[dict[str, Any], CaptureRadiusPursuit3DEnv]:
     if recurrent_reset_interval is not None and recurrent_reset_interval <= 0:
         raise ValueError("recurrent_reset_interval must be positive when provided.")
@@ -266,6 +278,30 @@ def rollout_showcase(
     )
     safety_filter = PursuitCBFSafetyFilter(env) if use_cbf else None
     local_observation = policy_observations(env, observation)
+    jepa_history = (
+        ActionConditionedCandidateHistory(
+            env,
+            jepa_predictor,
+            device,
+            history_length=jepa_history_length,
+            action_scale=action_scale,
+        )
+        if jepa_predictor is not None
+        else None
+    )
+    jepa_reranker = (
+        ActionConditionedCandidateReranker(
+            jepa_history,
+            horizon_seconds=float(config["task"]["pursuit"]["prediction_horizon_seconds"]),
+            position_extent=float(config["world"]["half_extent_xy"]),
+            uncertainty_weight=jepa_uncertainty_weight,
+            action_change_weight=jepa_action_change_weight,
+        )
+        if jepa_history is not None
+        else None
+    )
+    if jepa_history is not None:
+        jepa_history.reset(local_observation)
     actor_hidden = (
         policy.initial_actor_hidden(env.n_defenders, device=device)
         if hasattr(policy, "initial_actor_hidden")
@@ -275,6 +311,8 @@ def rollout_showcase(
     message_ages: list[float] = []
     observation_ages: list[float] = []
     cbf_corrections: list[float] = []
+    jepa_selection_indices: list[int] = []
+    jepa_selection_scores: list[float] = []
     recurrent_hidden_resets = 0
     path_lengths = np.zeros(env.n_defenders, dtype=np.float64)
     previous_positions = env.defender_positions.copy()
@@ -295,7 +333,17 @@ def rollout_showcase(
                 distribution, actor_hidden = policy.distribution_step(local, actor_hidden)
             else:
                 distribution = policy.distribution(local)
-            action = torch.tanh(distribution.mean).cpu().numpy() * action_scale
+            desired_action = torch.tanh(distribution.mean).cpu().numpy() * action_scale
+            action = desired_action
+            if jepa_reranker is not None:
+                candidates = make_action_candidates(
+                    desired_action,
+                    perturbation_mps=jepa_perturbation_mps,
+                    candidate_count=jepa_candidate_count,
+                )
+                action, selection = jepa_reranker.select(observation, candidates)
+                jepa_selection_indices.append(int(selection.selected_index))
+                jepa_selection_scores.append(float(selection.scores[selection.selected_index]))
             if safety_filter is not None:
                 action, diagnostics = safety_filter.filter(action, observation)
                 cbf_corrections.append(float(diagnostics.action_correction_norm))
@@ -316,6 +364,8 @@ def rollout_showcase(
             if terminated or truncated:
                 break
             local_observation = policy_observations(env, observation)
+            if jepa_history is not None:
+                jepa_history.observe_after_action(local_observation, action)
     target_clearance = target_min_clearance(env)
     safe_capture = bool(final_info.get("safe_capture_success", False)) and not target_collision
     row = {
@@ -343,6 +393,11 @@ def rollout_showcase(
         "use_cbf": bool(use_cbf),
         "recurrent_reset_interval_steps": recurrent_reset_interval,
         "recurrent_hidden_resets": recurrent_hidden_resets,
+        "jepa_enabled": jepa_reranker is not None,
+        "jepa_candidate_count": jepa_candidate_count if jepa_reranker is not None else None,
+        "jepa_perturbation_mps": jepa_perturbation_mps if jepa_reranker is not None else None,
+        "jepa_mean_selected_index": float(np.mean(jepa_selection_indices)) if jepa_selection_indices else None,
+        "jepa_mean_selected_score": float(np.mean(jepa_selection_scores)) if jepa_selection_scores else None,
     }
     return _finalize_showcase_row(
         row,

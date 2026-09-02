@@ -543,3 +543,17 @@ def test_prediction_dataset_assembly_uses_history_and_future_labels_only() -> No
     np.testing.assert_allclose(arrays["labels_relative"][0, 0, 0], 0.4)
     np.testing.assert_allclose(arrays["labels_relative"][0, 1, 0], 0.6)
     assert np.all(arrays["episode_seed"] == 123)
+
+
+def test_terminate_on_capture_can_be_disabled_only_for_label_collection() -> None:
+    config = yaml.safe_load(
+        (PROJECT_ROOT / "configs/capture_radius_pursuit_central_v4_flee.yaml").read_text(encoding="utf-8")
+    )
+    config["task"]["pursuit"]["terminate_on_capture"] = False
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.45)
+    observation = env.reset(seed=520206)
+    for _ in range(3):
+        observation, _reward, terminated, truncated, info = env.step(np.zeros((4, 3), dtype=np.float32))
+        assert not terminated
+        assert not truncated
+    assert info["termination_reason"] in {"running", "safe_capture"}

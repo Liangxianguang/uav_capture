@@ -6,10 +6,14 @@ import yaml
 from pathlib import Path
 
 from encirclement3d.prediction import (
+    ActionConditionedCandidateHistory,
+    ActionConditionedCandidateReranker,
+    ActionConditionedJEPAPredictor,
     HistoryTargetPredictor,
     LearnedPredictionObserver,
     deterministic_mse,
     gaussian_nll,
+    make_action_candidates,
 )
 from encirclement3d.learning import RecurrentCentralizedSharedActorCritic
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
@@ -86,3 +90,47 @@ def test_recurrent_actor_sequence_matches_step_rollout_and_resets() -> None:
         distribution, hidden = model.distribution_step(local[0, index], hidden, reset_masks[0, index])
         step_means.append(distribution.mean)
     assert torch.allclose(sequence_means[0], torch.stack(step_means), atol=1e-6)
+
+
+def test_action_conditioned_jepa_shapes_and_target_information_boundary() -> None:
+    torch.manual_seed(520204)
+    model = ActionConditionedJEPAPredictor(
+        input_dim=63,
+        horizon_count=4,
+        action_dim=3,
+        hidden_dim=16,
+        latent_dim=12,
+    )
+    observations = torch.randn(5, 8, 63)
+    actions = torch.randn(5, 8, 3)
+    labels = torch.randn(5, 4, 3)
+    mean, log_variance, latent = model(observations, actions)
+    assert mean.shape == labels.shape
+    assert log_variance.shape == labels.shape
+    assert latent.shape == (5, 4, 12)
+    assert torch.isfinite(mean).all()
+    assert torch.isfinite(log_variance).all()
+    target_latent = model.target_latent(labels)
+    assert target_latent.shape == latent.shape
+    assert not target_latent.requires_grad
+
+
+def test_action_conditioned_candidate_history_and_reranker_are_deterministic() -> None:
+    config = yaml.safe_load(
+        (PROJECT_ROOT / "configs" / "capture_radius_pursuit_central_v4_flee.yaml").read_text(encoding="utf-8")
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=3, target_speed_scale=0.55)
+    observation = env.reset(seed=520205)
+    base = __import__("encirclement3d.observation_encoding", fromlist=["policy_observations"]).policy_observations(
+        env, observation
+    )
+    predictor = ActionConditionedJEPAPredictor(63, 4, hidden_dim=16, latent_dim=12)
+    history = ActionConditionedCandidateHistory(env, predictor, torch.device("cpu"), history_length=8, action_scale=5.0)
+    history.reset(base)
+    candidates = make_action_candidates(np.zeros((4, 3), dtype=np.float32), perturbation_mps=0.2, candidate_count=5)
+    reranker = ActionConditionedCandidateReranker(history, horizon_seconds=0.5, position_extent=10.0)
+    selected, diagnostics = reranker.select(observation, candidates)
+    assert selected.shape == (4, 3)
+    assert 0 <= diagnostics.selected_index < 5
+    assert len(diagnostics.scores) == 5
+    assert np.isfinite(np.asarray(diagnostics.scores)).all()
