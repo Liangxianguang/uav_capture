@@ -1,0 +1,61 @@
+{
+  "manifest_type": "jepa_v3_frozen_input_manifest",
+  "created_on": "2026-09-03",
+  "scope": "development_only",
+  "locked_test_opened": false,
+  "artifacts": {
+    "v5_actor_checkpoint": {
+      "path": "models/v5_development_exact_reactive_seed661606.pt",
+      "sha256": "535098773be05687e147043435649378532362d479bdc0375842970370ba40ba",
+      "bytes": 629813
+    },
+    "v5_environment_config": {
+      "path": "configs/capture_radius_pursuit_central_v4_flee.yaml",
+      "sha256": "42bd4e158c5e314e0ece6add8038b32c384a7a2ca027e9387327656fccf751ad",
+      "bytes": 2109
+    },
+    "v5_s3_protocol": {
+      "path": "configs/central_random_mixed_obstacle_s3_v5_protocol.yaml",
+      "sha256": "7b90aaf8ae0bf65e886dc204b890eb69150a5c89e5637276e04c18f8506d3c78",
+      "bytes": 1728
+    },
+    "v5_development_scenes": {
+      "path": "results/jepa_v2_control_baseline60/scenes.jsonl",
+      "sha256": "940b8140737f1a955ececbd6a4a518e434d02ed87e95596e5c1a512e61fd1c58",
+      "bytes": 135857
+    },
+    "v5_development_episodes": {
+      "path": "results/jepa_v2_control_baseline60/episodes.csv",
+      "sha256": "88a85b50b7cc0cde6e162daec0e56bbf95f186cfa74e5c2b61cc9317f2bfc845",
+      "bytes": 81218
+    },
+    "v2_train_dataset": {
+      "path": "results/jepa_pilot_v2_train/action_conditioned_prediction_dataset.npz",
+      "sha256": "c270d52451d175db1721df36c612278de408b9133237d8ff0ce467394462bc56",
+      "bytes": 21036030
+    },
+    "v2_validation_dataset": {
+      "path": "results/jepa_pilot_v2_validation/action_conditioned_prediction_dataset.npz",
+      "sha256": "528998274986f151ca1d7ce4da84c3429b8df3068df0cdd2b33eab560346e978",
+      "bytes": 20924720
+    },
+    "interaction_v2_seed20260911": {
+      "path": "results/jepa_v2_interaction_seed20260911/checkpoint.pt",
+      "sha256": "174da754dded313b3b09cb1303c77d0e3ea291f2498fe4819b556750e0c3639a",
+      "bytes": 970741
+    },
+    "interaction_v2_seed20260912": {
+      "path": "results/jepa_v2_interaction_seed20260912/checkpoint.pt",
+      "sha256": "41848c9e495ab8f66697120f1a33be3e4f9102c16eb067f7d3fe37e307133fa2",
+      "bytes": 970741
+    },
+    "interaction_v2_seed20260913": {
+      "path": "results/jepa_v2_interaction_seed20260913/checkpoint.pt",
+      "sha256": "03f8c299bf278702366a730262ff22a4dfa6a788a38df107572e7ca92fe3d2a1",
+      "bytes": 970741
+    }
+  },
+  "invalid_artifacts": {
+    "v1_action_history_misaligned_smoke": "Excluded from every v3 gate, aggregate, and model-selection decision."
+  }
+}

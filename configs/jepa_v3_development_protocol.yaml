@@ -1,0 +1,99 @@
+protocol_name: interaction_aware_action_conditioned_jepa_v3
+protocol_version: 1
+phase: development_only
+not_a_replacement_for_existing_locked_benchmarks: true
+locked_test_opened: false
+
+# This protocol may use the existing V5 development scenes only for paired
+# development evidence. It must never tune or overwrite V4/V5 locked artifacts.
+frozen_baseline:
+  actor_checkpoint: models/v5_development_exact_reactive_seed661606.pt
+  environment_config: configs/capture_radius_pursuit_central_v4_flee.yaml
+  s3_protocol: configs/central_random_mixed_obstacle_s3_v5_protocol.yaml
+  development_scenes: results/jepa_v2_control_baseline60/scenes.jsonl
+  development_episodes: results/jepa_v2_control_baseline60/episodes.csv
+  use_cbf: true
+  recurrent_reset_interval_steps: 1
+  validation_episodes: 60
+
+data_contract:
+  observation_dimension: 63
+  action_dimension: 3
+  history_length: 8
+  horizon_steps: [1, 2, 3, 5]
+  action_history_alignment: outgoing_action_for_each_observation
+  target_truth: offline_labels_only
+  train_only_counterfactual_collection: true
+  validation_and_development_excluded_from_training: true
+  minimum_nominal_or_uniform_fraction: 0.50
+  counterfactual_candidates_per_state: [5, 9]
+  allowed_chunk_lengths_steps: [1, 3, 5]
+
+model_contract:
+  model_type: interaction_aware_action_conditioned_jepa_multitask
+  interaction_group_slices: [[0, 15], [15, 33], [33, 48], [48, 63]]
+  prediction_tasks:
+    - target_relative_displacement
+    - obstacle_clearance
+    - inter_agent_clearance
+    - target_visibility
+    - cbf_intervention_risk
+  candidate_ranking_only: true
+  cbf_is_final_safety_filter: true
+  uncertainty_is_not_a_safety_certificate: true
+
+training:
+  seeds: [20260911, 20260912, 20260913]
+  device: cuda
+  tensorboard:
+    required: true
+    root: results/jepa_v3_tensorboard
+    required_text_artifacts: [protocol, train_metadata, validation_metadata, source_hashes]
+    required_scalar_groups:
+      - Loss/train
+      - Loss/validation
+      - Target/train
+      - Target/validation
+      - Clearance/train
+      - Clearance/validation
+      - Visibility/train
+      - Visibility/validation
+      - Risk/train
+      - Risk/validation
+      - Calibration/validation
+      - Optimization/learning_rate
+    histogram_interval_epochs: 5
+
+reliability_ledger:
+  enabled_after_multitask_prediction_gate: true
+  bucket_fields:
+    - training_seed
+    - horizon_steps
+    - target_motion_mode
+    - observation_condition
+    - message_age_bucket
+    - visible_fraction_bucket
+    - obstacle_count
+    - layout_signature
+    - minimum_clearance_bucket
+    - action_magnitude_bucket
+  low_credit_action: fallback_to_frozen_v5_nominal_action_with_cbf
+  update_rule: execution_settled_outcomes_only
+
+development_gates:
+  smoke_episodes: 20
+  full_episodes: 60
+  require_all_finite_predictions: true
+  require_zero_perturbation_regression: true
+  require_episode_and_scene_pairing: true
+  require_cbf_enabled: true
+  require_three_training_seeds_for_final_candidate: true
+  do_not_require_absolute_safe_capture_threshold: true
+  path_or_capture_time_cost_limit_fraction: 0.10
+
+result_namespace:
+  counterfactual_train: results/jepa_v3_counterfactual_train
+  counterfactual_validation: results/jepa_v3_counterfactual_validation
+  training: results/jepa_v3_<variant>_seed<seed>
+  evaluation: results/jepa_v3_<variant>_seed<seed>_<split>
+  reports: docs/JEPA_V3_*.md
