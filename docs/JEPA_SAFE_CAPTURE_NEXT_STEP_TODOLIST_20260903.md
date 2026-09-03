@@ -26,6 +26,8 @@
 
 P5 开发审计已通过：13 个专项测试、三 seed audit、zero-perturbation exact、重复求解确定性和约 1.52--1.67 ms 的 p95 CBF 求解延迟。
 
+P6 smoke 已完成全部 7 variants x 3 seeds x 20 episodes（420 个 paired episode）。过滤变体的 collision、boundary、pairwise 计数均为 0；A3 raw/no-CBF 为诊断路径，三个 seed 均出现 19/20 collision。P7 smoke aggregate 当前分类为 useful_safety_fallback_only：M3 相对 M0 的跨 seed paired delta 为 -5.0 个百分点，不能写成 JEPA 闭环提升。
+
 ### 1.2 不能从当前证据推出的结论
 
 - P2 只证明离线预测，不证明闭环捕获提升。
@@ -319,6 +321,17 @@ docs/JEPA_SAFE_CAPTURE_P7_READINESS_AUDIT_20260903.md
 - [ ] 将每个失败 episode 关联到 candidate -> JEPA -> ledger -> rank -> CBF -> executed action 的因果链。
 - [ ] 对高信用失败、连续 safe-hold、过度 candidate switching、CBF correction 过大和 visibility 丢失做专项诊断。
 - [ ] 用 JSON、CSV 和 TensorBoard 三路交叉核对，防止只依赖单一汇总文件。
+
+P7 smoke 聚合已生成：
+
+~~~text
+results/jepa_safe_capture_v2_p7_readiness_smoke_20260903/summary.json
+results/jepa_safe_capture_v2_p7_readiness_smoke_20260903/report.md
+results/jepa_safe_capture_v2_p7_readiness_smoke_20260903/paired_comparison.json
+results/jepa_safe_capture_v2_p7_readiness_smoke_20260903/tensorboard/
+~~~
+
+该聚合已通过 canonical scene pairing、JSON/CSV/TensorBoard provenance 校验；60-episode full development 仍未开始。
 
 ### 7.2 结果分类
 
