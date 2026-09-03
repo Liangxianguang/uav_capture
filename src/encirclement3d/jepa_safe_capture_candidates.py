@@ -52,6 +52,7 @@ class SafeCaptureCandidateConfig:
     max_acceleration_mps2: float = 6.0
     dt_seconds: float = 0.1
     max_action_change_mps: float | None = None
+    project_to_reachable_dynamics: bool = False
 
     def __post_init__(self) -> None:
         if self.candidate_count != len(CANDIDATE_LABELS):
@@ -173,13 +174,39 @@ def make_safe_capture_candidate_chunks(
         fallback=target_direction,
     )
     directions = (target_direction, lateral_direction, formation_direction, visibility_direction)
-    chunks: list[np.ndarray] = [np.repeat(nominal[None, :, :], settings.chunk_length_steps, axis=0)]
-    for direction in directions:
-        chunks.append(np.repeat((nominal + settings.perturbation_mps * direction)[None, :, :], settings.chunk_length_steps, axis=0))
-    all_chunks = np.stack(chunks, axis=0)
-    reference_action = nominal if previous_action is None else np.asarray(previous_action)
+    reference_action = nominal if previous_action is None else np.asarray(previous_action, dtype=np.float64)
     if reference_action.shape != nominal.shape:
         raise ValueError(f"previous_action must have shape {nominal.shape}, got {reference_action.shape}.")
+    if not np.isfinite(reference_action).all():
+        raise ValueError("previous_action must be finite.")
+
+    def reachable_candidate(raw_action: np.ndarray) -> np.ndarray:
+        candidate = np.asarray(raw_action, dtype=np.float64)
+        if not settings.project_to_reachable_dynamics:
+            return candidate
+        # A policy output is a desired velocity.  Candidate validity is about
+        # the executable first command, so project each counterfactual into
+        # the same speed and per-step slew envelope used by the environment.
+        raw_norm = np.linalg.norm(candidate, axis=1, keepdims=True)
+        candidate = candidate * np.minimum(1.0, settings.max_speed_mps / np.maximum(raw_norm, 1e-12))
+        delta = candidate - reference_action
+        delta_norm = np.linalg.norm(delta, axis=1, keepdims=True)
+        candidate = reference_action + delta * np.minimum(
+            1.0,
+            settings.resolved_max_action_change_mps / np.maximum(delta_norm, 1e-12),
+        )
+        candidate_norm = np.linalg.norm(candidate, axis=1, keepdims=True)
+        return candidate * np.minimum(1.0, settings.max_speed_mps / np.maximum(candidate_norm, 1e-12))
+
+    chunks: list[np.ndarray] = [
+        np.repeat(reachable_candidate(nominal)[None, :, :], settings.chunk_length_steps, axis=0)
+    ]
+    for direction in directions:
+        raw = nominal + settings.perturbation_mps * direction
+        chunks.append(
+            np.repeat(reachable_candidate(raw)[None, :, :], settings.chunk_length_steps, axis=0)
+        )
+    all_chunks = np.stack(chunks, axis=0)
     valid: list[bool] = []
     reasons: list[tuple[str, ...]] = []
     for candidate in all_chunks:

@@ -97,6 +97,7 @@ class JointCBFQPSafetyFilter:
         solver_maxiter: int = 80,
         tolerance: float = 1e-5,
         active_tolerance: float = 5e-5,
+        anticipatory_horizon_steps: int = 3,
     ) -> None:
         self.env = env
         self.gamma = float(gamma if gamma is not None else env.task.get("cbf_gamma", 0.25))
@@ -112,6 +113,7 @@ class JointCBFQPSafetyFilter:
         self.solver_maxiter = int(solver_maxiter)
         self.tolerance = float(tolerance)
         self.active_tolerance = float(active_tolerance)
+        self.anticipatory_horizon_steps = int(anticipatory_horizon_steps)
         if not 0.0 < self.gamma <= 1.0:
             raise ValueError("gamma must be in (0, 1].")
         if min(self.obstacle_margin_m, self.inter_agent_margin_m, self.boundary_margin_m) < 0.0:
@@ -120,6 +122,26 @@ class JointCBFQPSafetyFilter:
             raise ValueError("max correction and latency limits must be positive.")
         if self.solver_maxiter <= 0 or self.tolerance <= 0.0 or self.active_tolerance <= 0.0:
             raise ValueError("solver_maxiter and tolerances must be positive.")
+        if self.anticipatory_horizon_steps < 0:
+            raise ValueError("anticipatory_horizon_steps must be non-negative.")
+
+    @property
+    def contract(self) -> dict[str, float | int | str]:
+        """Return the immutable solver parameters for provenance logging."""
+
+        return {
+            "solver": self.SOLVER_NAME,
+            "gamma": float(self.gamma),
+            "obstacle_margin_m": float(self.obstacle_margin_m),
+            "inter_agent_margin_m": float(self.inter_agent_margin_m),
+            "boundary_margin_m": float(self.boundary_margin_m),
+            "max_correction_norm_mps": float(self.max_correction_norm_mps),
+            "max_latency_ms": float(self.max_latency_ms),
+            "solver_maxiter": int(self.solver_maxiter),
+            "tolerance": float(self.tolerance),
+            "active_tolerance": float(self.active_tolerance),
+            "anticipatory_horizon_steps": int(self.anticipatory_horizon_steps),
+        }
 
     def filter(
         self,
@@ -392,7 +414,25 @@ class JointCBFQPSafetyFilter:
         clearance = max(float(clearance), 0.0)
         first_order = -self.gamma * clearance / self.env.dt
         braking = -float(np.sqrt(2.0 * maximum_deceleration * clearance))
-        return max(first_order, braking)
+        bound = max(first_order, braking)
+
+        # The ordinary discrete CBF row can become infeasible one step later:
+        # a velocity that is admissible at the current clearance may move the
+        # agent into a state whose required braking change exceeds the next
+        # acceleration ball.  Assume the most favorable admissible braking
+        # change at each future step and impose the resulting linear lower
+        # bound now.  For step k, v_k = v_0 + k*delta and
+        # b_k = b_0 + dt*(k*v_0 + delta*k*(k-1)/2), which yields the bound
+        # below.  This is a feasibility-preserving anticipation term, not a
+        # relaxation of the physical obstacle, pairwise, or boundary margin.
+        delta_velocity = float(maximum_deceleration) * self.env.dt
+        for step in range(1, self.anticipatory_horizon_steps + 1):
+            future_bound = (
+                -self.gamma * clearance / self.env.dt
+                - delta_velocity * (step + 0.5 * self.gamma * step * (step - 1))
+            ) / (1.0 + self.gamma * step)
+            bound = max(bound, float(future_bound))
+        return bound
 
     def _solve(
         self,

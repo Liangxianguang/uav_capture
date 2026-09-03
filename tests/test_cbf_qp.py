@@ -140,6 +140,28 @@ def test_speed_and_acceleration_constraints_are_enforced() -> None:
     assert min(value for name, value in diagnostics.constraint_slacks.items() if name.startswith("acceleration_")) >= -1e-5
 
 
+def test_anticipatory_horizon_adds_only_a_conservative_braking_constraint() -> None:
+    env = _env(obstacles=[CylinderObstacle(np.array([0.0, 0.0]), 1.0, 5.0)])
+    observation = _observation(
+        env,
+        np.array([[3.45, 0.0, 2.0], [5.0, 0.0, 4.0], [-5.0, 0.0, 4.0], [0.0, -5.0, 4.0]]),
+        np.array([[-3.8, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+    )
+    no_lookahead = JointCBFQPSafetyFilter(env, anticipatory_horizon_steps=0)
+    with_lookahead = JointCBFQPSafetyFilter(env, anticipatory_horizon_steps=3)
+    base = next(record for record in no_lookahead._build_barriers(observation) if record.name == "obstacle_0_defender_0")
+    conservative = next(
+        record for record in with_lookahead._build_barriers(observation) if record.name == "obstacle_0_defender_0"
+    )
+
+    assert conservative.lower_bound >= base.lower_bound
+    assert conservative.lower_bound > base.lower_bound
+    action, diagnostics = with_lookahead.filter(observation["defender_velocities"], observation)
+    assert diagnostics.verified_feasible
+    assert diagnostics.constraint_slacks["obstacle_0_defender_0"] >= -1e-5
+    assert np.isfinite(action).all()
+
+
 def test_current_state_violation_is_not_claimed_feasible() -> None:
     env = _env(obstacles=[CylinderObstacle(np.array([0.0, 0.0]), 1.0, 5.0)])
     observation = _observation(

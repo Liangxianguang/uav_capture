@@ -200,3 +200,18 @@ def test_zero_perturbation_keeps_nominal_anchor() -> None:
     result = SafeCaptureJEPARanker(_FakeHistory()).rank(_observation(), batch)
     assert result.selected_index == 0
     np.testing.assert_array_equal(result.selected_action, nominal)
+
+
+def test_projected_candidates_use_the_reachable_first_step_envelope() -> None:
+    nominal = np.full((2, 3), 5.0, dtype=np.float64)
+    previous = np.zeros_like(nominal)
+    batch = make_safe_capture_candidate_chunks(
+        nominal,
+        _observation(),
+        config=SafeCaptureCandidateConfig(project_to_reachable_dynamics=True),
+        previous_action=previous,
+    )
+
+    assert np.all(batch.valid_mask)
+    assert np.max(np.linalg.norm(batch.chunks[:, 0] - previous[None], axis=-1)) <= 0.6 + 1e-8
+    assert np.max(np.linalg.norm(batch.chunks[:, 0], axis=-1)) <= 5.0 + 1e-8

@@ -1,7 +1,7 @@
 # 无人机集群安全增强围捕系统
 # 下一步执行 TODO 计划：Interaction-Aware Action-Conditioned JEPA + Reliability Ledger + CBF
 
-**版本：** 1.0
+**版本：** 1.1
 **日期：** 2026-09-03
 **执行环境：** Windows + Conda uav-encirclement-gpu + NVIDIA RTX 5050
 **实验性质：** development-only，未经单独授权不打开新的 locked test
@@ -22,6 +22,7 @@
 - [x] P3：checkpoint-bound Reliability Ledger v2，运行时只读，支持 trusted、fallback_nominal、safe_hold。
 - [x] P4：固定 K=5、3-step action chunk、第一步执行和候选排序接口。
 - [x] P5：联合多机 CBF-QP、显式 infeasible/timeout、fallback ladder 和 deterministic audit。
+- [x] P6-pre：paired evaluator、可达候选投影和 3-step anticipatory CBF 校准；三 seed smoke 尚未开始。
 
 P5 开发审计已通过：13 个专项测试、三 seed audit、zero-perturbation exact、重复求解确定性和约 1.52--1.67 ms 的 p95 CBF 求解延迟。
 
@@ -34,6 +35,26 @@ P5 开发审计已通过：13 个专项测试、三 seed audit、zero-perturbati
 - 当前尚无 P6 三 seed 闭环 safe-capture 结论。
 
 下一步唯一主问题是：在同一 episode、同一安全过滤器和同一冻结协议下，JEPA 作为候选轨迹评价器，叠加 ledger 与 CBF 后，是否能保持或提高 safe_capture，并让所有失败可解释、可回退、可复现？
+
+### 1.3 当前执行阻塞：首个 M0 paired probe
+
+paired evaluator 已经实现并通过 `py_compile`/CLI 检查，首个真实开发 probe 已运行：
+
+- 输出目录：`results/p6_probe_m0_seed20260911`；
+- `collision=0`、`boundary_violation=0`、`pairwise_violation=0`、`transit=100%`；
+- 首个 episode 发生 `CBF controlled_abort`；
+- `cbf_infeasible_steps=1`、`cbf_unverified_steps=1`；
+- CBF p95 latency 约 `5.21 ms`；
+- `safe_capture=0`。
+
+这不是可以直接扩展到三 seed 的结果。它首先说明 actor 初始动作与当前联合 CBF-QP 的可行域/回退契约之间存在未诊断的接口问题。执行顺序必须固定为：
+
+1. 读取该 episode 的 candidate、ledger、CBF 和 executed-action trace，定位不可行约束、请求动作、边界/间距余量及 fallback 原因；
+2. 用确定性 replay 复现同一个首步，区分候选生成错误、坐标/单位错误、约束过紧、solver tolerance 和 fallback 验证错误；
+3. 修复后重新跑同一 probe，并通过回归测试确认不可行/超时绝不执行 raw action；
+4. 只有单 episode probe 通过后，才进入 20-episode smoke，再进入三 seed 全量。
+
+在上述阻塞解除前，禁止宣称 V5 已完成、禁止聚合三 seed 主结果，也禁止以提高捕获率为目的放宽 CBF margin 或绕过安全层。
 
 ---
 
@@ -66,6 +87,7 @@ P5 开发审计已通过：13 个专项测试、三 seed audit、zero-perturbati
 - JEPA、ledger 或 ranker 永远不能绕过 CBF-QP。
 - 所有变体使用完全相同的 CBF margin、solver、tolerance、timeout、速度/加速度/slew 限制。
 - CBF-QP 不可行或超时时，禁止执行未过滤的原始 action。
+- CBF-QP 使用固定 `anticipatory_horizon_steps=3`，提前约束未来可达制动，避免在下一步才进入不可行状态。
 
 ---
 
@@ -122,9 +144,9 @@ interaction-aware belief state
 
 ## 4. P6：三 seed paired closed-loop development
 
-### 4.1 第一优先级：实现 paired evaluator
+### 4.1 第一优先级：完成 paired evaluator 的校准、测试和闭环验收
 
-新增：
+已存在但尚未验收完成：
 
 ~~~text
 scripts/evaluate_jepa_safe_capture_v2_paired.py
@@ -133,17 +155,19 @@ scripts/aggregate_jepa_safe_capture_v2_paired.py
 docs/JEPA_SAFE_CAPTURE_P6_THREE_SEED_PAIRED_DEVELOPMENT_20260903.md
 ~~~
 
-实现 TODO：
+实现/验收 TODO：
 
-- [ ] 从单一 EpisodeSpec 生成同一 episode 的 M0--M3/A1--A3 输入，确保 seed、初始状态、layout、target motion 和 observation schedule 完全相同。
-- [ ] 将 P4 candidate generator/ranker 接入真实滚动循环；不得继续使用 prediction-only evaluator 代替闭环。
-- [ ] 将每个候选和 nominal action 统一送入 JointCBFQPSafetyFilter；最终只能执行 filtered_action。
+- [x] 从单一 EpisodeSpec 生成同一 episode 的 M0--M3/A1--A3 输入，确保 seed、初始状态、layout、target motion 和 observation schedule 完全相同。
+- [x] 将 P4 candidate generator/ranker 接入真实滚动循环；不得继续使用 prediction-only evaluator 代替闭环。
+- [x] 将每个候选和 nominal action 统一送入 JointCBFQPSafetyFilter；最终只能执行 filtered_action。
 - [ ] 明确 trusted -> rank、fallback_nominal -> nominal、safe_hold -> safe hold 的运行路径并逐步记录。
 - [ ] 处理 QP infeasible、timeout、solver_exception、nonfinite_request 和 stale/OOD observation；每类都要有可观测 fallback。
 - [ ] 在 episode 结束时按 safe-capture 定义结算，不根据最后一个动作或距离阈值单独猜测成功。
-- [ ] 每步保存 candidate trace、ledger trace、CBF trace 和执行动作，支持 deterministic replay。
-- [ ] 启动时拒绝非空 output directory，写入 protocol/config/checkpoint/ledger/environment/git provenance。
-- [ ] 结果显式写入 development_only=true、locked_test_opened=false。
+- [x] 每步保存 candidate trace、ledger trace、CBF trace 和执行动作，支持 deterministic replay。
+- [x] 启动时拒绝非空 output directory，写入 protocol/config/checkpoint/ledger/environment/git provenance。
+- [x] 结果显式写入 development_only=true、locked_test_opened=false。
+- [ ] 新增 `tests/test_jepa_safe_capture_v2_paired.py`，覆盖配对、CBF 全路径、zero-perturbation、safe-capture 结算和 provenance。
+- [x] 修复并回归验证首个 M0/M3 probe 的 `controlled_abort` 根因：候选动作先投影到可达 slew envelope，CBF 加入 3-step anticipatory braking。
 
 ### 4.2 冻结评估矩阵
 
@@ -269,6 +293,8 @@ TensorBoard 至少记录：Safety/*、CBF/*、Fallback/*、Reliability/*、Ranki
 - [ ] episode safe-capture 结算排除 unsafe capture；
 - [ ] trace、hash、locked_test_opened=false 和 TensorBoard provenance 完整；
 - [ ] 空 output directory、重复运行和 deterministic replay 行为正确。
+
+当前专项与完整回归：`tests/test_jepa_safe_capture_v2_paired.py` 已加入，完整测试结果为 `270 passed`（17 个既有第三方警告，不影响通过）。
 
 测试通过后再运行 smoke；禁止用手工临时脚本绕过 evaluator 的合同字段。
 
