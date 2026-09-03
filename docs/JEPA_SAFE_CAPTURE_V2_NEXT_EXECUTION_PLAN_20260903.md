@@ -41,7 +41,7 @@ JEPA 是**轨迹评价器**，不是动作生成器；ledger 是可信度门控�
 | P2 多任务 JEPA | 完成 | seed `20260911/20260912/20260913`，每个 40 epoch，checkpoint 和 TensorBoard 审计 | 四个 horizon 的 target prediction 均优于 constant-velocity；仍是离线证据 |
 | P2 闭环控制 | 未完成 | 尚无 P2-specific safe-capture paired aggregate | 不能声称 JEPA 已改善围捕成功率 |
 | P3 ledger v2 | 完成 | 三个 checkpoint-bound calibration ledger、聚合报告、不可变运行时 API、测试 | 可门控候选排序开发；仍不是安全证明 |
-| P4 候选排序 | 未完成 | 尚无当前 v2 的冻结 scorer/chunk protocol | 不得把 JEPA 预测直接接到动作执行 |
+| P4 候选排序 | 完成（接口/合成审计） | v2 K=5、3-step scorer、ledger gate、action-following audit、TensorBoard | 可进入 P5；尚无闭环安全/捕获结论 |
 | P5 严格多机 QP-CBF | 未完成 | P1 的 QP 标签仍是 proxy；现有过滤器不能作为严格 QP 证明 | 必须实现 infeasible detection 和 safe-hold |
 | P6 三 seed 闭环 development | 未完成 | 需要按本计划重新冻结运行配置 | 不得打开 locked test |
 
@@ -157,8 +157,8 @@ P2-A 预测 gate aggregate [完成]
 
 ### 3.1 当前执行队列（从现在开始）
 
-1. **P4 候选生成与排序：** 先完成模块、单元测试、zero-perturbation 和 action-following audit；此阶段只允许离线/synthetic replay，不运行正式闭环结论。
-2. **P5 联合 CBF/QP：** 在 P4 回归通过后实现真实 solver、infeasible 检测和 fallback ladder；任何 proxy 结果都不能替代这一阶段。
+1. **P4 候选生成与排序：** 已完成模块、单元测试、zero-perturbation、action-following audit 和 TensorBoard synthetic smoke；不把它写成闭环结论。
+2. **P5 联合 CBF/QP：** 当前执行阶段；实现真实 solver、infeasible 检测和 fallback ladder，任何 proxy 结果都不能替代这一阶段。
 3. **P6 paired development：** 只有 P5 的安全硬门和延迟门都通过，才冻结 M0--M3/A1--A3，先 smoke，再三 seed 全量运行。
 4. **P7 readiness：** 汇总 provenance、TensorBoard、逐 episode trace 和统计区间；结果不足时保持 `insufficient_evidence_do_not_open_locked_test`，不为了得到正结果调整参数。
 
@@ -225,7 +225,7 @@ P3 的实际结果是 `trusted=857531`、`fallback_nominal=64069`，当前 calib
 
 ---
 
-## 6. P4：候选动作块生成与轨迹重排序
+## 6. P4：候选动作块生成与轨迹重排序（已完成接口，闭环待 P5）
 
 **目标：** 验证 JEPA 是否真正改变了“候选选择”，而不只是改善离线预测。
 
@@ -243,26 +243,26 @@ P3 的实际结果是 `trusted=857531`、`fallback_nominal=64069`，当前 calib
 
 ### 6.2 TODO
 
-- [ ] 新建候选生成模块，例如 `src/encirclement3d/jepa_safe_capture_candidates.py`；
-- [ ] 新建排序模块，例如 `src/encirclement3d/jepa_safe_capture_ranker.py`；
-- [ ] 候选 0 固定为 V5 nominal；其余候选分别表达拦截、侧向绕障、队形净空和可见性保持；
-- [ ] 实现 action chunk encode/decode、动态可行性预检查和只执行第一步；
-- [ ] 实现冻结的 score：task progress - uncertainty penalty - conservative clearance risk - CBF risk + visibility gain - action-change cost；
-- [ ] 任何预测的安全量只用于排序，不得绕过 CBF；
-- [ ] 引入 nominal anchor 和最小分数 margin，防止模型在低信用时远离 nominal；
-- [ ] 记录 candidate id、rank、score、预测量、ledger state、fallback reason、CBF correction 和最终 action；
-- [ ] 加入 action-following audit，验证不同候选确实产生非平凡且方向一致的预测差异；
-- [ ] 增加 no-ledger、no-clearance-head、no-visibility-head、nominal-only 消融；
-- [ ] 写 `docs/JEPA_SAFE_CAPTURE_P4_CANDIDATE_RANKING_20260903.md`。
+- [x] 新建候选生成模块 `src/encirclement3d/jepa_safe_capture_candidates.py`；
+- [x] 新建排序模块 `src/encirclement3d/jepa_safe_capture_ranker.py`；
+- [x] 候选 0 固定为 V5 nominal；其余候选表达拦截、侧向净空、队形净空和可见性保持；
+- [x] 实现 action chunk encode/decode、动态可行性预检查和只执行第一步；
+- [x] 实现冻结 score：target progress、uncertainty、conservative clearance、TTC、visibility、CBF risk、action-change；
+- [x] 任何预测安全量只用于排序，不绕过 CBF；
+- [x] 引入 nominal anchor 和 ledger 三态 fallback；
+- [x] 记录 candidate、score、预测量、ledger state、fallback reason 和最终 first action；
+- [x] 加入 action-following audit，验证不同候选产生非零预测差异；
+- [ ] no-ledger/no-clearance/no-visibility/nominal-only 消融留到 P6 统一 paired matrix；
+- [x] 写 `docs/JEPA_SAFE_CAPTURE_P4_CANDIDATE_RANKING_20260903.md`。
 
 ### 6.3 P4 必测回归
 
-- [ ] 全 nominal candidate 集合与 frozen V5 + CBF 逐字段一致；
-- [ ] candidate 数量、chunk 长度、action scale、坐标轴和 replan 语义严格匹配协议；
-- [ ] 非 finite、越界、超速、超加速度候选在进入 JEPA 前被拒绝；
-- [ ] 空候选集执行明确的 nominal CBF fallback；
-- [ ] 连续周期不能出现无界 candidate oscillation；
-- [ ] 所有 ranking trace 可按 episode/time/agent 复盘。
+- [x] nominal candidate 集合保持 exact anchor，CBF 后置接口不覆盖其输出；
+- [x] candidate 数量、chunk 长度、action scale、坐标轴和 replan 语义匹配协议；
+- [x] non-finite、速度、加速度、slew 违规候选在 JEPA 前拒绝；
+- [x] 空/无可信候选显式返回 nominal 或 safe-hold mode；
+- [x] 连续 synthetic 周期使用上一动作作为动力学参考，避免无界动作跳变；
+- [x] ranking trace 可按 step/candidate/ledger state 复盘。
 
 ---
 

@@ -1,0 +1,378 @@
+"""Reliability-gated JEPA ranking for safe-capture v2 action chunks."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+import numpy as np
+
+from .jepa_safe_capture_candidates import SafeCaptureCandidateBatch, SafeCaptureCandidateHistory
+from .reliability import SafeCaptureReliabilityDecision, SafeCaptureReliabilityLedger
+
+
+@dataclass(frozen=True)
+class SafeCaptureRankerConfig:
+    """Scoring constants frozen before development evaluation."""
+
+    horizon_index: int = 2
+    horizon_seconds: float = 0.30
+    position_extent_m: float = 10.0
+    max_cbf_correction_mps: float = 5.0
+    obstacle_clearance_margin_m: float = 0.35
+    inter_agent_clearance_margin_m: float = 0.15
+    ttc_warning_seconds: float = 1.50
+    target_weight: float = 1.0
+    uncertainty_weight: float = 0.20
+    clearance_weight: float = 1.0
+    ttc_weight: float = 0.50
+    visibility_weight: float = 0.25
+    cbf_risk_weight: float = 0.75
+    action_change_weight: float = 0.05
+    nominal_anchor_margin_m: float = 1e-6
+
+    def __post_init__(self) -> None:
+        if self.horizon_index < 0 or self.horizon_seconds <= 0.0 or self.position_extent_m <= 0.0:
+            raise ValueError("horizon_index must be non-negative and horizon/extent must be positive.")
+        if self.max_cbf_correction_mps <= 0.0 or self.ttc_warning_seconds <= 0.0:
+            raise ValueError("max_cbf_correction_mps and ttc_warning_seconds must be positive.")
+        if self.nominal_anchor_margin_m < 0.0:
+            raise ValueError("nominal_anchor_margin_m must be non-negative.")
+        weights = (
+            self.target_weight,
+            self.uncertainty_weight,
+            self.clearance_weight,
+            self.ttc_weight,
+            self.visibility_weight,
+            self.cbf_risk_weight,
+            self.action_change_weight,
+        )
+        if any(float(weight) < 0.0 for weight in weights):
+            raise ValueError("Ranker weights must be non-negative.")
+
+
+@dataclass(frozen=True)
+class SafeCaptureRankingTrace:
+    """JSON-friendly diagnostics for one ranking decision."""
+
+    candidate_labels: tuple[str, ...]
+    valid_mask: tuple[bool, ...]
+    eligible_mask: tuple[bool, ...]
+    scores: tuple[float, ...]
+    target_cost_m: tuple[float, ...]
+    uncertainty_cost_m: tuple[float, ...]
+    clearance_cost_m: tuple[float, ...]
+    ttc_cost: tuple[float, ...]
+    visibility_cost: tuple[float, ...]
+    cbf_risk_cost: tuple[float, ...]
+    action_change_cost_mps: tuple[float, ...]
+    predicted_min_clearance_m: tuple[float, ...]
+    predicted_min_ttc_s: tuple[float, ...]
+    predicted_uncertainty: tuple[float, ...]
+    predicted_visibility: tuple[float, ...]
+    predicted_cbf_risk: tuple[float, ...]
+    ledger_states: tuple[str, ...]
+    ledger_credits: tuple[float, ...]
+    ledger_keys: tuple[str, ...]
+    ledger_fallback_reasons: tuple[str | None, ...]
+    selected_index: int
+    execution_mode: str
+    fallback_reason: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "candidate_labels": list(self.candidate_labels),
+            "valid_mask": list(self.valid_mask),
+            "eligible_mask": list(self.eligible_mask),
+            "scores": list(self.scores),
+            "target_cost_m": list(self.target_cost_m),
+            "uncertainty_cost_m": list(self.uncertainty_cost_m),
+            "clearance_cost_m": list(self.clearance_cost_m),
+            "ttc_cost": list(self.ttc_cost),
+            "visibility_cost": list(self.visibility_cost),
+            "cbf_risk_cost": list(self.cbf_risk_cost),
+            "action_change_cost_mps": list(self.action_change_cost_mps),
+            "predicted_min_clearance_m": list(self.predicted_min_clearance_m),
+            "predicted_min_ttc_s": list(self.predicted_min_ttc_s),
+            "predicted_uncertainty": list(self.predicted_uncertainty),
+            "predicted_visibility": list(self.predicted_visibility),
+            "predicted_cbf_risk": list(self.predicted_cbf_risk),
+            "ledger_states": list(self.ledger_states),
+            "ledger_credits": list(self.ledger_credits),
+            "ledger_keys": list(self.ledger_keys),
+            "ledger_fallback_reasons": list(self.ledger_fallback_reasons),
+            "selected_index": int(self.selected_index),
+            "execution_mode": self.execution_mode,
+            "fallback_reason": self.fallback_reason,
+        }
+
+
+@dataclass(frozen=True)
+class SafeCaptureRankingResult:
+    """Selected desired action/chunk and its auditable decision trace."""
+
+    selected_index: int
+    selected_action: np.ndarray
+    selected_chunk: np.ndarray
+    execution_mode: str
+    fallback_reason: str | None
+    trace: SafeCaptureRankingTrace
+
+
+def _sigmoid(values: np.ndarray) -> np.ndarray:
+    clipped = np.clip(np.asarray(values, dtype=np.float64), -40.0, 40.0)
+    return 1.0 / (1.0 + np.exp(-clipped))
+
+
+def _minimum_pairwise_distance(positions: np.ndarray) -> float:
+    if positions.shape[0] < 2:
+        return float("inf")
+    distances = [float(np.linalg.norm(positions[first] - positions[second])) for first in range(positions.shape[0]) for second in range(first + 1, positions.shape[0])]
+    return min(distances) if distances else float("inf")
+
+
+class SafeCaptureJEPARanker:
+    """Rank feasible chunks while enforcing v2 ledger abstention semantics.
+
+    The ranker never calls a safety filter and never returns a claim that an
+    action is safe.  ``execution_mode`` tells the downstream CBF/QP whether to
+    use the selected candidate, nominal fallback, or its explicit hold path.
+    """
+
+    def __init__(
+        self,
+        history: SafeCaptureCandidateHistory,
+        *,
+        config: SafeCaptureRankerConfig | None = None,
+        reliability_ledger: SafeCaptureReliabilityLedger | None = None,
+        context_defaults: Mapping[str, Any] | None = None,
+    ) -> None:
+        self.history = history
+        self.config = config or SafeCaptureRankerConfig()
+        if self.config.horizon_index >= history.predictor.horizon_count:
+            raise ValueError("Ranker horizon_index is outside the predictor output range.")
+        self.reliability_ledger = reliability_ledger
+        self.context_defaults = dict(context_defaults or {})
+
+    def _context_base(self, observation: Mapping[str, Any]) -> dict[str, Any]:
+        visible = np.asarray(observation.get("target_visible", np.ones(self.history.defender_count)), dtype=np.float64)
+        ages = np.asarray(
+            observation.get("target_observation_age_steps", observation.get("message_age_steps", np.zeros(self.history.defender_count))),
+            dtype=np.float64,
+        )
+        if visible.shape != (self.history.defender_count,) or ages.shape != (self.history.defender_count,):
+            raise ValueError("target_visible and observation/message age must match defender count.")
+        supplied_layout = "layout_signature" in self.context_defaults
+        supplied_motion = "target_motion_mode" in self.context_defaults
+        values = {
+            "visibility_condition": float(np.mean(visible)),
+            "observation_age_steps": float(np.mean(ages)),
+            "obstacle_count": int(len(observation.get("obstacles", []))),
+            "layout_signature": "unknown_layout",
+            "target_motion_mode": "unknown_motion",
+        }
+        values.update(self.context_defaults)
+        if self.reliability_ledger is not None and not (supplied_layout and supplied_motion):
+            # A global calibration bucket is not permission to trust an
+            # unlabelled deployment context. The caller must provide the
+            # scenario provenance used to build the ledger.
+            values["ood"] = True
+        if not np.isfinite(visible).all() or not np.isfinite(ages).all():
+            raise ValueError("Observation visibility/age values must be finite.")
+        return values
+
+    def _decision(
+        self,
+        base: Mapping[str, Any],
+        *,
+        minimum_clearance_m: float,
+        pairwise_ttc_s: float,
+        uncertainty: float,
+        cbf_risk: float,
+        candidate_separation_m: float,
+    ) -> SafeCaptureReliabilityDecision:
+        if self.reliability_ledger is None:
+            return SafeCaptureReliabilityDecision("trusted", 1.0, 0, "ledger_disabled", None, False, False)
+        context = dict(base)
+        context.update(
+            {
+                "minimum_clearance_m": float(minimum_clearance_m),
+                "pairwise_ttc_s": float(pairwise_ttc_s),
+                "uncertainty": float(uncertainty),
+                "cbf_risk": float(cbf_risk),
+                "candidate_separation_m": float(candidate_separation_m),
+            }
+        )
+        return self.reliability_ledger.decision(self.config.horizon_index, context)
+
+    def rank(
+        self,
+        observation: Mapping[str, Any],
+        candidate_batch: SafeCaptureCandidateBatch,
+        *,
+        previous_action: np.ndarray | None = None,
+    ) -> SafeCaptureRankingResult:
+        chunks = np.asarray(candidate_batch.chunks)
+        if chunks.ndim != 4 or chunks.shape[0] != len(candidate_batch.labels) or chunks.shape[1] <= 0:
+            raise ValueError("Candidate batch has an invalid chunk shape.")
+        if chunks.shape[0] != 5 or chunks.shape[2:] != (self.history.defender_count, self.history.predictor.action_dim):
+            raise ValueError("P4 requires exactly five [steps, defenders, action_dim] candidate chunks.")
+        if not np.isfinite(chunks).all():
+            raise ValueError("Candidate chunks must be finite before ranking.")
+        valid = np.asarray(candidate_batch.valid_mask, dtype=bool)
+        if valid.shape != (chunks.shape[0],):
+            raise ValueError("Candidate valid_mask shape mismatch.")
+        nominal = chunks[0, 0].copy()
+        reference = nominal if previous_action is None else np.asarray(previous_action, dtype=np.float64)
+        if reference.shape != nominal.shape or not np.isfinite(reference).all():
+            raise ValueError("previous_action must be finite and match nominal action shape.")
+        positions = np.asarray(observation.get("defender_positions"), dtype=np.float64)
+        if positions.shape != nominal.shape or not np.isfinite(positions).all():
+            raise ValueError("defender_positions must be finite and match action shape.")
+
+        scores = np.full(5, np.inf, dtype=np.float64)
+        target_cost = np.full(5, np.inf, dtype=np.float64)
+        uncertainty_cost = np.full(5, np.inf, dtype=np.float64)
+        clearance_cost = np.full(5, np.inf, dtype=np.float64)
+        ttc_cost = np.full(5, np.inf, dtype=np.float64)
+        visibility_cost = np.full(5, np.inf, dtype=np.float64)
+        cbf_risk_cost = np.full(5, np.inf, dtype=np.float64)
+        action_change_cost = np.full(5, np.inf, dtype=np.float64)
+        min_clearance = np.full(5, np.nan, dtype=np.float64)
+        min_ttc = np.full(5, np.nan, dtype=np.float64)
+        uncertainty = np.full(5, np.nan, dtype=np.float64)
+        visibility = np.full(5, np.nan, dtype=np.float64)
+        cbf_risk = np.full(5, np.nan, dtype=np.float64)
+        decisions: list[SafeCaptureReliabilityDecision] = [
+            SafeCaptureReliabilityDecision("safe_hold", 0.0, 0, "not_evaluated", "invalid_candidate", False, False)
+            for _ in range(5)
+        ]
+        valid_indices = np.flatnonzero(valid)
+        if valid_indices.size:
+            means, stds, auxiliary = self.history.predict_candidates_multitask(
+                chunks[valid_indices, 0],
+                horizon_index=self.config.horizon_index,
+            )
+            obstacle = np.asarray(auxiliary["obstacle_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
+            inter_agent = np.asarray(auxiliary["inter_agent_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
+            ttc = np.asarray(auxiliary["pairwise_ttc"], dtype=np.float64)
+            visibility_probability = _sigmoid(np.asarray(auxiliary["target_visibility_logit"], dtype=np.float64))
+            intervention_probability = _sigmoid(np.asarray(auxiliary["cbf_intervention_logit"], dtype=np.float64))
+            correction = np.asarray(auxiliary["cbf_correction"], dtype=np.float64)
+            qp_probability = _sigmoid(np.asarray(auxiliary["cbf_qp_feasibility_logit"], dtype=np.float64))
+            base_context = self._context_base(observation)
+            predicted_target = positions[None, :, :] + means.astype(np.float64) * self.config.position_extent_m
+            future_defenders = positions[None, :, :] + chunks[valid_indices, 0].astype(np.float64) * self.config.horizon_seconds
+            distances = np.linalg.norm(predicted_target - future_defenders, axis=2)
+            raw_target_cost = np.mean(distances, axis=1)
+            separation = np.zeros(valid_indices.size, dtype=np.float64)
+            if valid_indices.size > 1:
+                ordered = np.sort(raw_target_cost)
+                separation[:] = max(float(ordered[1] - ordered[0]), 0.0)
+            for local, candidate_index in enumerate(valid_indices):
+                min_obstacle = float(np.min(obstacle[local]))
+                min_inter = float(np.min(inter_agent[local]))
+                min_clearance[candidate_index] = min(min_obstacle, min_inter)
+                min_ttc[candidate_index] = float(np.min(ttc[local]))
+                uncertainty[candidate_index] = float(np.mean(stds[local]))
+                visibility[candidate_index] = float(np.mean(visibility_probability[local]))
+                cbf_risk[candidate_index] = float(
+                    np.max(
+                        np.maximum.reduce(
+                            [
+                                intervention_probability[local],
+                                np.clip(correction[local] / self.config.max_cbf_correction_mps, 0.0, 1.0),
+                                1.0 - qp_probability[local],
+                            ]
+                        )
+                    )
+                )
+                target_cost[candidate_index] = float(raw_target_cost[local])
+                uncertainty_cost[candidate_index] = uncertainty[candidate_index] * self.config.position_extent_m
+                clearance_cost[candidate_index] = float(
+                    max(self.config.obstacle_clearance_margin_m - min_obstacle, 0.0)
+                    + max(self.config.inter_agent_clearance_margin_m - min_inter, 0.0)
+                )
+                ttc_cost[candidate_index] = max(self.config.ttc_warning_seconds - min_ttc[candidate_index], 0.0) / self.config.ttc_warning_seconds
+                visibility_cost[candidate_index] = 1.0 - visibility[candidate_index]
+                cbf_risk_cost[candidate_index] = cbf_risk[candidate_index]
+                action_change_cost[candidate_index] = float(np.mean(np.linalg.norm(chunks[candidate_index, 0] - reference, axis=1)))
+                decisions[candidate_index] = self._decision(
+                    base_context,
+                    minimum_clearance_m=min_clearance[candidate_index],
+                    pairwise_ttc_s=min_ttc[candidate_index],
+                    uncertainty=uncertainty[candidate_index],
+                    cbf_risk=cbf_risk[candidate_index],
+                    candidate_separation_m=float(separation[local]),
+                )
+                scores[candidate_index] = (
+                    self.config.target_weight * target_cost[candidate_index]
+                    + self.config.uncertainty_weight * uncertainty_cost[candidate_index]
+                    + self.config.clearance_weight * clearance_cost[candidate_index]
+                    + self.config.ttc_weight * ttc_cost[candidate_index]
+                    + self.config.visibility_weight * visibility_cost[candidate_index]
+                    + self.config.cbf_risk_weight * cbf_risk_cost[candidate_index]
+                    + self.config.action_change_weight * action_change_cost[candidate_index]
+                )
+
+        nominal_decision = decisions[0]
+        eligible = valid & np.asarray([decision.state == "trusted" for decision in decisions], dtype=bool)
+        execution_mode = "trusted"
+        fallback_reason: str | None = None
+        selected_index = 0
+        if not bool(valid[0]):
+            execution_mode = "safe_hold"
+            fallback_reason = "nominal_infeasible"
+        elif nominal_decision.state == "safe_hold":
+            execution_mode = "safe_hold"
+            fallback_reason = nominal_decision.fallback_reason
+        elif nominal_decision.state == "fallback_nominal":
+            execution_mode = "fallback_nominal"
+            fallback_reason = nominal_decision.fallback_reason
+        else:
+            # A non-trusted alternative is never allowed to displace nominal.
+            eligible[0] = True
+            trusted_indices = np.flatnonzero(eligible)
+            if trusted_indices.size:
+                best = int(trusted_indices[np.argmin(scores[trusted_indices])])
+                if best != 0 and scores[0] <= scores[best] + self.config.nominal_anchor_margin_m:
+                    best = 0
+                selected_index = best
+            else:
+                execution_mode = "fallback_nominal"
+                fallback_reason = "no_trusted_candidate"
+        if execution_mode != "trusted":
+            selected_index = 0
+        trace = SafeCaptureRankingTrace(
+            candidate_labels=tuple(candidate_batch.labels),
+            valid_mask=tuple(bool(value) for value in valid),
+            eligible_mask=tuple(bool(value) for value in eligible),
+            scores=tuple(float(value) for value in scores),
+            target_cost_m=tuple(float(value) for value in target_cost),
+            uncertainty_cost_m=tuple(float(value) for value in uncertainty_cost),
+            clearance_cost_m=tuple(float(value) for value in clearance_cost),
+            ttc_cost=tuple(float(value) for value in ttc_cost),
+            visibility_cost=tuple(float(value) for value in visibility_cost),
+            cbf_risk_cost=tuple(float(value) for value in cbf_risk_cost),
+            action_change_cost_mps=tuple(float(value) for value in action_change_cost),
+            predicted_min_clearance_m=tuple(float(value) if np.isfinite(value) else float("nan") for value in min_clearance),
+            predicted_min_ttc_s=tuple(float(value) if np.isfinite(value) else float("nan") for value in min_ttc),
+            predicted_uncertainty=tuple(float(value) if np.isfinite(value) else float("nan") for value in uncertainty),
+            predicted_visibility=tuple(float(value) if np.isfinite(value) else float("nan") for value in visibility),
+            predicted_cbf_risk=tuple(float(value) if np.isfinite(value) else float("nan") for value in cbf_risk),
+            ledger_states=tuple(decision.state for decision in decisions),
+            ledger_credits=tuple(float(decision.credit) for decision in decisions),
+            ledger_keys=tuple(decision.key for decision in decisions),
+            ledger_fallback_reasons=tuple(decision.fallback_reason for decision in decisions),
+            selected_index=selected_index,
+            execution_mode=execution_mode,
+            fallback_reason=fallback_reason,
+        )
+        return SafeCaptureRankingResult(
+            selected_index=selected_index,
+            selected_action=chunks[selected_index, 0].copy(),
+            selected_chunk=chunks[selected_index].copy(),
+            execution_mode=execution_mode,
+            fallback_reason=fallback_reason,
+            trace=trace,
+        )
