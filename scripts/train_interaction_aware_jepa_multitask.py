@@ -23,7 +23,7 @@ import numpy as np
 import torch
 import yaml
 from torch.nn import functional as F
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Sampler, TensorDataset
 from torch.utils.tensorboard import SummaryWriter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -72,6 +72,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--visibility-loss-weight", type=float, default=0.25)
     parser.add_argument("--cbf-correction-loss-weight", type=float, default=0.25)
     parser.add_argument("--cbf-intervention-loss-weight", type=float, default=0.25)
+    parser.add_argument("--train-replay-weights", type=Path)
+    parser.add_argument("--train-replay-manifest", type=Path)
+    parser.add_argument(
+        "--replay-uniform-fraction",
+        type=float,
+        help="Must match the train-only replay manifest and remain at least 0.50.",
+    )
     parser.add_argument("--histogram-interval", type=int, default=5)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     return parser.parse_args()
@@ -121,16 +128,95 @@ def load_dataset(path: Path, metadata_path: Path, required_split: str) -> tuple[
     return tensors, metadata
 
 
-def _loader(tensors: dict[str, torch.Tensor], batch_size: int, shuffle: bool, seed: int, pin_memory: bool) -> DataLoader[Any]:
+class MixedReplaySampler(Sampler[int]):
+    """Deterministically mix a uniform pool with weighted hard-example draws."""
+
+    def __init__(self, weights: torch.Tensor, uniform_fraction: float, seed: int) -> None:
+        if weights.ndim != 1 or weights.numel() == 0 or not torch.isfinite(weights).all() or torch.any(weights <= 0.0):
+            raise ValueError("Replay sampler requires positive finite one-dimensional weights.")
+        if not 0.50 <= uniform_fraction <= 1.0:
+            raise ValueError("Replay uniform_fraction must preserve at least 50% uniform draws.")
+        self.weights = weights.detach().cpu().to(torch.float64)
+        self.uniform_fraction = float(uniform_fraction)
+        self.seed = int(seed)
+        self.epoch = 0
+
+    def __iter__(self):
+        generator = torch.Generator().manual_seed(self.seed + self.epoch)
+        self.epoch += 1
+        count = int(self.weights.numel())
+        uniform_count = int(np.ceil(count * self.uniform_fraction))
+        replay_count = count - uniform_count
+        uniform = torch.randperm(count, generator=generator)[:uniform_count]
+        replay = (
+            torch.multinomial(self.weights, replay_count, replacement=True, generator=generator)
+            if replay_count
+            else torch.empty(0, dtype=torch.int64)
+        )
+        indices = torch.cat((uniform, replay))
+        order = torch.randperm(indices.numel(), generator=generator)
+        return iter(indices[order].tolist())
+
+    def __len__(self) -> int:
+        return int(self.weights.numel())
+
+
+def _loader(
+    tensors: dict[str, torch.Tensor],
+    batch_size: int,
+    shuffle: bool,
+    seed: int,
+    pin_memory: bool,
+    replay_weights: torch.Tensor | None = None,
+    replay_uniform_fraction: float = 0.50,
+) -> DataLoader[Any]:
     ordered = tuple(tensors[name] for name in REQUIRED_DATASET_ARRAYS)
+    sampler = None
+    if replay_weights is not None:
+        if not shuffle:
+            raise ValueError("Replay sampling is only valid for the training loader.")
+        if replay_weights.shape != (ordered[0].shape[0],):
+            raise ValueError("Replay weight count does not match the training dataset.")
+        sampler = MixedReplaySampler(replay_weights, replay_uniform_fraction, seed)
     return DataLoader(
         TensorDataset(*ordered),
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=shuffle and sampler is None,
+        sampler=sampler,
         generator=torch.Generator().manual_seed(seed),
         num_workers=0,
         pin_memory=pin_memory,
     )
+
+
+def load_replay_weights(
+    weights_path: Path,
+    manifest_path: Path,
+    train_dataset_path: Path,
+    train_metadata_path: Path,
+    sample_count: int,
+    requested_uniform_fraction: float | None,
+) -> tuple[torch.Tensor, dict[str, Any], float]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("replay_type") != "jepa_v3_train_only_hard_example_weights" or manifest.get("source_split") != "train":
+        raise ValueError("Replay manifest is not a JEPA-v3 train-only hard-example artifact.")
+    if manifest.get("source_dataset_sha256") != _sha256(train_dataset_path):
+        raise ValueError("Replay manifest source dataset hash does not match the training dataset.")
+    if manifest.get("source_metadata_sha256") != _sha256(train_metadata_path):
+        raise ValueError("Replay manifest source metadata hash does not match the training metadata.")
+    manifest_fraction = float(manifest["uniform_fraction"])
+    uniform_fraction = manifest_fraction if requested_uniform_fraction is None else float(requested_uniform_fraction)
+    if not np.isclose(uniform_fraction, manifest_fraction, rtol=0.0, atol=1e-9) or not 0.50 <= uniform_fraction <= 1.0:
+        raise ValueError("Replay uniform fraction must match the manifest and preserve at least 50% uniform draws.")
+    with np.load(weights_path) as archive:
+        if "sample_weights" not in archive.files:
+            raise ValueError("Replay archive is missing sample_weights.")
+        weights = torch.from_numpy(np.asarray(archive["sample_weights"], dtype=np.float32))
+    if weights.shape != (sample_count,):
+        raise ValueError("Replay weights do not match the training dataset sample count.")
+    if manifest.get("weights_sha256") != _sha256(weights_path):
+        raise ValueError("Replay weights hash does not match the manifest.")
+    return weights, manifest, uniform_fraction
 
 
 def _losses(
@@ -237,6 +323,8 @@ def main() -> None:
     }
     if args.learning_rate <= 0.0 or args.weight_decay < 0.0 or any(value < 0.0 for value in weights.values()):
         raise ValueError("Learning rate must be positive; regularization and task weights must be non-negative.")
+    if (args.train_replay_weights is None) != (args.train_replay_manifest is None):
+        raise ValueError("train-replay-weights and train-replay-manifest must be supplied together.")
     if args.output.exists() and any(args.output.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {args.output}")
     if args.tensorboard_logdir.exists() and any(args.tensorboard_logdir.iterdir()):
@@ -252,7 +340,27 @@ def main() -> None:
     validation_tensors, validation_metadata = load_dataset(
         args.validation_dataset.resolve(), args.validation_metadata.resolve(), "validation"
     )
-    train_loader = _loader(train_tensors, args.batch_size, True, args.seed, device.type == "cuda")
+    replay_weights: torch.Tensor | None = None
+    replay_manifest: dict[str, Any] | None = None
+    replay_uniform_fraction = 0.50
+    if args.train_replay_weights is not None and args.train_replay_manifest is not None:
+        replay_weights, replay_manifest, replay_uniform_fraction = load_replay_weights(
+            args.train_replay_weights.resolve(),
+            args.train_replay_manifest.resolve(),
+            args.train_dataset.resolve(),
+            args.train_metadata.resolve(),
+            int(train_tensors["inputs"].shape[0]),
+            args.replay_uniform_fraction,
+        )
+    train_loader = _loader(
+        train_tensors,
+        args.batch_size,
+        True,
+        args.seed,
+        device.type == "cuda",
+        replay_weights,
+        replay_uniform_fraction,
+    )
     validation_loader = _loader(validation_tensors, args.batch_size, False, args.seed, device.type == "cuda")
     model_config: dict[str, Any] = {
         "input_dim": 63,
@@ -275,6 +383,8 @@ def main() -> None:
     writer.add_text("Config/optimization", json.dumps({**vars(args), "weights": weights}, default=str, indent=2), 0)
     writer.add_text("Dataset/train_metadata", json.dumps(train_metadata, indent=2), 0)
     writer.add_text("Dataset/validation_metadata", json.dumps(validation_metadata, indent=2), 0)
+    if replay_manifest is not None:
+        writer.add_text("Dataset/train_replay_manifest", json.dumps(replay_manifest, indent=2), 0)
     writer.add_text("Provenance/source_hashes", json.dumps(source_hashes(), indent=2), 0)
     history: list[dict[str, float | int]] = []
     best_validation_loss = float("inf")
@@ -294,6 +404,9 @@ def main() -> None:
         learning_rate = float(optimizer.param_groups[0]["lr"])
         record["learning_rate"] = learning_rate
         writer.add_scalar("Optimization/learning_rate", learning_rate, epoch)
+        if replay_manifest is not None:
+            writer.add_scalar("Replay/uniform_draw_fraction", replay_uniform_fraction, epoch)
+            writer.add_scalar("Replay/hard_draw_fraction", 1.0 - replay_uniform_fraction, epoch)
         history.append(record)
         if epoch % args.histogram_interval == 0 or epoch == 1:
             for name, parameter in model.named_parameters():
@@ -314,6 +427,11 @@ def main() -> None:
                     "validation_metadata": validation_metadata,
                     "task_weights": weights,
                     "source_hashes": source_hashes(),
+                    "replay": {
+                        "enabled": replay_manifest is not None,
+                        "manifest": str(args.train_replay_manifest.resolve()) if args.train_replay_manifest is not None else None,
+                        "uniform_fraction": replay_uniform_fraction if replay_manifest is not None else None,
+                    },
                 },
                 args.output / "checkpoint.pt",
             )
@@ -353,6 +471,11 @@ def main() -> None:
                 "elapsed_seconds": elapsed_seconds,
                 "tensorboard_logdir": str(args.tensorboard_logdir.resolve()),
                 "source_hashes": source_hashes(),
+                "replay": {
+                    "enabled": replay_manifest is not None,
+                    "manifest": str(args.train_replay_manifest.resolve()) if args.train_replay_manifest is not None else None,
+                    "uniform_fraction": replay_uniform_fraction if replay_manifest is not None else None,
+                },
             },
             indent=2,
         )

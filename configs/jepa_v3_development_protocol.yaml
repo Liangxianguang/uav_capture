@@ -85,6 +85,16 @@ reliability_ledger:
   low_credit_action: fallback_to_frozen_v5_nominal_action_with_cbf
   update_rule: execution_settled_outcomes_only
 
+hard_example_replay:
+  enabled_after_multitask_prediction_gate: true
+  source_split: train_only
+  uniform_fraction: 0.50
+  hard_sample_weight: 3.0
+  low_clearance_threshold_m: 0.30
+  high_cbf_correction_threshold_mps: 0.25
+  include_collision_or_boundary_labels: true
+  do_not_change_validation_or_development_data: true
+
 development_gates:
   smoke_episodes: 20
   full_episodes: 60
