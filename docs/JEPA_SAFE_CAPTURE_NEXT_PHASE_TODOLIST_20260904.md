@@ -10,6 +10,67 @@
 
 > 本文件是 P7 完成后的后续执行计划，重点是可验收的工程和实验任务。它不把当前结果写成已经证实的泛化提升，也不授权打开新的 locked test。
 
+## 0. 当前执行状态与下一步队列（2026-09-04 更新）
+
+### 已完成并冻结
+
+- [x] **WP0 协议/输入边界冻结**：`configs/jepa_safe_capture_v3_next_phase.yaml`，development-only，`locked_test_opened=false`。
+- [x] **WP1 失败索引审计**：21 个 run、840 个 episode，已区分 safety-preserving 变体与 A3 raw/no-CBF 诊断结果；target drift 仍标记为未测量。
+- [x] **WP2-A hard-context weighted JEPA 训练**：seed `20260911/20260912/20260913`，每个 40 epoch，RTX 5050/CUDA，三个 checkpoint 均 finite。
+- [x] **WP2-A TensorBoard/provenance 审计**：每个 run 均含 46 scalar、9 text provenance、227 histogram tags；checkpoint、数据、配置和源码 hash 一致。
+- [x] **WP2-A held-out prediction gate**：三 seed、四个 horizon 均优于 constant-velocity 的 target MAE；辅助头输出有限且可供校准。
+
+对应产物：
+
+- `results/jepa_safe_capture_v3_wp2_training_audit.json`
+- `results/jepa_safe_capture_v3_wp2_prediction_aggregate.json`
+- `docs/JEPA_SAFE_CAPTURE_WP2_HARD_CONTEXT_PREDICTION_20260904.md`
+- `scripts/audit_jepa_safe_capture_v3_training.py`
+- `scripts/aggregate_jepa_safe_capture_v3_prediction.py`
+
+### 现在立即执行的顺序
+
+1. **WP3 ledger v3 校准**：只读 calibration split，分别绑定三个 checkpoint hash；先完成 OOD/stale/non-finite/fallback 单测，再生成 calibration report 和 ledger hash。
+2. **WP1 hard replay 补齐**：从 failure index 选择代表性 episode，逐步重放 prediction -> ledger -> rank -> CBF -> action -> termination 链路；没有 replay 证据的类别保持 `unresolved`。
+3. **WP4/WP5 接口准入**：保持 `K=5`、`chunk=3`、只执行第一步和原 CBF margin；验证候选可达性、排序日志、CBF infeasible/timeout 的显式回退。
+4. **WP6 20 集 smoke**：每个主变体/seed 先跑 20 集；安全硬门或 trace 完整性失败就停止该变体并回退 nominal-CBF。
+5. **WP7 三 seed paired development**：smoke 全通过后再跑至少 40 集/seed；M0、M3、A1、A2 必做，A3 仅诊断；safe capture 为第一指标。
+6. **统计与 readiness**：输出逐 seed safe capture、安全失败、paired delta、bootstrap CI、McNemar、ledger 分桶和延迟；未满足门槛时结论只能是 `insufficient_evidence_do_not_open_locked_test`。
+
+### 可直接执行的命令模板
+
+```powershell
+Set-Location D:\uav-capture\uav_capture
+$py = 'D:\miniconda3\envs\uav-encirclement-gpu\python.exe'
+$env:PYTHONPATH = "$PWD\src;$PWD\scripts"
+
+# WP2 审计（已完成，禁止覆盖历史输出）
+& $py scripts/audit_jepa_safe_capture_v3_training.py `
+  --run results/jepa_safe_capture_v3_wp2_seed20260911 `
+  --run results/jepa_safe_capture_v3_wp2_seed20260912 `
+  --run results/jepa_safe_capture_v3_wp2_seed20260913 `
+  --output results/jepa_safe_capture_v3_wp2_training_audit.json
+
+# WP2 prediction aggregate（已完成）
+& $py scripts/aggregate_jepa_safe_capture_v3_prediction.py `
+  --run-dir results/jepa_safe_capture_v3_wp2_prediction_seed20260911 `
+  --run-dir results/jepa_safe_capture_v3_wp2_prediction_seed20260912 `
+  --run-dir results/jepa_safe_capture_v3_wp2_prediction_seed20260913 `
+  --output-json results/jepa_safe_capture_v3_wp2_prediction_aggregate.json `
+  --output-md docs/JEPA_SAFE_CAPTURE_WP2_HARD_CONTEXT_PREDICTION_20260904.md
+
+# 后续每个长实验都必须使用独立 output/logdir；示例（实际参数以 WP3/WP6 脚本为准）
+# & $py scripts/<ledger-or-evaluation-script>.py ... --device cuda
+```
+
+### 当前禁止事项
+
+- [ ] 未完成 ledger 绑定前，不把 checkpoint 接入闭环排序。
+- [ ] 未完成 20 集 smoke 前，不启动三 seed × 40 集 final block。
+- [ ] 不打开新的 locked test，不把开发结果写成正式提升。
+- [ ] 不放宽 CBF margin、捕获半径或终止语义，不使用 online target ground truth。
+- [ ] 不因某个 seed 的高 safe-capture 或较短 capture time 改写主结论。
+
 ## 1. 研究目标与当前证据
 
 ### 1.1 要验证的系统假设
@@ -131,11 +192,13 @@ Joint CBF-QP：最终且不可绕过的执行过滤器
 
 **目标：** 提高候选之间的可辨识未来表示，抑制只预测目标位移造成的幻觉。
 
-- [ ] 保留 target relative displacement 主头，并加入 velocity/acceleration consistency。
-- [ ] 增加 obstacle clearance lower-quantile/distributional head，不使用均值代表安全。
-- [ ] 增加 inter-agent clearance、pairwise TTC 和队形拥挤度 head。
-- [ ] 增加 target visibility、observation age、message delay/loss head。
-- [ ] 增加 CBF intervention probability、correction magnitude 和 QP feasibility head。
+- [x] 保留 target relative displacement 主头，并加入 velocity/acceleration consistency。
+- [x] 增加 obstacle clearance lower-quantile head，不使用均值代表安全。
+- [x] 增加 inter-agent clearance、pairwise TTC head。
+- [x] 增加 target visibility、observation age head。
+- [x] 增加 CBF intervention probability、correction magnitude 和 QP feasibility head。
+- [x] 使用 hard-context weighted loss 强化遮挡、stale、低净空、低 TTC 和 CBF intervention 样本。
+- [x] 完成三个 training seed 的 40 epoch 训练、TensorBoard/provenance 审计和 held-out prediction gate。
 - [ ] 对目标运动模式加入 explicit mode/belief embedding，例如 constant-velocity、flee-persistence、turn、S-curve 和突变加速度。
 - [ ] 使用 action-conditioned consistency/contrastive loss，确保不同候选块产生方向一致且非塌缩的未来表示。
 - [ ] 使用 ensemble、heteroscedastic output 或 calibrated residual 得到 uncertainty；不把 uncertainty 误写成安全证书。
@@ -149,6 +212,8 @@ Joint CBF-QP：最终且不可绕过的执行过滤器
 - clearance、visibility、TTC、CBF risk heads 有非空标签覆盖和可校准分数；
 - action-following 的方向一致性和候选分离度为正；
 - 三个训练 seed 的 checkpoint、训练配置和 TensorBoard 均可追溯。
+
+**当前状态：** WP2 的离线预测准入已通过；仍需完成独立 calibration split 的误差分桶、abstention 阈值冻结和 ledger 绑定，才能进入 WP3/WP6 闭环实验。
 
 **产物：** 更新后的 `src/encirclement3d/prediction.py`、`scripts/train_jepa_safe_capture_v3.py`、`scripts/audit_jepa_safe_capture_v3_training.py`、三 seed checkpoint、prediction audit 报告和 TensorBoard。
 
