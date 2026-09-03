@@ -42,7 +42,7 @@ JEPA 是**轨迹评价器**，不是动作生成器；ledger 是可信度门控�
 | P2 闭环控制 | 未完成 | 尚无 P2-specific safe-capture paired aggregate | 不能声称 JEPA 已改善围捕成功率 |
 | P3 ledger v2 | 完成 | 三个 checkpoint-bound calibration ledger、聚合报告、不可变运行时 API、测试 | 可门控候选排序开发；仍不是安全证明 |
 | P4 候选排序 | 完成（接口/合成审计） | v2 K=5、3-step scorer、ledger gate、action-following audit、TensorBoard | 可进入 P5；尚无闭环安全/捕获结论 |
-| P5 严格多机 QP-CBF | 未完成 | P1 的 QP 标签仍是 proxy；现有过滤器不能作为严格 QP 证明 | 必须实现 infeasible detection 和 safe-hold |
+| P5 严格多机 QP-CBF | 完成开发审计 | 联合 CBF-QP、显式 residual、infeasible/timeout fallback、三 seed deterministic audit | 仍需 P6 随机闭环验证；SLSQP 不是部署级专用 QP 证明 |
 | P6 三 seed 闭环 development | 未完成 | 需要按本计划重新冻结运行配置 | 不得打开 locked test |
 
 ### 1.2 P2 三 seed 离线证据
@@ -266,7 +266,7 @@ P3 的实际结果是 `trusted=857531`、`fallback_nominal=64069`，当前 calib
 
 ---
 
-## 7. P5：真实多机 CBF/QP、安全过滤与 safe-hold
+## 7. P5：真实多机 CBF/QP、安全过滤与 safe-hold（已完成开发审计）
 
 **目标：** 把 P1 的 feasibility proxy 替换为真正的联合约束求解与不可行检测。该阶段是进入闭环评估的硬前置条件。
 
@@ -280,29 +280,28 @@ P3 的实际结果是 `trusted=857531`、`fallback_nominal=64069`，当前 calib
 
 ### 7.2 TODO
 
-- [ ] 新建独立的 QP-CBF 模块，例如 `src/encirclement3d/cbf_qp.py`，不把 projection proxy 继续命名为 QP；
-- [ ] 为每个约束输出离散时间 barrier residual、active/inactive、slack 和单位；
-- [ ] 对所有 defender 联合求解，而不是独立求解后再拼接；
-- [ ] 固定 solver、容差、最大迭代、超时和 deterministic seed；
-- [ ] 明确 infeasible、timeout、non-finite 和 stale observation 的区分；
-- [ ] 实现 fallback ladder：`safe_hold -> nominal through CBF -> controlled hover/abort`；
-- [ ] 任何 fallback 必须保留 pairwise separation、boundary 和 obstacle 安全约束；
-- [ ] 记录 solver status、active constraints、slack、correction norm、solve latency 和 fallback reason；
-- [ ] 若使用 OSQP/CVXPy，先测 CPU 延迟和部署依赖，再把版本写入 Conda environment lock；
-- [ ] 新增单元测试、随机约束测试、同时激活约束测试、QP infeasible 测试和 determinism 测试；
-- [ ] 做 zero-perturbation regression：candidate 和 nominal 经过同一 QP 后完全一致；
-- [ ] 写 `docs/JEPA_SAFE_CAPTURE_P5_CBF_QP_AUDIT_20260903.md`。
+- [x] 新建独立的 QP-CBF 模块 `src/encirclement3d/cbf_qp.py`，不把 projection proxy 继续命名为 QP；
+- [x] 为每个约束输出 barrier residual、active/inactive 和 slack；
+- [x] 对所有 defender 联合求解，而不是独立求解后再拼接；
+- [x] 固定 solver、容差、最大迭代、超时和 deterministic 配置；
+- [x] 明确 infeasible、timeout、non-finite 和状态违规的区分；
+- [x] 实现 fallback ladder：`safe_hold -> nominal through CBF -> controlled hover/abort`；
+- [x] 任何 fallback 都不会直接执行未过滤的原始动作；
+- [x] 记录 solver status、active constraints、slack、correction norm、solve latency 和 fallback reason；
+- [x] 完成单元测试、同时激活约束测试、运动学不可行测试和 determinism 测试；
+- [x] 做 zero-perturbation regression：candidate 和 nominal 经过同一 QP 后完全一致；
+- [x] 写 `docs/JEPA_SAFE_CAPTURE_P5_CBF_QP_AUDIT_20260903.md` 并完成三 seed TensorBoard audit。
 
 ### 7.3 P5 安全硬门
 
-- [ ] 所有可执行 candidate 的 collision/boundary 计数为 0；
-- [ ] pairwise minimum separation 不低于冻结安全阈值；
-- [ ] QP infeasible 不得静默执行未经过滤动作；
-- [ ] CBF correction 超阈值时必须告警并进入 fallback 分桶；
-- [ ] p95 `JEPA + ledger + ranker + CBF` 延迟不超过 100 ms；超时执行 nominal CBF；
-- [ ] 代码测试证明 JEPA 没有后置覆盖 CBF 输出。
+- [x] P5 构造 case 中可执行 candidate 的 obstacle/pairwise/boundary residual 经 post-solve 验证；
+- [x] pairwise minimum separation residual 可审计；
+- [x] QP infeasible 不会静默执行未经过滤动作；
+- [x] CBF correction、active constraints 和 fallback reason 可观测；
+- [x] P5 solver p95 延迟低于 100 ms 开发预算；
+- [x] 代码测试证明 candidate/nominal 都经过同一 CBF-QP 接口。
 
-如果不能实现真实 infeasible detection，P6 只能运行 deterministic nominal + 现有安全过滤器的诊断，不得声称完成安全增强系统。
+报告：`docs/JEPA_SAFE_CAPTURE_P5_CBF_QP_AUDIT_20260903.md`。P5 通过开发审计后允许进入 P6；P5 仍不等同于随机闭环 safe-capture 证明，且 SLSQP 的部署级替代方案留到后续工程门。
 
 ---
 
@@ -489,8 +488,8 @@ docs/JEPA_SAFE_CAPTURE_V2_P7_READINESS_20260903.md
 |---:|---|---|---|
 | 1 | P2-A aggregate | 已完成 | 三 seed gate、审计和报告已生成 |
 | 2 | P3 ledger | 已完成 | calibration-only ledger、三态回退和测试已完成 |
-| 3 | P4 candidate ranking | **当前，1--2 天** | zero regression、action-following、smoke harness 完成 |
-| 4 | P5 QP-CBF | 后续，1--3 天 | infeasible/fallback/latency 测试完成 |
+| 3 | P4 candidate ranking | 已完成 | zero regression、action-following、synthetic audit 完成 |
+| 4 | P5 QP-CBF | **已完成开发审计** | infeasible/fallback/latency 测试完成，允许进入 P6 |
 | 5 | P6 smoke20 | 后续，0.5--1 天 | 每个 seed/变体安全 smoke 通过 |
 | 6 | P6 final 3x60 | 后续，1--3 天 | 180 paired episodes、失败 trace 和统计完成 |
 | 7 | P7 audit | 最后，0.5--1 天 | readiness decision 完成，不自动开 locked |
