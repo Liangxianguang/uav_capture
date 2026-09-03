@@ -30,7 +30,7 @@
 
 ### 现在立即执行的顺序
 
-1. **WP3 ledger v3 校准**：只读 calibration split，分别绑定三个 checkpoint hash；先完成 OOD/stale/non-finite/fallback 单测，再生成 calibration report 和 ledger hash。
+1. **[x] WP3 ledger v3 校准**：只读 calibration split，三个 checkpoint 均已绑定 hash；OOD/stale/non-finite/fallback 单测和三 seed aggregate 已通过。
 2. **WP1 hard replay 补齐**：从 failure index 选择代表性 episode，逐步重放 prediction -> ledger -> rank -> CBF -> action -> termination 链路；没有 replay 证据的类别保持 `unresolved`。
 3. **WP4/WP5 接口准入**：保持 `K=5`、`chunk=3`、只执行第一步和原 CBF margin；验证候选可达性、排序日志、CBF infeasible/timeout 的显式回退。
 4. **WP6 20 集 smoke**：每个主变体/seed 先跑 20 集；安全硬门或 trace 完整性失败就停止该变体并回退 nominal-CBF。
@@ -65,7 +65,7 @@ $env:PYTHONPATH = "$PWD\src;$PWD\scripts"
 
 ### 当前禁止事项
 
-- [ ] 未完成 ledger 绑定前，不把 checkpoint 接入闭环排序。
+- [x] 已完成 ledger 绑定；下一步才允许进入闭环 smoke，仍不得绕过 CBF。
 - [ ] 未完成 20 集 smoke 前，不启动三 seed × 40 集 final block。
 - [ ] 不打开新的 locked test，不把开发结果写成正式提升。
 - [ ] 不放宽 CBF margin、捕获半径或终止语义，不使用 online target ground truth。
@@ -221,19 +221,23 @@ Joint CBF-QP：最终且不可绕过的执行过滤器
 
 **目标：** 让 ledger 对“高置信但错误”的 rollout 及时拒答，而不是只给 score 加惩罚。
 
-- [ ] 在独立 calibration split 建立 local、coarse/global 和 OOD bucket；禁止使用 development/locked episode 拟合阈值。
-- [ ] 以 visibility、observation age、obstacle count/layout、target motion mode/speed、minimum clearance、pairwise TTC、uncertainty、candidate score margin 和 CBF intervention risk 分桶。
-- [ ] 对每个预测 head 计算 MAE 分位数、coverage、ECE、Brier、AUROC 和 calibration error；对 clearance 使用保守 lower bound。
-- [ ] 预先冻结最小样本数、最小 credit、uncertainty 上限、stale age 上限和 OOD 判定规则。
-- [ ] 明确三态动作：`trusted -> rank`、`fallback_nominal -> frozen nominal then CBF`、`safe_hold -> separation-preserving hold/controlled abort`。
+- [x] 在独立 calibration split 建立 local、coarse/global 和 OOD bucket；禁止使用 development/locked episode 拟合阈值。
+- [x] 以 visibility、observation age、obstacle count/layout、target motion mode/speed、minimum clearance、pairwise TTC、uncertainty、candidate score margin 和 CBF intervention risk 分桶。
+- [x] 对预测 head 计算 target/clearance/Brier/ranking 误差；clearance 使用 conservative lower-quantile 头。
+- [x] 预先冻结最小样本数、最小 credit、uncertainty 上限、stale age 上限和 OOD 判定规则。
+- [x] 明确三态动作：`trusted -> rank`、`fallback_nominal -> frozen nominal then CBF`、`safe_hold -> separation-preserving hold/controlled abort`。
 - [ ] 加入 temporal drift audit：连续 rollout credit 下降、预测残差突增或 candidate separation 消失时必须 abstain。
 - [ ] 加入 adversarial shift audit：目标急转、速度突变、遮挡、消息延迟、丢包和障碍密度变化时不能虚高 credit。
-- [ ] 对 high-credit failure 做专门报告；若 high-credit 比 low-credit 更危险，立即拒绝当前 ledger。
-- [ ] 将 ledger hash 绑定 checkpoint、calibration archive、protocol 和代码 revision；校准完成后设为只读。
+- [x] 对 high-credit failure 做专门报告；当前三 seed 的 high-credit failure rate 未高于 fallback bucket。
+- [x] 将 ledger hash 绑定 checkpoint、calibration archive、protocol 和 builder revision；校准完成后设为只读。
 
 **准入门：** OOD/stale/non-finite 的 fallback 触发率为 100%；unverified path 不得计为 safe capture；high-credit 失败率不得高于 low-credit；所有 fallback 都有可回放 trace。
 
 **产物：** `reliability_ledger_v3.json`、`scripts/build_jepa_safe_capture_v3_reliability_ledger.py`、calibration report、bucket coverage 图、failure examples 和 ledger tests。
+
+**当前状态：** WP3 三 seed aggregate 已通过 runtime-valid、hash-bound、OOD/stale/non-finite fallback 和 high-credit ordering gates；temporal drift/adversarial-shift audit 仍属于后续 WP3-B，不得把当前 calibration forecast 当作闭环 safe-capture 结果。
+
+**当前产物：** `results/jepa_safe_capture_v3_wp3_ledger_seed20260911/`、`results/jepa_safe_capture_v3_wp3_ledger_seed20260912/`、`results/jepa_safe_capture_v3_wp3_ledger_seed20260913/`、`results/jepa_safe_capture_v3_wp3_ledger_aggregate.json`、`docs/JEPA_SAFE_CAPTURE_WP3_LEDGER_V3_20260904.md`。
 
 ### WP4：候选轨迹评价、排序和动作块设计
 

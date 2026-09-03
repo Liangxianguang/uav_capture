@@ -258,13 +258,16 @@ class SafeCaptureReliabilityLedger:
     """
 
     LEDGER_TYPE = "jepa_safe_capture_v2_checkpoint_bound_reliability"
+    LEDGER_TYPE_V3 = "jepa_safe_capture_v3_checkpoint_bound_reliability"
+    SUPPORTED_LEDGER_TYPES = {LEDGER_TYPE, LEDGER_TYPE_V3}
+    SUPPORTED_LEDGER_VERSIONS = {2, 3}
     REQUIRED_STATES = {"trusted", "fallback_nominal", "safe_hold"}
 
     def __init__(self, payload: Mapping[str, Any]) -> None:
-        if payload.get("ledger_type") != self.LEDGER_TYPE:
-            raise ValueError("Unsupported safe-capture v2 reliability ledger payload.")
-        if payload.get("ledger_version") != 2:
-            raise ValueError("Safe-capture v2 ledger_version must be 2.")
+        if payload.get("ledger_type") not in self.SUPPORTED_LEDGER_TYPES:
+            raise ValueError("Unsupported safe-capture v2/v3 reliability ledger payload.")
+        if payload.get("ledger_version") not in self.SUPPORTED_LEDGER_VERSIONS:
+            raise ValueError("Safe-capture ledger_version must be 2 or 3.")
         if payload.get("not_a_locked_test") is not True:
             raise ValueError("Safe-capture v2 ledger must be development-only.")
         if payload.get("immutable_after_calibration") is not True:
@@ -307,7 +310,7 @@ class SafeCaptureReliabilityLedger:
         if missing:
             raise ValueError(f"Safe-capture ledger context is missing fields: {missing}")
         values = dict(context)
-        for name in ("observation_age_steps", "minimum_clearance_m", "pairwise_ttc_s", "uncertainty", "cbf_risk", "candidate_separation_m"):
+        for name in ("visibility_condition", "observation_age_steps", "minimum_clearance_m", "pairwise_ttc_s", "uncertainty", "cbf_risk", "candidate_separation_m"):
             value = float(values[name])
             if value != value or value in (float("inf"), float("-inf")):
                 raise ValueError(f"Safe-capture ledger context field {name} is non-finite.")
@@ -352,7 +355,14 @@ class SafeCaptureReliabilityLedger:
         return full, coarse, make_safe_capture_global_key(horizon_index)
 
     def decision(self, horizon_index: int, context: Mapping[str, Any]) -> SafeCaptureReliabilityDecision:
-        values = self._context_values(context)
+        try:
+            values = self._context_values(context)
+        except ValueError as error:
+            if "non-finite" in str(error):
+                return SafeCaptureReliabilityDecision(
+                    "safe_hold", 0.0, 0, "invalid|non_finite_context", "non_finite_context", False, False
+                )
+            raise
         full_key, coarse_key, global_key = self._keys(horizon_index, values)
         if bool(values.get("ood", False)):
             return SafeCaptureReliabilityDecision("safe_hold", 0.0, 0, full_key, "ood", False, False)

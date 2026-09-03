@@ -107,6 +107,18 @@ def test_v2_ledger_safe_holds_ood_and_hard_contexts() -> None:
     assert ledger.decision(3, uncertain).fallback_reason == "uncertainty_high"
 
 
+def test_v3_ledger_accepts_checkpoint_bound_payload_and_nonfinite_safe_hold() -> None:
+    payload = _payload()
+    payload["ledger_type"] = SafeCaptureReliabilityLedger.LEDGER_TYPE_V3
+    payload["ledger_version"] = 3
+    ledger = SafeCaptureReliabilityLedger(payload)
+    nonfinite = _context()
+    nonfinite["uncertainty"] = float("nan")
+    decision = ledger.decision(3, nonfinite)
+    assert decision.state == "safe_hold"
+    assert decision.fallback_reason == "non_finite_context"
+
+
 def test_v2_ledger_rejects_missing_context() -> None:
     ledger = SafeCaptureReliabilityLedger(_payload())
     with pytest.raises(ValueError, match="missing fields"):
