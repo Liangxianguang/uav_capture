@@ -1,0 +1,206 @@
+protocol_name: jepa_safe_capture_v2_p1_collection
+protocol_version: 1
+phase: development_only
+locked_test_opened: false
+not_a_replacement_for_existing_locked_benchmarks: true
+
+# The five blocks are deliberately disjoint.  The locked block is declared so
+# the seed namespace is auditable, but this collection script refuses to read it.
+seed_blocks:
+  train: 26100101
+  # Each block is separated by more than the maximum scenario offset
+  # (7 * 10,000), so the derived episode namespaces cannot overlap.
+  validation: 26200101
+  calibration: 26300101
+  development: 26400101
+  locked: 26500101
+
+world:
+  half_extent_xy: 10.0
+  height: 10.0
+  minimum_altitude: 0.5
+  dt: 0.1
+  max_steps: 250
+agents:
+  defenders: 4
+  defender_max_speed: 5.0
+  defender_max_acceleration: 6.0
+  target_max_speed: 3.6
+  target_max_acceleration: 4.0
+  drone_radius: 0.25
+dynamics:
+  backend: kinematic
+task:
+  slot_tracking_gain: 2.5
+  cbf_gamma: 0.25
+  policy_obstacle_geometry: shape_extents_and_type
+  pursuit:
+    capture_radius: 0.80
+    spawn_distance: 4.80
+    detection_range: 14.0
+    visibility_cosine_threshold: -1.0
+    detection_dropout_probability: 0.15
+    observation_noise_std: 0.03
+    message_delay_steps: 2
+    message_dropout_probability: 0.05
+    maximum_message_age_steps: 60
+    belief_update_mode: time_aligned
+    belief_stale_velocity_decay: 0.80
+    belief_velocity_decay_start_age_steps: 3
+    include_prediction_features: false
+    include_uncertainty_features: true
+    prediction_horizon_seconds: 0.55
+    prediction_uncertainty_base: 0.08
+    target_defender_avoidance_distance: 2.20
+    target_defender_avoidance_gain: 4.00
+    target_obstacle_avoidance_distance: 2.20
+    target_obstacle_avoidance_gain: 3.50
+    target_boundary_margin: 1.20
+    target_boundary_gain: 7.00
+    target_heading_persistence: 0.55
+    target_flee_gain: 1.00
+    target_vertical_gain: 0.20
+    controller_obstacle_avoidance_distance: 2.00
+    controller_obstacle_avoidance_gain: 2.80
+    controller_inter_agent_distance: 1.50
+    controller_inter_agent_gain: 2.50
+    safety_margin: 0.35
+    capture_bonus: 25.00
+    collision_penalty: 15.00
+    progress_reward_weight: 3.00
+    distance_reward_weight: 0.12
+    coverage_reward_weight: 0.15
+    max_observation_obstacles: 3
+    obstacle_profile: mixed
+
+# Eight scenario families cover nominal operation and the failure contexts
+# that the ledger must learn to distrust.
+experiments:
+  - name: nominal_flee_mixed
+    episodes: 8
+    difficulty: nominal
+    obstacle_count: 3
+    target_speed_scale: 0.45
+    pursuit_overrides:
+      target_motion_mode: flee_persistence
+      detection_dropout_probability: 0.15
+      observation_noise_std: 0.03
+      message_delay_steps: 2
+      message_dropout_probability: 0.05
+  - name: delayed_noisy_flee
+    episodes: 8
+    difficulty: delayed_noisy
+    obstacle_count: 5
+    target_speed_scale: 0.55
+    pursuit_overrides:
+      target_motion_mode: flee_persistence
+      detection_dropout_probability: 0.30
+      observation_noise_std: 0.08
+      message_delay_steps: 5
+      message_dropout_probability: 0.15
+      observation_delay_steps: 2
+  - name: s_curve_high_obstacle
+    episodes: 8
+    difficulty: s_curve_high_obstacle
+    obstacle_count: 5
+    target_speed_scale: 0.55
+    pursuit_overrides:
+      target_motion_mode: s_curve
+      detection_dropout_probability: 0.25
+      observation_noise_std: 0.06
+      message_delay_steps: 4
+      message_dropout_probability: 0.10
+  - name: high_crowding
+    episodes: 8
+    difficulty: high_crowding
+    obstacle_count: 4
+    target_speed_scale: 0.55
+    pursuit_overrides:
+      target_motion_mode: flee_persistence
+      controller_inter_agent_distance: 2.00
+      controller_inter_agent_gain: 3.00
+      detection_dropout_probability: 0.20
+      observation_noise_std: 0.05
+      message_delay_steps: 3
+      message_dropout_probability: 0.10
+  - name: low_visibility_burst
+    episodes: 8
+    difficulty: low_visibility
+    obstacle_count: 4
+    target_speed_scale: 0.55
+    pursuit_overrides:
+      target_motion_mode: burst
+      detection_dropout_probability: 0.45
+      detection_loss_burst_probability: 0.25
+      detection_loss_burst_duration_steps: 8
+      observation_noise_std: 0.08
+      message_delay_steps: 5
+      message_dropout_probability: 0.18
+  - name: target_burst_shift
+    episodes: 8
+    difficulty: target_sudden_change
+    obstacle_count: 4
+    target_speed_scale: 0.60
+    pursuit_overrides:
+      target_motion_mode: burst
+      target_burst_period_steps: 25
+      target_burst_duration_steps: 10
+      target_burst_speed_scale: 1.35
+      detection_dropout_probability: 0.25
+      observation_noise_std: 0.05
+      message_delay_steps: 3
+      message_dropout_probability: 0.10
+  - name: random_turn_high_speed
+    episodes: 8
+    difficulty: adversarial_turn
+    obstacle_count: 5
+    target_speed_scale: 0.60
+    pursuit_overrides:
+      target_motion_mode: random_turn
+      target_turn_interval_steps: 5
+      detection_dropout_probability: 0.28
+      observation_noise_std: 0.06
+      message_delay_steps: 4
+      message_dropout_probability: 0.12
+  - name: narrow_channel_low_clearance
+    episodes: 8
+    difficulty: narrow_clearance
+    obstacle_count: 5
+    target_speed_scale: 0.50
+    pursuit_overrides:
+      target_motion_mode: s_curve
+      obstacle_profile: narrow_channels
+      detection_dropout_probability: 0.25
+      observation_noise_std: 0.05
+      message_delay_steps: 4
+      message_dropout_probability: 0.12
+
+archive_contract:
+  dataset_version: jepa_safe_capture_v2_p1
+  allowed_splits: [train, validation, calibration]
+  history_length: 8
+  horizon_steps: [1, 2, 3, 5]
+  candidate_count: 5
+  perturbation_mps: 0.10
+  sample_stride: 4
+  chunk_length_steps: 3
+  ttc_clip_seconds: 10.0
+  cbf_max_correction_norm_mps: 5.0
+  target_truth_used_only_for_offline_labels: true
+  split_overlap_forbidden: true
+  locked_test_collection_forbidden: true
+  candidate_semantics: constant_desired_action_chunk_execute_first_step_then_replan
+  label_units:
+    labels_relative: normalized_by_world_half_extent
+    labels_target_velocity: normalized_by_target_max_speed
+    labels_target_acceleration: normalized_by_target_max_acceleration
+    labels_obstacle_clearance: normalized_by_world_half_extent
+    labels_inter_agent_clearance: normalized_by_world_half_extent
+    labels_pairwise_ttc: seconds_clipped_to_ttc_clip_seconds
+    labels_target_visible: probability_indicator
+    labels_observation_age: integer_steps
+    labels_cbf_correction: meters_per_second
+    labels_cbf_intervention: probability_indicator
+    labels_cbf_qp_feasible: probability_indicator
+    labels_collision: probability_indicator
+    labels_boundary: probability_indicator

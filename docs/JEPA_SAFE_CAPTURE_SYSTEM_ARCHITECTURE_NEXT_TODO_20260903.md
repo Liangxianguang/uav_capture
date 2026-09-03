@@ -9,6 +9,11 @@
 **GPU 环境：** NVIDIA RTX 5050，Conda `uav-encirclement-gpu`
 **核心目标：** 把世界模型作为候选轨迹评价器，而不是控制动作生成器；在不牺牲集群安全的前提下，提高 safe capture 的可靠性。
 
+**最新进度（2026-09-03）：** P0 安全合同已冻结；P1 困难场景、独立
+calibration archive、manifest、SHA-256 和 TensorBoard 审计已完成。正式 P1
+记录见 [`JEPA_SAFE_CAPTURE_P1_ARCHIVE_AUDIT_20260903.md`](JEPA_SAFE_CAPTURE_P1_ARCHIVE_AUDIT_20260903.md)。
+下一执行阶段为 P2 多任务 JEPA heads；locked test 仍关闭。
+
 ---
 
 ## 1. 研究目标和当前证据
@@ -202,13 +207,13 @@ safe-hold / separation-preserving action
 
 ### TODO
 
-- [ ] 从现有 development 运行中只提取失败上下文的**状态摘要**，不把同一 episode 直接回灌为训练样本。
-- [ ] 新采集 delayed/noisy、flee-persistence、s-curve、高 obstacle count、高拥挤度和低 visibility 场景。
-- [ ] 为每个 state-agent-candidate 生成多个 horizon 的 settled rollout 标签。
-- [ ] 记录 target displacement、速度/加速度、obstacle/inter-agent clearance 下分位数、visibility、CBF 修正和 QP 可行性。
-- [ ] 增加 action perturbation 方向对称样本，检验 action-following antisymmetry。
-- [ ] 进行 episode-level split；同一 episode、layout seed 和近邻场景不得跨 split。
-- [ ] 生成独立 calibration split，禁止参与 JEPA 参数训练。
+- [x] 从现有 development 运行中只提取失败上下文的**状态摘要**，不把同一 episode 直接回灌为训练样本。
+- [x] 新采集 delayed/noisy、flee-persistence、s-curve、高 obstacle count、高拥挤度和低 visibility 场景。
+- [x] 为每个 state-agent-candidate 生成多个 horizon 的 settled rollout 标签。
+- [x] 记录 target displacement、速度/加速度、obstacle/inter-agent clearance 下分位数、visibility、CBF 修正和 QP 可行性。
+- [x] 增加 action perturbation 方向对称样本，检验 action-following antisymmetry。
+- [x] 进行 episode-level split；同一 episode、layout seed 和近邻场景不得跨 split。
+- [x] 生成独立 calibration split，禁止参与 JEPA 参数训练。
 
 ### 数据合同
 
@@ -221,16 +226,16 @@ development/locked episode -> never used by train or ledger fitting
 
 ### 准入标准
 
-- 所有 arrays finite；每组候选数量一致；
-- train/validation/calibration seed 不重叠；
-- 场景、环境、actor、采集脚本和 protocol 都有 SHA-256；
-- 通过 groupby/lexsort 审计，不依赖 NPZ 原始行连续性；
-- hard-case archive 有独立 manifest，不覆盖历史 v2 archive。
+- [x] 所有 arrays finite；每组候选数量一致；
+- [x] train/validation/calibration seed 不重叠；
+- [x] 场景、环境、actor、采集脚本和 protocol 都有 SHA-256；
+- [x] 通过 groupby/lexsort 审计，不依赖 NPZ 原始行连续性；
+- [x] hard-case archive 有独立 manifest，不覆盖历史 v2 archive。
 
 ### TensorBoard 与提交
 
-- 采集阶段记录 `Data/*` scalar、场景计数、标签覆盖率和 hash text；
-- 写入 `results/jepa_safe_capture_v2_data_audit.json`；
+- [x] 采集阶段记录 `Data/*` scalar、场景计数、标签覆盖率和 hash text；
+- [x] 写入 P1 archive audit JSON 和 `docs/JEPA_SAFE_CAPTURE_P1_ARCHIVE_AUDIT_20260903.md`；
 - P1 独立 `git commit`，archive/NPZ 默认不提交 Git。
 
 ---
@@ -490,8 +495,8 @@ docs(jepa): audit sil-hil locked readiness
 
 ### 本周第一批
 
-- [ ] 完成 P0 protocol 和 CBF safety contract；
-- [ ] 建立 calibration split 与困难场景 manifest；
+- [x] 完成 P0 protocol 和 CBF safety contract；
+- [x] 建立 calibration split 与困难场景 manifest；
 - [ ] 明确 pairwise separation、obstacle clearance 和 safe-hold 的数值阈值；
 - [ ] 在现有 runtime 加入高信用 ranking error、visibility、clearance 和 CBF trace；
 - [ ] 为新增日志写测试，不运行 locked test。
