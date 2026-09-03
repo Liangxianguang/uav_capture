@@ -1,0 +1,58 @@
+protocol_name: jepa_safe_capture_system_v3_next_phase_training
+protocol: configs/jepa_safe_capture_v3_next_phase.yaml
+model_type: interaction_aware_action_conditioned_jepa_safe_capture_v2
+training_variant: hard_context_weighted_v1
+phase: development_only
+locked_test_opened: false
+
+data:
+  train_dataset: results/jepa_safe_capture_v2_p1_train_rerun/counterfactual_safe_capture_v2.npz
+  train_metadata: results/jepa_safe_capture_v2_p1_train_rerun/metadata.json
+  validation_dataset: results/jepa_safe_capture_v2_p1_validation_rerun/counterfactual_safe_capture_v2.npz
+  validation_metadata: results/jepa_safe_capture_v2_p1_validation_rerun/metadata.json
+  calibration_metadata: results/jepa_safe_capture_v2_p1_calibration/metadata.json
+
+seeds: [20260911, 20260912, 20260913]
+model:
+  input_dim: 63
+  action_dim: 3
+  hidden_dim: 128
+  latent_dim: 64
+  num_layers: 1
+  interaction_group_slices: [[0, 15], [15, 33], [33, 48], [48, 63]]
+
+training:
+  epochs: 40
+  batch_size: 512
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  quantile: 0.10
+  hard_weight_cap: 8.0
+  hard_weight_terms:
+    occlusion: 1.5
+    stale_observation: 1.5
+    obstacle_clearance: 2.0
+    inter_agent_clearance: 2.0
+    pairwise_ttc: 2.0
+    cbf_intervention: 1.0
+  task_loss_weights:
+    latent: 1.00
+    clearance: 0.50
+    visibility: 0.25
+    cbf_correction: 0.25
+    cbf_intervention: 0.25
+    velocity: 0.50
+    acceleration: 0.35
+    quantile: 0.50
+    ttc: 0.25
+    observation_age: 0.20
+    qp_feasibility: 0.35
+    action_consistency: 0.25
+  histogram_interval: 5
+
+tensorboard:
+  root: results/jepa_safe_capture_v3_tensorboard
+  required: true
+  log_config_text: true
+  log_provenance_text: true
+  log_histograms: true
