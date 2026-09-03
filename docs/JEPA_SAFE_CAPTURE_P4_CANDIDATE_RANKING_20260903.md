@@ -90,7 +90,7 @@ Aggregate audit observations:
 | safe-hold fraction | `0.0000` |
 | non-nominal selection fraction | `0.6667` |
 | mean action-following absolute prediction delta | `0.001193` normalized units |
-| mean rank latency | `3.325 ms` on CPU |
+| mean rank latency | `3.591 ms` on CPU |
 
 The positive action-following delta shows that the checkpoint responds to
 different candidate actions. The non-nominal selections show that the scorer
@@ -107,7 +107,7 @@ feasibility, or safe-capture improvement. Those claims require P5 and P6.
 Audit logdir:
 
 ```text
-results/jepa_safe_capture_v2_tensorboard/p4_candidate_audit_seed20260911_final
+results/jepa_safe_capture_v2_tensorboard/p4_candidate_audit_seed20260911_committed
 ```
 
 The log contains 14 scalar tags and three required text tags:
@@ -119,8 +119,10 @@ The log contains 14 scalar tags and three required text tags:
 The JSON audit summary is:
 
 ```text
-results/jepa_safe_capture_v2_p4_candidate_audit_seed20260911_final.json
-SHA-256: 46e5cbe017b05f3271762d0db62ed624f63d0e693b624b97ae384e9b3c96d670
+results/jepa_safe_capture_v2_p4_candidate_audit_seed20260911_committed.json
+SHA-256: 4460cb563677d5df9c60af991980f13a00fc32be4fa02edef3d89cae65d379d7
+
+Committed audit provenance revision: `7e887b8defe357784b10d7d76dfcff65bcb1dfb8`.
 ```
 
 ## 6. P4 decision and next gate
