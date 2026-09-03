@@ -187,7 +187,7 @@ docs/JEPA_SAFE_CAPTURE_P6_THREE_SEED_PAIRED_DEVELOPMENT_20260903.md
 
 - training seeds：20260911、20260912、20260913；
 - 每个变体每个 seed 先做 20 个 paired smoke episodes；
-- smoke 通过后每个变体每个 seed 做 60 个 paired episodes；M3 主结果为 3 x 60 = 180 episodes；
+- smoke 通过后每个变体每个 seed 做 validation split 的全部 40 个 paired episodes；冻结协议的 validation 只有 40 集，100 集 locked_test 不可打开；
 - 所有变体复用同一组 episode specifications，不能为某个变体另抽更容易的场景；
 - 覆盖 nominal flee、S-curve/突变转向、延迟/噪声观测、3--5 个混合障碍、narrow channel、拥挤队形、左右起始侧和不同 communication delay。
 
@@ -331,7 +331,7 @@ results/jepa_safe_capture_v2_p7_readiness_smoke_20260903/paired_comparison.json
 results/jepa_safe_capture_v2_p7_readiness_smoke_20260903/tensorboard/
 ~~~
 
-该聚合已通过 canonical scene pairing、JSON/CSV/TensorBoard provenance 校验；60-episode full development 仍未开始。
+该聚合已通过 canonical scene pairing、JSON/CSV/TensorBoard provenance 校验；40-episode full development 仍未开始。
 
 ### 7.2 结果分类
 
@@ -375,7 +375,7 @@ python scripts/evaluate_jepa_safe_capture_v2_paired.py --variant m0 --training-s
 ### 8.3 Smoke 通过后的全量
 
 ~~~powershell
-python scripts/evaluate_jepa_safe_capture_v2_paired.py --variant m3 --training-seed 20260911 --episodes 60 --split development --output-dir results/jepa_safe_capture_v2_p6_paired_seed20260911_m3 --tensorboard-dir results/jepa_safe_capture_v2_p6_tensorboard/seed20260911_m3 --device cuda --development-only
+python scripts/evaluate_jepa_safe_capture_v2_paired.py --variant m3 --training-seed 20260911 --episodes 40 --split validation --output-dir results/jepa_safe_capture_v2_p6_paired_seed20260911_m3 --tensorboard-dir results/jepa_safe_capture_v2_p6_tensorboard/seed20260911_m3 --device cuda --development-only
 ~~~
 
 依次完成 M0--M3，再运行 A1--A3；每次都用新目录，不修改任何已存在结果。

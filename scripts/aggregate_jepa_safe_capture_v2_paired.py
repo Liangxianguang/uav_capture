@@ -484,7 +484,9 @@ def main() -> None:
     args = parse_args()
     if not args.development_only:
         raise ValueError("P7 aggregate requires --development-only.")
-    expected_episodes = 20 if args.stage == "smoke" else 60
+    # The frozen development validation split contains 40 episodes.  The
+    # 100-episode locked-test split is intentionally unreachable here.
+    expected_episodes = 20 if args.stage == "smoke" else 40
     output_dir = args.output_dir.resolve()
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {output_dir}")
