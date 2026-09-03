@@ -54,6 +54,7 @@ The V4 locked-test report is the current formal benchmark result:
 - [最新围捕拦截模型候选与 JEPA 研究备忘录](docs/LATEST_MODEL_CANDIDATES_FOR_PURSUIT_INTERCEPTION_20260902.md)
 - [JEPA safe-capture v2 当前执行计划](docs/JEPA_SAFE_CAPTURE_V2_NEXT_EXECUTION_PLAN_20260903.md)
 - [JEPA + Reliability Ledger + CBF 系统总 TodoList](docs/JEPA_SAFE_CAPTURE_SYSTEM_MASTER_TODO_20260903.md)
+- [JEPA safe-capture 下一步执行 TODO 计划](docs/JEPA_SAFE_CAPTURE_NEXT_STEP_TODOLIST_20260903.md)
 - [JEPA safe-capture v2 P5 联合 CBF-QP 审计](docs/JEPA_SAFE_CAPTURE_P5_CBF_QP_AUDIT_20260903.md)
 
 The V5 `95.0%` number is included to make the best current observed run
