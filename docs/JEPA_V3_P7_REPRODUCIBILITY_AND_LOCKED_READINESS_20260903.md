@@ -9,6 +9,10 @@
 
 P5-P7 execution is reproducible as a development-only evidence chain, but it does not meet the threshold for a new locked evaluation. The reason is not capture time: safe capture is the primary metric. The reason is that three trained JEPA seeds produce a zero mean paired safe-capture delta against the frozen V5 + CBF baseline, with six improvements and six regressions. The current configuration preserves zero collision/boundary events but has not shown a reliable safe-capture gain.
 
+## Final Verification Snapshot
+
+The post-run audit was rerun after the P6 aggregation commit. All three TensorBoard directories report `40` train-loss epochs, `149` histogram tags, no missing required scalar tags, no missing required text artifacts, and `complete=true`. The complete JEPA regression set reports `14 passed`. The repository remote resolves `origin/main` to commit `9b077045ee3459f4569081a844e4a21bcce3a761`; the P7-only follow-up commit records this final audit without changing the measured outputs.
+
 ## Required Checks
 
 | Requirement | Result | Evidence |
