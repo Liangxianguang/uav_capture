@@ -235,6 +235,84 @@ class InteractionAwareActionConditionedJEPAPredictor(ActionConditionedJEPAPredic
         return base + torch.sum(gate * group_features, dim=-2)
 
 
+class InteractionAwareActionConditionedMultitaskJEPAPredictor(InteractionAwareActionConditionedJEPAPredictor):
+    """Interaction-aware JEPA with auditable counterfactual auxiliary heads.
+
+    The inherited :meth:`forward` deliberately retains the target-prediction
+    tuple used by the frozen V5 reranker.  Auxiliary predictions are exposed
+    through :meth:`forward_multitask`, so new clearance/visibility/risk
+    training cannot silently alter the actor observation contract.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        horizon_count: int,
+        action_dim: int = 3,
+        hidden_dim: int = 128,
+        latent_dim: int = 64,
+        num_layers: int = 1,
+        interaction_group_slices: tuple[tuple[int, int], ...] | list[list[int]] | None = None,
+    ) -> None:
+        super().__init__(
+            input_dim=input_dim,
+            horizon_count=horizon_count,
+            action_dim=action_dim,
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            num_layers=num_layers,
+            interaction_group_slices=interaction_group_slices,
+        )
+        self.clearance_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 2),
+        )
+        self.visibility_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.cbf_correction_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.cbf_intervention_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+
+    def auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Decode per-horizon auxiliary quantities from predicted latents."""
+        if latent.ndim != 3 or latent.shape[1:] != (self.horizon_count, self.latent_dim):
+            raise ValueError(
+                "Expected predicted latent shaped "
+                f"[batch, {self.horizon_count}, {self.latent_dim}], got {tuple(latent.shape)}."
+            )
+        clearance = self.clearance_decoder(latent)
+        return {
+            "obstacle_clearance": clearance[..., 0],
+            "inter_agent_clearance": clearance[..., 1],
+            "target_visibility_logit": self.visibility_decoder(latent).squeeze(-1),
+            "cbf_correction": torch.nn.functional.softplus(self.cbf_correction_decoder(latent).squeeze(-1)),
+            "cbf_intervention_logit": self.cbf_intervention_decoder(latent).squeeze(-1),
+        }
+
+    def forward_multitask(
+        self,
+        inputs: torch.Tensor,
+        actions: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        mean, log_variance, latent = self.forward(inputs, actions)
+        return mean, log_variance, latent, self.auxiliary_predictions(latent)
+
+
 def build_action_conditioned_predictor(
     model_type: str,
     model_config: dict[str, Any],
@@ -245,6 +323,8 @@ def build_action_conditioned_predictor(
         predictor_class = ActionConditionedJEPAPredictor
     elif normalized == "interaction_aware_action_conditioned_jepa":
         predictor_class = InteractionAwareActionConditionedJEPAPredictor
+    elif normalized == "interaction_aware_action_conditioned_jepa_multitask":
+        predictor_class = InteractionAwareActionConditionedMultitaskJEPAPredictor
     else:
         raise ValueError(f"Unsupported action-conditioned predictor model_type: {normalized!r}.")
     return predictor_class(**model_config)

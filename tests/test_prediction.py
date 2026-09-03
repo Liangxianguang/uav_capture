@@ -10,6 +10,7 @@ from encirclement3d.prediction import (
     ActionConditionedCandidateReranker,
     ActionConditionedJEPAPredictor,
     InteractionAwareActionConditionedJEPAPredictor,
+    InteractionAwareActionConditionedMultitaskJEPAPredictor,
     HistoryTargetPredictor,
     LearnedPredictionObserver,
     deterministic_mse,
@@ -180,3 +181,35 @@ def test_interaction_aware_jepa_uses_structured_groups_and_factory() -> None:
     assert log_variance.shape == mean.shape
     assert latent.shape == (3, 4, 12)
     assert torch.isfinite(mean).all()
+
+
+def test_interaction_aware_multitask_jepa_keeps_target_contract_and_decodes_auxiliaries() -> None:
+    from encirclement3d.prediction import build_action_conditioned_predictor
+
+    config = {
+        "input_dim": 63,
+        "horizon_count": 4,
+        "action_dim": 3,
+        "hidden_dim": 16,
+        "latent_dim": 12,
+        "num_layers": 1,
+        "interaction_group_slices": [[0, 15], [15, 33], [33, 48], [48, 63]],
+    }
+    model = build_action_conditioned_predictor("interaction_aware_action_conditioned_jepa_multitask", config)
+    assert isinstance(model, InteractionAwareActionConditionedMultitaskJEPAPredictor)
+    inputs, actions = torch.randn(3, 8, 63), torch.randn(3, 8, 3)
+    mean, log_variance, latent = model(inputs, actions)
+    multitask = model.forward_multitask(inputs, actions)
+    assert mean.shape == (3, 4, 3)
+    assert log_variance.shape == mean.shape
+    assert latent.shape == (3, 4, 12)
+    auxiliaries = multitask[-1]
+    assert set(auxiliaries) == {
+        "obstacle_clearance",
+        "inter_agent_clearance",
+        "target_visibility_logit",
+        "cbf_correction",
+        "cbf_intervention_logit",
+    }
+    assert all(value.shape == (3, 4) and torch.isfinite(value).all() for value in auxiliaries.values())
+    assert torch.all(auxiliaries["cbf_correction"] >= 0.0)
