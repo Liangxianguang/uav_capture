@@ -69,6 +69,11 @@ seed `20260912` 的 episode `19` 同时出现 `collision=True`、`boundary_viola
 
 在语义审计完成前，不得重跑全量并据此比较模型。
 
+**WP-A 状态（2026-09-04）：已完成语义审计和代码修正。** 原 episode 19 的
+越界事件全部属于 target，defender 越界为 0；新审计证据见
+`docs/JEPA_SAFE_CAPTURE_WP6_SMOKE_SAFETY_AUDIT_20260904.md`。修正后的
+新 smoke 仍需重新运行，原始 smoke 目录和历史结果保持不变。
+
 ---
 
 ## 3. 不可变安全合同
@@ -110,17 +115,17 @@ seed `20260912` 的 episode `19` 同时出现 `collision=True`、`boundary_viola
 
 ## 4. 分阶段 TODO
 
-## WP-A：边界语义和 smoke 失败审计（立即执行）
+## WP-A：边界语义和 smoke 失败审计（已完成，等待新 smoke 准入）
 
 **目标：** 区分 target 越界、defender 越界、障碍碰撞和 CBF 失效，排除统计标签错误。
 
-- [ ] 对 seed `20260912` episode `19` 做 deterministic replay，定位首次越界 step、实体类型和触发 constraint。
-- [ ] 检查 `pursuit_env.py` 的 target `_enforce_world_bounds` 与 defender `_enforce_world_bounds` 调用路径。
-- [ ] 增加独立计数器：`target_world_violation_steps`、`defender_world_violation_steps`、`target_boundary_violation`、`defender_boundary_violation`。
-- [ ] 保留历史字段 `world_violation_steps` 的兼容输出，但在新协议中明确其组成和安全结算来源。
-- [ ] 将 safe-capture 的 boundary gate 绑定到 defender 越界；target 越界作为独立 target termination/diagnostic，除非协议明确规定其属于任务安全失败。
-- [ ] 增加 target-only、defender-only、同时越界、后续捕获四类回归测试。
-- [ ] 用独立审计脚本重算三份 smoke 的 collision/boundary/safe-capture，不覆盖原始结果。
+- [x] 对 seed `20260912` episode `19` 做 deterministic replay，定位首次越界 step、实体类型和触发 constraint。
+- [x] 检查 `pursuit_env.py` 的 target `_enforce_world_bounds` 与 defender `_enforce_world_bounds` 调用路径。
+- [x] 增加独立计数器：`target_world_violation_steps`、`defender_world_violation_steps`、`target_boundary_violation`、`defender_boundary_violation`。
+- [x] 保留历史字段 `world_violation_steps` 的兼容输出，但在新协议中明确其组成和安全结算来源。
+- [x] 将 safe-capture 的 boundary gate 绑定到 defender 越界；target 越界作为独立 target termination/diagnostic。
+- [x] 增加 target-only、defender-only、target-boundary-after-capture 回归测试。
+- [x] 用独立审计脚本重算 episode 19，未覆盖原始结果。
 
 **验收：** episode 19 的主因可唯一解释；新旧字段映射有测试；报告明确说明历史结果是否受标签语义影响；完整测试不回归。
 

@@ -54,6 +54,7 @@ The V4 locked-test report is the current formal benchmark result:
 - [JEPA safe-capture 当前执行版下一步 TODO 与验收计划](docs/JEPA_SAFE_CAPTURE_NEXT_TODO_PLAN_20260904.md)
 - [JEPA safe-capture WP0 baseline freeze report](docs/JEPA_SAFE_CAPTURE_WP0_BASELINE_FREEZE_20260904.md)
 - [JEPA safe-capture WP1 failure index and causal replay audit](docs/JEPA_SAFE_CAPTURE_WP1_FAILURE_REPLAY_20260904.md)
+- [JEPA safe-capture WP6 smoke boundary semantics audit](docs/JEPA_SAFE_CAPTURE_WP6_SMOKE_SAFETY_AUDIT_20260904.md)
 - [JEPA safe-capture WP2 hard-context weighted training report](docs/JEPA_SAFE_CAPTURE_WP2_HARD_CONTEXT_TRAINING_20260904.md)
 - [JEPA safe-capture WP2 held-out prediction aggregate](docs/JEPA_SAFE_CAPTURE_WP2_HARD_CONTEXT_PREDICTION_20260904.md)
 - [JEPA safe-capture WP3 v3 reliability-ledger aggregate](docs/JEPA_SAFE_CAPTURE_WP3_LEDGER_V3_20260904.md)

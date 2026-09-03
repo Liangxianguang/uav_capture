@@ -586,6 +586,10 @@ def _run_episode(
             "capturing_defender_id": None,
             "collision": True,
             "world_violation_steps": int(env.world_violation_steps),
+            "target_world_violation_steps": int(env.target_world_violation_steps),
+            "defender_world_violation_steps": int(env.defender_world_violation_steps),
+            "target_boundary_violation": bool(env.target_boundary_violation),
+            "defender_boundary_violation": bool(env.defender_boundary_violation),
             "min_clearance_so_far": float(env.min_clearance),
             "termination_reason": forced_termination_reason or "empty_rollout",
             "target_visible_fraction": 0.0,
@@ -598,7 +602,12 @@ def _run_episode(
     target_clearance_over_run = target_min_clearance(env)
     target_collision = bool(target_collision or target_clearance_over_run < 0.0)
     collision = bool(final_info.get("collision", False))
-    boundary_violation = bool(env.world_violation_steps > 0)
+    # ``world_violation_steps`` also includes target boundary crossings for
+    # historical compatibility.  The safe-capture contract constrains UAVs,
+    # so only defender boundary crossings are a safety failure; target
+    # crossings remain an explicit diagnostic field.
+    boundary_violation = bool(env.defender_boundary_violation)
+    target_boundary_violation = bool(env.target_boundary_violation)
     pairwise_violation = bool(minimum_pairwise < -1e-9)
     if pairwise_violation or minimum_obstacle < -1e-9:
         collision = True
@@ -623,6 +632,10 @@ def _run_episode(
         "target_obstacle_collision": target_collision,
         "boundary_violation": boundary_violation,
         "world_violation_steps": int(env.world_violation_steps),
+        "target_world_violation_steps": int(env.target_world_violation_steps),
+        "defender_world_violation_steps": int(env.defender_world_violation_steps),
+        "target_boundary_violation": target_boundary_violation,
+        "defender_boundary_violation": boundary_violation,
         "pairwise_violation": pairwise_violation,
         "steps": int(env.step_count),
         "termination_reason": str(final_info.get("termination_reason", "running")),
@@ -722,6 +735,10 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "collision_rate": rate("collision"),
         "boundary_violation_count": int(sum(bool(row.get("boundary_violation", False)) for row in rows)),
         "boundary_violation_rate": rate("boundary_violation"),
+        "target_boundary_violation_count": int(
+            sum(bool(row.get("target_boundary_violation", False)) for row in rows)
+        ),
+        "target_boundary_violation_rate": rate("target_boundary_violation"),
         "pairwise_violation_count": int(sum(bool(row.get("pairwise_violation", False)) for row in rows)),
         "pairwise_violation_rate": rate("pairwise_violation"),
         "cbf_infeasible_steps": count("cbf_infeasible_steps"),
@@ -779,6 +796,11 @@ def _write_tensorboard(
             writer.add_scalar("Episode/capture_event", float(bool(row["capture_event"])), index)
             writer.add_scalar("Safety/collision", float(bool(row["collision"])), index)
             writer.add_scalar("Safety/boundary_violation", float(bool(row["boundary_violation"])), index)
+            writer.add_scalar(
+                "Diagnostic/target_boundary_violation",
+                float(bool(row.get("target_boundary_violation", False))),
+                index,
+            )
             writer.add_scalar("Safety/pairwise_violation", float(bool(row["pairwise_violation"])), index)
             writer.add_scalar("Safety/min_obstacle_clearance_m", float(row["minimum_obstacle_clearance_m"]), index)
             writer.add_scalar("Safety/min_pairwise_clearance_m", float(row["minimum_pairwise_clearance_m"]), index)
@@ -795,6 +817,11 @@ def _write_tensorboard(
         writer.add_scalar("Aggregate/safe_capture_rate", float(summary["safe_capture_rate"]), 0)
         writer.add_scalar("Aggregate/collision_rate", float(summary["collision_rate"]), 0)
         writer.add_scalar("Aggregate/boundary_violation_rate", float(summary["boundary_violation_rate"]), 0)
+        writer.add_scalar(
+            "Aggregate/target_boundary_violation_rate",
+            float(summary.get("target_boundary_violation_rate", 0.0)),
+            0,
+        )
         writer.add_scalar("Aggregate/pairwise_violation_rate", float(summary["pairwise_violation_rate"]), 0)
         writer.add_scalar("Aggregate/p95_cbf_latency_ms", float(summary["max_cbf_p95_solve_latency_ms"]), 0)
         writer.flush()

@@ -73,6 +73,53 @@ def test_boundary_violation_has_priority_over_later_capture() -> None:
     assert info["termination_reason"] == "safety_failure"
 
 
+def test_target_and_defender_boundary_counters_are_separate() -> None:
+    config = load_config()
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+    env.reset(seed=520113)
+
+    env.target_position[1] = env.lower[1] - 0.5
+    env._enforce_world_bounds(
+        env.target_position[None, :],
+        env.target_velocity[None, :],
+        entity_type="target",
+    )
+
+    assert env.world_violation_steps == 1
+    assert env.target_world_violation_steps == 1
+    assert env.defender_world_violation_steps == 0
+    assert env.target_boundary_violation
+    assert not env.defender_boundary_violation
+
+
+def test_target_boundary_diagnostic_does_not_fail_safe_capture() -> None:
+    config = load_config()
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+    env.reset(seed=520115)
+
+    original_target = env.target_position.copy()
+    env.target_position[1] = env.lower[1] - 0.5
+    env._enforce_world_bounds(
+        env.target_position[None, :],
+        env.target_velocity[None, :],
+        entity_type="target",
+    )
+    env.target_position = original_target
+    env.target_velocity.fill(0.0)
+    env.defender_positions[0] = env.target_position + np.array([0.70, 0.0, 0.0])
+    env.defender_velocities.fill(0.0)
+
+    _observation, _reward, terminated, truncated, info = env.step(np.zeros((4, 3)))
+
+    assert terminated
+    assert not truncated
+    assert info["capture_event"]
+    assert info["safe_capture_success"]
+    assert info["target_boundary_violation"]
+    assert not info["defender_boundary_violation"]
+    assert info["world_violation_steps"] == 1
+
+
 def test_policy_observation_does_not_expose_target_truth() -> None:
     config = load_config()
     env = CaptureRadiusPursuit3DEnv(config, obstacle_count=3, target_speed_scale=0.55)

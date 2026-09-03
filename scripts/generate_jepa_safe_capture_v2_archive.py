@@ -259,7 +259,7 @@ def _roll_counterfactual_v2(
             "collision": np.full(clone.n_defenders, float(bool(info["collision"])), dtype=np.float32),
             "boundary": np.full(
                 clone.n_defenders,
-                float(int(info["world_violation_steps"]) > 0),
+                float(bool(info.get("defender_boundary_violation", False))),
                 dtype=np.float32,
             ),
         }

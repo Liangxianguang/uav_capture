@@ -281,7 +281,14 @@ class CaptureRadiusPursuit3DEnv:
 
         self.step_count = 0
         self.collision_steps = 0
+        # ``world_violation_steps`` is retained as a legacy aggregate for
+        # historical result compatibility.  New safety decisions use the
+        # entity-specific counters below: target leaving the simulation box
+        # is a task diagnostic, while defender leaving it is a UAV safety
+        # failure.
         self.world_violation_steps = 0
+        self.target_world_violation_steps = 0
+        self.defender_world_violation_steps = 0
         self.min_clearance = float("inf")
         self.capture_time_seconds: float | None = None
         self.capturing_defender_id: int | None = None
@@ -292,6 +299,8 @@ class CaptureRadiusPursuit3DEnv:
         self.step_count = 0
         self.collision_steps = 0
         self.world_violation_steps = 0
+        self.target_world_violation_steps = 0
+        self.defender_world_violation_steps = 0
         self.min_clearance = float("inf")
         self.capture_time_seconds = None
         self.capturing_defender_id = None
@@ -526,7 +535,11 @@ class CaptureRadiusPursuit3DEnv:
             max_delta=float(self.agents["target_max_acceleration"]) * self.dt,
         )[0]
         self.target_position += self.target_velocity * self.dt
-        self._enforce_world_bounds(self.target_position[None, :], self.target_velocity[None, :])
+        self._enforce_world_bounds(
+            self.target_position[None, :],
+            self.target_velocity[None, :],
+            entity_type="target",
+        )
 
         self.step_count += 1
         self._update_target_beliefs()
@@ -540,7 +553,7 @@ class CaptureRadiusPursuit3DEnv:
         # teammate collisions.  The clamped state is useful for continuing a
         # diagnostic rollout, but it must not turn an earlier violation into a
         # Safe Capture later in the episode.
-        safety_failure = bool(metrics.collision or self.world_violation_steps > 0)
+        safety_failure = bool(metrics.collision or self.defender_boundary_violation)
         safe_capture = bool(capture_event and not safety_failure)
         if safe_capture and self.capture_time_seconds is None:
             self.capture_time_seconds = float(self.step_count * self.dt)
@@ -587,6 +600,10 @@ class CaptureRadiusPursuit3DEnv:
             "collision_steps": int(self.collision_steps),
             "physical_target_contact": bool(metrics.physical_target_contact),
             "world_violation_steps": int(self.world_violation_steps),
+            "target_world_violation_steps": int(self.target_world_violation_steps),
+            "defender_world_violation_steps": int(self.defender_world_violation_steps),
+            "target_boundary_violation": bool(self.target_boundary_violation),
+            "defender_boundary_violation": bool(self.defender_boundary_violation),
             "min_clearance": float(metrics.min_clearance),
             "min_clearance_so_far": float(self.min_clearance),
             "termination_reason": termination_reason,
@@ -610,7 +627,11 @@ class CaptureRadiusPursuit3DEnv:
         # and vehicle dynamics belong to the later PyBullet transfer gate.
         self.defender_velocities = actions.copy()
         self.defender_positions += self.defender_velocities * self.dt
-        self._enforce_world_bounds(self.defender_positions, self.defender_velocities)
+        self._enforce_world_bounds(
+            self.defender_positions,
+            self.defender_velocities,
+            entity_type="defender",
+        )
 
     def _target_action(self) -> np.ndarray:
         desired = float(self.pursuit["target_heading_persistence"]) * self.target_escape_direction
@@ -1112,12 +1133,41 @@ class CaptureRadiusPursuit3DEnv:
         normal = _unit(radial_normal * radial_gap + np.array([0.0, 0.0, position[2] - nearest_z]))
         return clearance, normal
 
-    def _enforce_world_bounds(self, positions: np.ndarray, velocities: np.ndarray) -> None:
+    @property
+    def target_boundary_violation(self) -> bool:
+        """Whether the target has crossed a simulation-world boundary."""
+
+        return bool(self.target_world_violation_steps > 0)
+
+    @property
+    def defender_boundary_violation(self) -> bool:
+        """Whether any defender has crossed a simulation-world boundary."""
+
+        return bool(self.defender_world_violation_steps > 0)
+
+    def _enforce_world_bounds(
+        self,
+        positions: np.ndarray,
+        velocities: np.ndarray,
+        entity_type: str | None = None,
+    ) -> None:
+        if entity_type is None:
+            # Preserve the private helper's historical two-argument API for
+            # tests and downstream diagnostics while making production calls
+            # explicit at the target/defender call sites.
+            entity_type = "target" if np.asarray(positions).shape[0] == 1 else "defender"
+        if entity_type not in {"target", "defender"}:
+            raise ValueError("entity_type must be 'target' or 'defender'.")
         for axis in range(3):
             below = positions[:, axis] < self.lower[axis]
             above = positions[:, axis] > self.upper[axis]
-            if bool(np.any(below | above)):
-                self.world_violation_steps += int(np.count_nonzero(below | above))
+            violations = int(np.count_nonzero(below | above))
+            if violations:
+                self.world_violation_steps += violations
+                if entity_type == "target":
+                    self.target_world_violation_steps += violations
+                else:
+                    self.defender_world_violation_steps += violations
             positions[below, axis] = self.lower[axis]
             positions[above, axis] = self.upper[axis]
             velocities[below | above, axis] *= -0.4

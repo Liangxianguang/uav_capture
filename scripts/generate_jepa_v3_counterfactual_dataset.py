@@ -191,7 +191,14 @@ def _roll_counterfactual(
             "cbf_correction": np.linalg.norm(executed - desired, axis=1).astype(np.float32),
             "cbf_intervention": (np.linalg.norm(executed - desired, axis=1) > 1e-6).astype(np.float32),
             "collision": np.full(clone.n_defenders, float(bool(info["collision"])), dtype=np.float32),
-            "boundary": np.full(clone.n_defenders, float(int(info["world_violation_steps"]) > 0), dtype=np.float32),
+            # Boundary labels describe UAV safety only. Target boundary
+            # crossings are tracked separately and must not become false
+            # defender safety labels.
+            "boundary": np.full(
+                clone.n_defenders,
+                float(bool(info.get("defender_boundary_violation", False))),
+                dtype=np.float32,
+            ),
         }
     return {
         key: np.stack([by_step[step][key] for step in horizon_steps], axis=1)
