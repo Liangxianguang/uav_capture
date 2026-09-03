@@ -48,13 +48,15 @@ def binary_auc(labels: np.ndarray, scores: np.ndarray) -> float | None:
     if positives == 0 or negatives == 0:
         return None
     order = np.argsort(scores, kind="mergesort")
+    sorted_scores = scores[order]
     ranks = np.empty_like(order, dtype=np.float64)
-    ranks[order] = np.arange(1, scores.size + 1, dtype=np.float64)
-    # Average tied ranks for a deterministic Mann-Whitney AUROC.
-    for value in np.unique(scores):
-        tied = scores == value
-        if np.sum(tied) > 1:
-            ranks[tied] = np.mean(ranks[tied])
+    # Average tied ranks without scanning the complete sample vector once per
+    # distinct score. Full P2 validation has 146,400 samples, so the previous
+    # unique-score masking implementation was quadratic in the common case.
+    group_ends = np.concatenate((np.flatnonzero(np.diff(sorted_scores)) + 1, [scores.size]))
+    group_starts = np.concatenate(([0], group_ends[:-1]))
+    mean_ranks = (group_starts + 1.0 + group_ends) / 2.0
+    ranks[order] = np.repeat(mean_ranks, group_ends - group_starts)
     return float((np.sum(ranks[labels == 1]) - positives * (positives + 1) / 2.0) / (positives * negatives))
 
 
