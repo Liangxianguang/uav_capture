@@ -52,6 +52,7 @@ The V4 locked-test report is the current formal benchmark result:
 - [E1-prime feasibility rejection report](E1_PRIME_RULE_EXPERT_FEASIBILITY_REJECTION_REPORT.md)
 - [E1-prime feasibility aggregate](E1_PRIME_RULE_EXPERT_FEASIBILITY_REPORT.md)
 - [最新围捕拦截模型候选与 JEPA 研究备忘录](docs/LATEST_MODEL_CANDIDATES_FOR_PURSUIT_INTERCEPTION_20260902.md)
+- [JEPA safe-capture v2 当前执行计划](docs/JEPA_SAFE_CAPTURE_V2_NEXT_EXECUTION_PLAN_20260903.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the
