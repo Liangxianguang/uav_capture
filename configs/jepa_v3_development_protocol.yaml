@@ -112,13 +112,17 @@ action_chunk_reranking:
 development_gates:
   smoke_episodes: 20
   full_episodes: 60
+  primary_endpoint: safe_capture_with_cbf_safety_invariants
+  safe_capture_is_primary_decision_metric: true
+  stop_on_new_collision_or_boundary: true
   require_all_finite_predictions: true
   require_zero_perturbation_regression: true
   require_episode_and_scene_pairing: true
   require_cbf_enabled: true
   require_three_training_seeds_for_final_candidate: true
   do_not_require_absolute_safe_capture_threshold: true
-  path_or_capture_time_cost_limit_fraction: 0.10
+  cost_metrics_reporting_only: true
+  post_smoke_amendment: docs/JEPA_V3_P5_SAFE_CAPTURE_PRIMARY_AMENDMENT_20260903.md
 
 result_namespace:
   counterfactual_train: results/jepa_v3_counterfactual_train

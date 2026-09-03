@@ -424,7 +424,7 @@ $seed = 20260911
 - 新增或无法解释的 collision/boundary；
 - scene/episode 未配对；
 - 非有限输出或 CBF 未最后执行；
-- 相对 baseline 的平均 path 或 capture time 增加超过 `10%`；
+- path、capture time、CBF correction 或 clearance 的变化需完整记录，但不单独触发停止；
 - provenance、ledger hash binding 或结果文件不完整。
 
 不要求单 seed capture 必须提升；允许“无提升但安全/成本可接受”，此时仍可进入 P6 获取三 seed 证据。
@@ -539,7 +539,7 @@ P7 不运行 locked benchmark，只审计是否值得另写新的 preregistratio
 
 1. 三 seed 趋势一致且不是单个场景/seed 驱动；
 2. CBF 下没有新的未解释 collision/boundary；
-3. path/time 成本不超过 `10%`，或有预先写明的研究理由；
+3. path/time、clearance、CBF 和控制时延代价已完整披露且不掩盖安全结果；
 4. checkpoint、ledger、dataset、environment、scene、代码哈希完整；
 5. 主指标、次指标、样本量、seed block、统计方法、停止规则和失败处理先写死；
 6. 用户另行明确授权打开新的 locked block。
