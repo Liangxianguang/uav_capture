@@ -26,6 +26,7 @@ from encirclement3d.prediction import (  # noqa: E402
     ActionConditionedJEPAPredictor,
     make_action_candidates,
 )
+from encirclement3d.reliability import ReliabilityLedger  # noqa: E402
 from encirclement3d.pursuit_controllers import (  # noqa: E402
     DynamicEncirclementController,
     PursuitCBFSafetyFilter,
@@ -265,6 +266,7 @@ def rollout_showcase(
     jepa_perturbation_mps: float = 0.60,
     jepa_uncertainty_weight: float = 0.10,
     jepa_action_change_weight: float = 0.02,
+    jepa_reliability_ledger: ReliabilityLedger | None = None,
 ) -> tuple[dict[str, Any], CaptureRadiusPursuit3DEnv]:
     if recurrent_reset_interval is not None and recurrent_reset_interval <= 0:
         raise ValueError("recurrent_reset_interval must be positive when provided.")
@@ -296,6 +298,7 @@ def rollout_showcase(
             position_extent=float(config["world"]["half_extent_xy"]),
             uncertainty_weight=jepa_uncertainty_weight,
             action_change_weight=jepa_action_change_weight,
+            reliability_ledger=jepa_reliability_ledger,
         )
         if jepa_history is not None
         else None
@@ -313,6 +316,9 @@ def rollout_showcase(
     cbf_corrections: list[float] = []
     jepa_selection_indices: list[int] = []
     jepa_selection_scores: list[float] = []
+    jepa_ledger_credits: list[float] = []
+    jepa_ledger_fallbacks: list[bool] = []
+    jepa_ledger_global_fallbacks: list[bool] = []
     recurrent_hidden_resets = 0
     path_lengths = np.zeros(env.n_defenders, dtype=np.float64)
     previous_positions = env.defender_positions.copy()
@@ -344,6 +350,10 @@ def rollout_showcase(
                 action, selection = jepa_reranker.select(observation, candidates)
                 jepa_selection_indices.append(int(selection.selected_index))
                 jepa_selection_scores.append(float(selection.scores[selection.selected_index]))
+                if selection.ledger_credit is not None:
+                    jepa_ledger_credits.append(float(selection.ledger_credit))
+                    jepa_ledger_fallbacks.append(bool(selection.ledger_fallback_to_nominal))
+                    jepa_ledger_global_fallbacks.append(bool(selection.ledger_used_global_fallback))
             if safety_filter is not None:
                 action, diagnostics = safety_filter.filter(action, observation)
                 cbf_corrections.append(float(diagnostics.action_correction_norm))
@@ -398,6 +408,10 @@ def rollout_showcase(
         "jepa_perturbation_mps": jepa_perturbation_mps if jepa_reranker is not None else None,
         "jepa_mean_selected_index": float(np.mean(jepa_selection_indices)) if jepa_selection_indices else None,
         "jepa_mean_selected_score": float(np.mean(jepa_selection_scores)) if jepa_selection_scores else None,
+        "jepa_reliability_ledger_enabled": jepa_reliability_ledger is not None,
+        "jepa_ledger_mean_credit": float(np.mean(jepa_ledger_credits)) if jepa_ledger_credits else None,
+        "jepa_ledger_nominal_fallback_fraction": float(np.mean(jepa_ledger_fallbacks)) if jepa_ledger_fallbacks else None,
+        "jepa_ledger_global_fallback_fraction": float(np.mean(jepa_ledger_global_fallbacks)) if jepa_ledger_global_fallbacks else None,
     }
     return _finalize_showcase_row(
         row,

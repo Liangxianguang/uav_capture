@@ -648,6 +648,54 @@ class ActionConditionedCandidateHistory:
             raise RuntimeError("Candidate-history prediction emitted non-finite values.")
         return means, stds
 
+    def predict_candidates_multitask(
+        self,
+        candidate_actions: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]]:
+        """Decode final-horizon target and auxiliary values for each candidate.
+
+        This is intentionally separate from :meth:`predict_candidates` so
+        legacy target-only rerankers retain their tuple contract. The returned
+        auxiliary values are model predictions, not safety decisions.
+        """
+        if not isinstance(self.predictor, InteractionAwareActionConditionedMultitaskJEPAPredictor):
+            raise ValueError("Reliability-aware reranking requires a JEPA-v3 multitask predictor.")
+        candidates = np.asarray(candidate_actions, dtype=np.float32)
+        expected = (candidates.shape[0], self.env.n_defenders, self.predictor.action_dim)
+        if candidates.ndim != 3 or candidates.shape != expected:
+            raise ValueError(f"Expected candidate actions shaped {expected}, got {candidates.shape}.")
+        observation_window, past_action_window = self._windows()
+        batch_size = int(candidates.shape[0])
+        observation_batch = np.repeat(observation_window[None, ...], batch_size, axis=0)
+        past_batch = np.repeat(past_action_window[None, ...], batch_size, axis=0)
+        action_batch = np.concatenate(
+            [past_batch, (candidates / self.action_scale)[:, :, None, :]], axis=2
+        )
+        with torch.no_grad():
+            mean, log_variance, _latent, auxiliary = self.predictor.forward_multitask(
+                torch.as_tensor(
+                    observation_batch.reshape(-1, observation_batch.shape[2], observation_batch.shape[3]),
+                    device=self.device,
+                ),
+                torch.as_tensor(
+                    action_batch.reshape(-1, action_batch.shape[2], action_batch.shape[3]),
+                    device=self.device,
+                ),
+            )
+        means = mean[:, -1].detach().cpu().numpy().reshape(batch_size, self.env.n_defenders, 3)
+        stds = torch.exp(0.5 * log_variance[:, -1]).detach().cpu().numpy().reshape(
+            batch_size, self.env.n_defenders, 3
+        )
+        values = {
+            key: value[:, -1].detach().cpu().numpy().reshape(batch_size, self.env.n_defenders)
+            for key, value in auxiliary.items()
+        }
+        if not np.isfinite(means).all() or not np.isfinite(stds).all() or not all(
+            np.isfinite(value).all() for value in values.values()
+        ):
+            raise RuntimeError("Multitask candidate prediction emitted non-finite values.")
+        return means, stds, values
+
 
 @dataclass(frozen=True)
 class JEPACandidateSelection:
@@ -657,6 +705,12 @@ class JEPACandidateSelection:
     scores: tuple[float, ...]
     predicted_mean_distance_m: tuple[float, ...]
     uncertainty_penalty_m: tuple[float, ...]
+    ledger_credit: float | None = None
+    ledger_sample_count: int | None = None
+    ledger_fallback_to_nominal: bool = False
+    ledger_used_global_fallback: bool = False
+    ledger_key: str | None = None
+    predicted_min_clearance_m: float | None = None
 
 
 class ActionConditionedCandidateReranker:
@@ -669,6 +723,8 @@ class ActionConditionedCandidateReranker:
         position_extent: float,
         uncertainty_weight: float = 0.10,
         action_change_weight: float = 0.02,
+        reliability_ledger: Any | None = None,
+        reliability_horizon_index: int = -1,
     ) -> None:
         if horizon_seconds <= 0.0 or position_extent <= 0.0:
             raise ValueError("horizon_seconds and position_extent must be positive.")
@@ -679,6 +735,14 @@ class ActionConditionedCandidateReranker:
         self.position_extent = float(position_extent)
         self.uncertainty_weight = float(uncertainty_weight)
         self.action_change_weight = float(action_change_weight)
+        self.reliability_ledger = reliability_ledger
+        horizon_count = int(getattr(observer.predictor, "horizon_count", 0))
+        resolved_horizon = int(reliability_horizon_index)
+        if resolved_horizon < 0:
+            resolved_horizon += horizon_count
+        if reliability_ledger is not None and not 0 <= resolved_horizon < horizon_count:
+            raise ValueError("reliability_horizon_index must refer to a JEPA prediction horizon.")
+        self.reliability_horizon_index = resolved_horizon
 
     def select(
         self,
@@ -691,7 +755,11 @@ class ActionConditionedCandidateReranker:
                 "Expected candidate actions shaped "
                 f"[K, {self.observer.env.n_defenders}, 3], got {candidates.shape}."
             )
-        means, stds = self.observer.predict_candidates(candidates)
+        auxiliary: dict[str, np.ndarray] | None = None
+        if self.reliability_ledger is None:
+            means, stds = self.observer.predict_candidates(candidates)
+        else:
+            means, stds, auxiliary = self.observer.predict_candidates_multitask(candidates)
         positions = np.asarray(observation["defender_positions"], dtype=np.float64)
         predicted_target_positions = positions[None, :, None, :] + means[:, :, None, :] * self.position_extent
         future_defender_positions = positions[None, :, :] + candidates * self.horizon_seconds
@@ -704,11 +772,54 @@ class ActionConditionedCandidateReranker:
         )
         scores = mean_distance + uncertainty_penalty + action_penalty
         selected_index = int(np.argmin(scores))
+        ledger_credit: float | None = None
+        ledger_sample_count: int | None = None
+        ledger_fallback_to_nominal = False
+        ledger_used_global_fallback = False
+        ledger_key: str | None = None
+        predicted_min_clearance_m: float | None = None
+        if self.reliability_ledger is not None:
+            assert auxiliary is not None
+            predicted_min_clearance_m = float(
+                np.min(
+                    np.minimum(
+                        auxiliary["obstacle_clearance"][selected_index],
+                        auxiliary["inter_agent_clearance"][selected_index],
+                    )
+                )
+                * self.position_extent
+            )
+            visible_fraction = float(np.mean(np.asarray(observation["target_visible"], dtype=np.float64)))
+            maximum_age = float(getattr(self.observer.env, "pursuit", {}).get("maximum_message_age_steps", 1.0))
+            normalized_message_age = float(
+                np.clip(np.mean(np.asarray(observation["message_age_steps"], dtype=np.float64)) / maximum_age, 0.0, 1.0)
+            )
+            action_magnitude = float(np.mean(np.linalg.norm(candidates[selected_index], axis=1)))
+            decision = self.reliability_ledger.decision(
+                self.reliability_horizon_index,
+                visible_fraction,
+                normalized_message_age,
+                predicted_min_clearance_m,
+                action_magnitude,
+            )
+            ledger_credit = decision.credit
+            ledger_sample_count = decision.sample_count
+            ledger_fallback_to_nominal = decision.fallback_to_nominal
+            ledger_used_global_fallback = decision.used_global_fallback
+            ledger_key = decision.key
+            if ledger_fallback_to_nominal:
+                selected_index = 0
         diagnostics = JEPACandidateSelection(
             selected_index=selected_index,
             scores=tuple(float(value) for value in scores),
             predicted_mean_distance_m=tuple(float(value) for value in mean_distance),
             uncertainty_penalty_m=tuple(float(value) for value in uncertainty_penalty),
+            ledger_credit=ledger_credit,
+            ledger_sample_count=ledger_sample_count,
+            ledger_fallback_to_nominal=ledger_fallback_to_nominal,
+            ledger_used_global_fallback=ledger_used_global_fallback,
+            ledger_key=ledger_key,
+            predicted_min_clearance_m=predicted_min_clearance_m,
         )
         return candidates[selected_index].copy(), diagnostics
 

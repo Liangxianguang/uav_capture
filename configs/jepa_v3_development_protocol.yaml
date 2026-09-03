@@ -66,6 +66,11 @@ training:
 
 reliability_ledger:
   enabled_after_multitask_prediction_gate: true
+  candidate_count: 5
+  candidate_perturbation_mps: 0.10
+  candidate_horizon_index: 3
+  minimum_sample_count: 128
+  minimum_credit: 0.65
   bucket_fields:
     - training_seed
     - horizon_steps

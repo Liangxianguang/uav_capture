@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import copy
 import csv
+import hashlib
 import itertools
 import json
 import sys
@@ -31,6 +32,7 @@ from encirclement3d.prediction import (  # noqa: E402
     ActionConditionedJEPAPredictor,
     build_action_conditioned_predictor,
 )
+from encirclement3d.reliability import ReliabilityLedger  # noqa: E402
 from encirclement3d.showcase import (  # noqa: E402
     configure_target_crossing_episode,
     random_central_mixed_obstacle_scenario,
@@ -75,6 +77,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--jepa-perturbation-mps", type=float, default=0.60)
     parser.add_argument("--jepa-uncertainty-weight", type=float, default=0.10)
     parser.add_argument("--jepa-action-change-weight", type=float, default=0.02)
+    parser.add_argument(
+        "--jepa-reliability-ledger",
+        type=Path,
+        help="Read-only execution-settled ledger. Low-credit contexts fall back to the frozen nominal action before CBF.",
+    )
     parser.add_argument(
         "--recurrent-reset-interval",
         type=int,
@@ -147,7 +154,11 @@ def load_action_conditioned_jepa(
 ) -> ActionConditionedJEPAPredictor:
     checkpoint = torch.load(checkpoint_path.resolve(), map_location="cpu", weights_only=True)
     model_type = checkpoint.get("model_type")
-    if model_type not in {"action_conditioned_jepa", "interaction_aware_action_conditioned_jepa"}:
+    if model_type not in {
+        "action_conditioned_jepa",
+        "interaction_aware_action_conditioned_jepa",
+        "interaction_aware_action_conditioned_jepa_multitask",
+    }:
         raise ValueError("Unsupported action-conditioned JEPA checkpoint model_type.")
     model_config = checkpoint.get("model")
     state_dict = checkpoint.get("model_state_dict")
@@ -156,6 +167,20 @@ def load_action_conditioned_jepa(
     model = build_action_conditioned_predictor(str(model_type), model_config)
     model.load_state_dict(state_dict, strict=True)
     return model.to(device).eval()
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_reliability_ledger(path: Path, checkpoint_path: Path) -> ReliabilityLedger:
+    payload = json.loads(path.resolve().read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Reliability ledger must be a JSON object.")
+    source = payload.get("source")
+    if not isinstance(source, dict) or source.get("checkpoint_sha256") != _sha256(checkpoint_path):
+        raise ValueError("Reliability ledger was not built for the supplied JEPA checkpoint.")
+    return ReliabilityLedger(payload)
 
 
 def episode_spec(protocol: dict[str, Any], split: str, episode_index: int) -> dict[str, Any]:
@@ -321,13 +346,24 @@ def main() -> None:
     )
     if jepa_checkpoint is not None and not jepa_checkpoint.is_file():
         raise FileNotFoundError(f"Action-conditioned JEPA checkpoint does not exist: {jepa_checkpoint}")
+    if args.jepa_reliability_ledger is not None and jepa_checkpoint is None:
+        raise ValueError("jepa-reliability-ledger requires action-conditioned-jepa-checkpoint.")
+    reliability_ledger_path = args.jepa_reliability_ledger.resolve() if args.jepa_reliability_ledger is not None else None
+    if reliability_ledger_path is not None and not reliability_ledger_path.is_file():
+        raise FileNotFoundError(f"JEPA reliability ledger does not exist: {reliability_ledger_path}")
     jepa_predictor = load_action_conditioned_jepa(jepa_checkpoint, device) if jepa_checkpoint is not None else None
+    reliability_ledger = (
+        load_reliability_ledger(reliability_ledger_path, jepa_checkpoint)
+        if reliability_ledger_path is not None and jepa_checkpoint is not None
+        else None
+    )
     reference_rows: list[dict[str, str]] | None = None
     if args.reference_episodes is not None:
         with args.reference_episodes.resolve().open(newline="", encoding="utf-8") as handle:
             reference_rows = list(csv.DictReader(handle))
-        if len(reference_rows) != episodes:
-            raise ValueError("Reference episode count does not match the S3 metric replay.")
+        if len(reference_rows) < episodes:
+            raise ValueError("Reference episode count is smaller than the requested S3 metric replay.")
+        reference_rows = reference_rows[:episodes]
     reference_scenes: list[dict[str, Any]] | None = None
     if args.reference_scenes is not None:
         reference_scenes = [
@@ -335,8 +371,9 @@ def main() -> None:
             for line in args.reference_scenes.resolve().read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        if len(reference_scenes) != episodes:
-            raise ValueError("Reference scene count does not match the S3 metric replay.")
+        if len(reference_scenes) < episodes:
+            raise ValueError("Reference scene count is smaller than the requested S3 metric replay.")
+        reference_scenes = reference_scenes[:episodes]
 
     policy: Any = None
     action_scale: float | None = None
@@ -423,6 +460,7 @@ def main() -> None:
                 jepa_perturbation_mps=args.jepa_perturbation_mps,
                 jepa_uncertainty_weight=args.jepa_uncertainty_weight,
                 jepa_action_change_weight=args.jepa_action_change_weight,
+                jepa_reliability_ledger=reliability_ledger,
             )
         metadata = scenario_metadata(scenario)
         row.update(
@@ -507,6 +545,8 @@ def main() -> None:
                 "jepa_perturbation_mps": args.jepa_perturbation_mps if jepa_predictor is not None else None,
                 "jepa_uncertainty_weight": args.jepa_uncertainty_weight if jepa_predictor is not None else None,
                 "jepa_action_change_weight": args.jepa_action_change_weight if jepa_predictor is not None else None,
+                "jepa_reliability_ledger": str(reliability_ledger_path) if reliability_ledger_path is not None else None,
+                "jepa_reliability_ledger_enabled": reliability_ledger is not None,
                 "recurrent_reset_interval_steps": recurrent_reset_interval,
                 "device": str(device),
                 "separate_episode_and_layout_seeds": True,

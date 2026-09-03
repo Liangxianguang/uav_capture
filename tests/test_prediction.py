@@ -17,6 +17,7 @@ from encirclement3d.prediction import (
     gaussian_nll,
     make_action_candidates,
 )
+from encirclement3d.reliability import ReliabilityLedger, make_global_key
 from encirclement3d.learning import RecurrentCentralizedSharedActorCritic
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv
 
@@ -213,3 +214,52 @@ def test_interaction_aware_multitask_jepa_keeps_target_contract_and_decodes_auxi
     }
     assert all(value.shape == (3, 4) and torch.isfinite(value).all() for value in auxiliaries.values())
     assert torch.all(auxiliaries["cbf_correction"] >= 0.0)
+
+
+def test_multitask_candidate_history_and_low_credit_ledger_return_nominal_action() -> None:
+    config = yaml.safe_load(
+        (PROJECT_ROOT / "configs" / "capture_radius_pursuit_central_v4_flee.yaml").read_text(encoding="utf-8")
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=2, target_speed_scale=0.45)
+    observation = env.reset(seed=520207)
+    base = __import__("encirclement3d.observation_encoding", fromlist=["policy_observations"]).policy_observations(
+        env, observation
+    )
+    model = InteractionAwareActionConditionedMultitaskJEPAPredictor(
+        input_dim=63,
+        horizon_count=4,
+        hidden_dim=16,
+        latent_dim=12,
+        interaction_group_slices=[[0, 15], [15, 33], [33, 48], [48, 63]],
+    )
+    history = ActionConditionedCandidateHistory(env, model, torch.device("cpu"), history_length=8, action_scale=5.0)
+    history.reset(base)
+    candidates = make_action_candidates(np.zeros((4, 3), dtype=np.float32), perturbation_mps=0.2, candidate_count=5)
+    means, stds, auxiliary = history.predict_candidates_multitask(candidates)
+    assert means.shape == (5, 4, 3)
+    assert stds.shape == means.shape
+    assert set(auxiliary) == {
+        "obstacle_clearance",
+        "inter_agent_clearance",
+        "target_visibility_logit",
+        "cbf_correction",
+        "cbf_intervention_logit",
+    }
+    assert all(value.shape == (5, 4) and np.isfinite(value).all() for value in auxiliary.values())
+    ledger = ReliabilityLedger(
+        {
+            "ledger_type": "jepa_v3_execution_settled_reliability",
+            "entries": {make_global_key(3): {"credit": 0.1, "sample_count": 1000}},
+            "decision_policy": {"minimum_sample_count": 1, "minimum_credit": 0.65},
+        }
+    )
+    reranker = ActionConditionedCandidateReranker(
+        history,
+        horizon_seconds=0.5,
+        position_extent=10.0,
+        reliability_ledger=ledger,
+    )
+    selected, diagnostics = reranker.select(observation, candidates)
+    np.testing.assert_allclose(selected, candidates[0])
+    assert diagnostics.ledger_fallback_to_nominal is True
+    assert diagnostics.ledger_sample_count == 1000
