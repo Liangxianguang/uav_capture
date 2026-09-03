@@ -26,6 +26,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 import numpy as np
+import torch
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +52,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-stride", type=int, default=4)
     parser.add_argument("--chunk-length-steps", type=int, default=1)
     parser.add_argument("--clearance-clip-m", type=float, default=5.0)
+    parser.add_argument(
+        "--action-scale",
+        type=float,
+        help="Expected physical action scale from the frozen V5 actor checkpoint. "
+        "When omitted, read and verify the scale from the checkpoint named in the v3 protocol.",
+    )
     return parser.parse_args()
 
 
@@ -73,6 +80,28 @@ def _validate_v3_protocol(protocol: dict[str, Any]) -> None:
         raise ValueError("Protocol must explicitly require train-only counterfactual collection.")
     if contract.get("validation_and_development_excluded_from_training") is not True:
         raise ValueError("Protocol must preserve validation/development separation.")
+
+
+def _frozen_actor_action_scale(protocol: dict[str, Any], supplied_scale: float | None) -> tuple[Path, float, str]:
+    """Resolve the runtime action normalization from the immutable actor contract."""
+    frozen_baseline = protocol.get("frozen_baseline")
+    if not isinstance(frozen_baseline, dict) or not frozen_baseline.get("actor_checkpoint"):
+        raise ValueError("JEPA-v3 protocol must name its frozen actor checkpoint.")
+    checkpoint_path = (PROJECT_ROOT / str(frozen_baseline["actor_checkpoint"])).resolve()
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Frozen actor checkpoint is missing: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    checkpoint_scale = float(checkpoint["action_scale"])
+    if checkpoint_scale <= 0.0:
+        raise ValueError("Frozen actor checkpoint has an invalid action_scale.")
+    action_scale = checkpoint_scale if supplied_scale is None else float(supplied_scale)
+    if action_scale <= 0.0:
+        raise ValueError("action-scale must be positive.")
+    if not np.isclose(action_scale, checkpoint_scale, rtol=0.0, atol=1e-7):
+        raise ValueError(
+            f"action-scale {action_scale} does not match frozen actor action_scale {checkpoint_scale}."
+        )
+    return checkpoint_path, checkpoint_scale, _sha256(checkpoint_path)
 
 
 def _scenario_config(config: dict[str, Any], experiment: dict[str, Any]) -> dict[str, Any]:
@@ -191,12 +220,15 @@ def _append_candidate_samples(
     time_index: int,
     candidate_index: int,
     chunk_length_steps: int,
+    action_scale: float,
 ) -> None:
     if len(observation_history) < 8 or len(executed_action_history) != len(observation_history) - 1:
         raise ValueError("Counterfactual histories are not causally aligned.")
     inputs = np.stack(observation_history[-8:], axis=0)
     past_actions = np.stack(executed_action_history[-7:], axis=0)
-    actions = np.concatenate([past_actions, candidate[None, ...]], axis=0)
+    # This is intentionally the same unitless representation consumed by
+    # ActionConditionedCandidateHistory at runtime.
+    actions = np.concatenate([past_actions, candidate[None, ...]], axis=0) / action_scale
     for agent in range(inputs.shape[1]):
         samples["inputs"].append(inputs[:, agent].copy())
         samples["action_history"].append(actions[:, agent].copy())
@@ -233,6 +265,7 @@ def collect(
     sample_stride: int,
     chunk_length_steps: int,
     clearance_clip_m: float,
+    action_scale: float,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     if history_length != 8:
         raise ValueError("JEPA-v3 currently fixes history-length at 8 to preserve the frozen contract.")
@@ -285,6 +318,7 @@ def collect(
                             time_index,
                             candidate_index,
                             chunk_length_steps,
+                            action_scale,
                         )
                 executed, _diagnostics = safety_filter.filter(desired, observation)
                 observation, _reward, terminated, truncated, _info = env.step(executed)
@@ -312,6 +346,8 @@ def collect(
         "sample_stride": sample_stride,
         "chunk_length_steps": chunk_length_steps,
         "clearance_clip_m": clearance_clip_m,
+        "action_history_normalization": "actions_divided_by_frozen_actor_action_scale",
+        "action_scale": action_scale,
         "input_shape": list(arrays["inputs"].shape),
         "action_shape": list(arrays["action_history"].shape),
         "target_label_shape": list(arrays["labels_relative"].shape),
@@ -342,6 +378,10 @@ def main() -> None:
         raise ValueError("horizon-steps must be positive.")
     v3_protocol = _load_yaml(args.v3_protocol.resolve())
     _validate_v3_protocol(v3_protocol)
+    checkpoint_path, checkpoint_action_scale, checkpoint_sha256 = _frozen_actor_action_scale(
+        v3_protocol,
+        args.action_scale,
+    )
     collection_config = _load_yaml(args.collection_config.resolve())
     if not isinstance(collection_config.get("experiments"), list):
         raise ValueError("Collection config requires experiments.")
@@ -356,6 +396,7 @@ def main() -> None:
         args.sample_stride,
         args.chunk_length_steps,
         args.clearance_clip_m,
+        checkpoint_action_scale,
     )
     args.output.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.output / "counterfactual_multitask_dataset.npz", **arrays)
@@ -374,6 +415,9 @@ def main() -> None:
             },
             "collection_config_sha256": _sha256(args.collection_config.resolve()),
             "v3_protocol_sha256": _sha256(args.v3_protocol.resolve()),
+            "frozen_actor_checkpoint": str(checkpoint_path),
+            "frozen_actor_checkpoint_sha256": checkpoint_sha256,
+            "frozen_actor_action_scale": checkpoint_action_scale,
             "environment": {
                 "python": sys.version.replace("\n", " "),
                 "platform": platform.platform(),

@@ -66,6 +66,18 @@ def audit(directory: Path) -> dict[str, Any]:
     boundary = metadata.get("information_boundary", {})
     if boundary.get("development_s3_or_locked_data_used_for_training") is not False:
         raise ValueError("Counterfactual metadata does not prove development/locked exclusion.")
+    action_scale = float(metadata.get("action_scale", 0.0))
+    frozen_action_scale = float(metadata.get("frozen_actor_action_scale", 0.0))
+    if metadata.get("action_history_normalization") != "actions_divided_by_frozen_actor_action_scale":
+        raise ValueError("Counterfactual action history is not normalized by the frozen actor scale.")
+    if action_scale <= 0.0 or not np.isclose(action_scale, frozen_action_scale, rtol=0.0, atol=1e-7):
+        raise ValueError("Counterfactual action scale does not match the frozen actor contract.")
+    maximum_normalized_action = float(np.max(np.abs(arrays["action_history"])))
+    if maximum_normalized_action > 1.05:
+        raise ValueError(
+            "Counterfactual action history exceeds the expected normalized action range: "
+            f"{maximum_normalized_action:.6f} > 1.05."
+        )
     candidate_count = int(metadata["candidate_count"])
     groups = np.stack(
         [arrays["episode_seed"], arrays["time_index"], arrays["agent_id"]], axis=1
@@ -104,6 +116,14 @@ def audit(directory: Path) -> dict[str, Any]:
         "candidate_sample_counts": {str(int(key)): int(value) for key, value in zip(candidate_ids, candidate_counts)},
         "labels": labels,
         "all_finite": True,
+        "action_history_contract": {
+            "normalization": metadata["action_history_normalization"],
+            "action_scale": action_scale,
+            "frozen_actor_action_scale": frozen_action_scale,
+            "maximum_absolute_normalized_action": maximum_normalized_action,
+            "within_expected_range": True,
+            "frozen_actor_checkpoint_sha256": metadata.get("frozen_actor_checkpoint_sha256"),
+        },
         "information_boundary": boundary,
     }
 
