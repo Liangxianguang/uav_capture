@@ -92,31 +92,31 @@ Joint CBF-QP：最终且不可绕过的执行过滤器
 
 以下工作包按依赖关系执行。每个工作包都有独立产物和停止条件；未通过前不得跳到后续全量实验。
 
-### WP0：冻结 P7 基线和输入边界
+### WP0：冻结 P7 基线和输入边界（已完成）
 
 **目标：** 把当前 P7 结果变成不可被后续调参污染的参考基线。
 
-- [ ] 保存 P7 full 的 `summary.json`、`paired_comparison.json`、`run_metrics.csv`、`m3_seed_comparisons.csv`、报告和 TensorBoard 路径。
-- [ ] 计算并登记 checkpoint、ledger、protocol、scene manifest、评估脚本、核心源文件和 Conda/Python/PyTorch/CUDA 的 SHA-256/版本。
-- [ ] 复制一份只读的 P7 manifest 到新的 provenance 目录；后续实验不得覆盖原目录。
-- [ ] 新建版本化后续协议，例如 `configs/jepa_safe_capture_v3_next_phase.yaml`，明确 `development_only=true` 和 `locked_test_opened=false`。
-- [ ] 固定安全参数：障碍净空、机间净空、边界/高度、最大速度/加速度、CBF `gamma`、最大修正量、QP timeout 和控制周期。
-- [ ] 固定主指标、统计方法、episode 配对规则和 seed block 后，再查看新模型的闭环结果。
+- [x] 保存 P7 full 的 `summary.json`、`paired_comparison.json`、`run_metrics.csv`、`m3_seed_comparisons.csv`、报告和 TensorBoard 路径。
+- [x] 计算并登记 checkpoint、ledger、protocol、scene manifest、评估脚本、核心源文件和 Conda/Python/PyTorch/CUDA 的 SHA-256/版本。
+- [x] 复制一份只读的 P7 manifest 到新的 provenance 目录；后续实验不得覆盖原目录。
+- [x] 新建版本化后续协议 `configs/jepa_safe_capture_v3_next_phase.yaml`，明确 `development_only=true` 和 `locked_test_opened=false`。
+- [x] 固定安全参数：障碍净空、机间净空、边界/高度、最大速度/加速度、CBF `gamma`、最大修正量、QP timeout 和控制周期。
+- [x] 固定主指标、统计方法、episode 配对规则和 seed block 后，再查看新模型的闭环结果。
 
 **验收：** 任意 hash、split、seed、CBF margin 或 locked 标志不一致时，运行器拒绝启动；P7 参考运行可 deterministic replay。
 
 **产物：** `configs/jepa_safe_capture_v3_next_phase.yaml`、`docs/JEPA_SAFE_CAPTURE_WP0_BASELINE_FREEZE_*.md`、provenance manifest。
 
-### WP1：困难 episode 索引、重放与因果归因
+### WP1：困难 episode 索引、重放与因果归因（索引审计已完成）
 
 **目标：** 把“捕获失败”拆成可修复的预测、排序、回退或 CBF 原因，不用均值猜原因。
 
-- [ ] 从 P7 每个 seed 的 episode 表和逐步 trace 建立 failure index，不修改原始结果。
-- [ ] 为每个失败记录：`training_seed`、`episode_seed`、layout、障碍数量、target motion、visibility、observation age、ledger state/credit、selected candidate、score margin、CBF active constraints、solver status、fallback reason 和 termination reason。
-- [ ] 按以下类别分桶：target turn/acceleration drift、遮挡/可见性丢失、观测过期、候选不可达、候选排序错误、净空幻觉、CBF 过度修正、QP infeasible、safe-hold 过多、timeout 和动作振荡。
-- [ ] 对每一类至少选取代表性 episode，运行 deterministic replay，检查预测 -> ledger -> rank -> CBF -> executed action -> failure 的完整链路。
-- [ ] 计算 high-credit 错误率、low-credit 错误率、fallback 后安全率和候选 top-1 与 settled outcome 的一致性。
-- [ ] 将 hard-case index 与训练/校准 split 解耦；失败 episode 的原始发展结果不得直接回灌训练集。
+- [x] 从 P7 每个 seed 的 episode 表和逐步 trace 建立 failure index，不修改原始结果。
+- [x] 为每个失败记录：`training_seed`、`episode_seed`、layout、障碍数量、target motion、visibility、observation age、ledger state/credit、selected candidate、score margin、CBF active constraints、solver status、fallback reason 和 termination reason。
+- [x] 按可由当前 trace 证明的类别分桶：遮挡/可见性丢失、观测过期、CBF 过度修正、QP infeasible、timeout、动作振荡和预测 gap；target drift 明确标记为未观测。
+- [ ] 对每一类至少选取代表性 episode，运行环境级 deterministic replay，检查预测 -> ledger -> rank -> CBF -> executed action -> failure 的完整链路（下一小阶段）。
+- [x] 计算 high-credit 错误率、low-credit 错误率、fallback 后安全率和候选切换统计。
+- [x] 将 hard-case index 与训练/校准 split 解耦；失败 episode 的原始发展结果不得直接回灌训练集。
 
 **验收：** 100% 的失败 episode 可定位到唯一主因或明确标记 `unresolved`；无法重放的 episode 直接触发 provenance gate 失败。
 

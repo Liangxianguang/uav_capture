@@ -52,6 +52,7 @@ The V4 locked-test report is the current formal benchmark result:
 - [JEPA safe-capture v2 P7 full development report](docs/JEPA_SAFE_CAPTURE_P7_FULL_DEVELOPMENT_REPORT_20260904.md)
 - [JEPA safe-capture P7 之后下一阶段详细目标计划书](docs/JEPA_SAFE_CAPTURE_NEXT_PHASE_TODOLIST_20260904.md)
 - [JEPA safe-capture WP0 baseline freeze report](docs/JEPA_SAFE_CAPTURE_WP0_BASELINE_FREEZE_20260904.md)
+- [JEPA safe-capture WP1 failure index and causal replay audit](docs/JEPA_SAFE_CAPTURE_WP1_FAILURE_REPLAY_20260904.md)
 - [E1-prime feasibility rejection report](E1_PRIME_RULE_EXPERT_FEASIBILITY_REJECTION_REPORT.md)
 - [E1-prime feasibility aggregate](E1_PRIME_RULE_EXPERT_FEASIBILITY_REPORT.md)
 - [最新围捕拦截模型候选与 JEPA 研究备忘录](docs/LATEST_MODEL_CANDIDATES_FOR_PURSUIT_INTERCEPTION_20260902.md)
