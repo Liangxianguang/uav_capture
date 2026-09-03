@@ -2,7 +2,7 @@
 # 下一步详细 TODO 与验收计划
 
 **系统路线：** Interaction-Aware Action-Conditioned JEPA + Reliability Ledger + Joint CBF + Receding-Horizon Control  
-**版本：** v1.2 execution plan（boundary-fixed smoke 后，总控清单补充版）
+**版本：** v1.3 execution plan（V3 failure-index 完成后，进入 hard replay）
 **日期：** 2026-09-04  
 **环境：** Windows / Conda `uav-encirclement-gpu` / NVIDIA RTX 5050  
 **实验边界：** development-only，`locked_test_opened=false`  
@@ -18,9 +18,9 @@
 
 | 顺序 | 工作包 | 立即动作 | 必须产出 | 出口条件 |
 |---|---|---|---|---|
-| 1 | WP-B0 接口适配 | 让 failure-index 同时识别 `v3_wp6_*_boundaryfixed` 与后续 `v3_wp7_*`，保留 v2 兼容 | 脚本、目录发现/配对测试 | 当前三 seed、四变体的 12 个 smoke run 全部被发现，episode `0..19` 完整 |
-| 2 | WP-B1 失败索引 | 只读扫描 summary、episodes、scene manifest、step traces | `results/...failure_index...`、索引 JSON/CSV、TensorBoard provenance | scene manifest 唯一、配对一致、源结果目录 hash 不变 |
-| 3 | WP-B2 hard replay | 对 degraded episode 逐步重放 belief -> JEPA -> ledger -> rank -> CBF -> action -> termination | replay JSONL、trace hash、因果审计 Markdown | 每个失败有唯一主因，或明确标记 `unresolved`；重复 replay 完全确定 |
+| 1 | WP-B0 接口适配 | 让 failure-index 同时识别 `v3_wp6_*_boundaryfixed` 与后续 `v3_wp7_*`，保留 v2 兼容 | 脚本、目录发现/配对测试 | **已完成**：12 个 smoke run 全部被发现，episode `0..19` 完整 |
+| 2 | WP-B1 失败索引 | 只读扫描 summary、episodes、scene manifest、step traces | `results/jepa_safe_capture_v3_wp1_failure_index_current/`、索引 JSON/CSV、TensorBoard provenance | **已完成**：scene manifest 唯一、配对一致、源结果目录未修改 |
+| 3 | WP-B2 hard replay | 对代表性 degraded episode 逐步重放 belief -> JEPA -> ledger -> rank -> CBF -> action -> termination | replay JSONL、trace hash、因果审计 Markdown | 每个失败有唯一主因，或明确标记 `unresolved`；重复 replay 完全确定 |
 | 4 | WP-E1 候选可达性 | 在 JEPA 前检查 speed/acceleration/slew/finite/reachable | candidate feasibility 表、被拒候选原因 | 不可达候选 `0` 个进入 JEPA；可达率和拒绝原因可解释 |
 | 5 | WP-E2 排序诊断 | 统计 top-1 settled outcome、score margin、switch/oscillation、CBF correction | rank audit、candidate trace、分桶统计 | 排序信号与 settled safe outcome 的关系可解释；无安全回归 |
 | 6 | WP-D/F 可靠性与安全注入 | 注入 stale、OOD、non-finite、急转、延迟、QP timeout/infeasible | fault-injection report、reason-code 覆盖、延迟报告 | 所有异常均显式 fallback；不执行 raw/unverified action；端到端 p95 <= 100 ms |
@@ -40,7 +40,7 @@
 
 ### 0.1.2 当前工作日的停止点
 
-- 在 WP-B1 失败索引测试或 scene pairing 失败时停止，不运行 replay。
+- 在 WP-B1 失败索引测试或 scene pairing 失败时停止，不运行 replay。当前 WP-B1 已通过，可进入 WP-B2。
 - 在 WP-B2 无法确定失败因果链时标记 `unresolved`，不凭均值调 score 或 ledger 阈值。
 - 在 WP-E1 发现候选不可达时先修复候选生成/过滤，不让不可达动作进入 JEPA。
 - 在 WP-D/F 任一异常路径执行 raw/unverified action、缺少 reason code 或 p95 超时，停止所有 final block。
@@ -84,6 +84,9 @@
 - [x] WP3：checkpoint-bound reliability ledger v3，包含 OOD/stale/non-finite fallback 和 high-credit failure gate。
 - [x] P5 CBF 单元测试、确定性求解、显式 fallback 和 provenance/TensorBoard 审计。
 - [x] 新 development protocol：`configs/central_random_mixed_obstacle_s3_v3_development_protocol.yaml`。
+- [x] V3 failure-index 接口：支持 `auto|v2|v3`，并校验 V3 boundary-fixed 命名、三 seed、四变体和 episode 配对。
+- [x] V3 WP1 当前索引：12 个 smoke run、240 集；`safe_capture=89/240 (37.1%)`，`cbf_controlled_abort=143`，`timeout=8`。
+- [x] V3 WP1 审计产物：JSON/CSV/Markdown/provenance/TensorBoard 均已生成；TensorBoard 含 29 个 scalar tags 和必需 provenance text tags。
 
 ### 2.2 当前 smoke 证据（boundary-fixed，development-only）
 
@@ -114,9 +117,9 @@ defender 越界为 0。WP-H boundary-fixed smoke 也已完成，原始结果未�
 
 下一步固定为：
 
-1. WP-B：建立 failure index，hard replay 所有 degraded episodes；
-2. WP-E：检查候选动作块的可达性、score margin、切换和 CBF 修正；
-3. WP-D：根据证据校准 ledger temporal drift/abstain，但不得先调参追逐捕获率；
+1. WP-B2：对 failure index 中的代表性 degraded episodes 做双次 deterministic hard replay；
+2. WP-E：在 replay 证据基础上检查候选动作块的可达性、score margin、切换和 CBF 修正；
+3. WP-D/F：根据证据校准 ledger temporal drift/abstain 和 fault-injection fallback，但不得先调参追逐捕获率；
 4. 只有诊断完成后，才冻结 40-episode paired final development block。
 
 `locked_test_opened=false` 在整个流程中保持不变。
@@ -128,7 +131,7 @@ defender 越界为 0。WP-H boundary-fixed smoke 也已完成，原始结果未�
 | M3 任务性能回归 | 相对 M0 的 paired delta 为 `-10/-15/-25 pp`，总体 `-16.67 pp` | 先做 WP-B/WP-E 因果 replay，不先调阈值 |
 | CBF controlled abort 偏多 | M0 每 seed 为 `9/9/9`；M3 为 `11/13/14` | 检查候选可达性、修正 norm、active constraints 和 fallback reason |
 | ledger 机制是否过度保守 | A1 仅为 `31.7%`，没有显示去掉 ledger 能恢复性能 | 统计 `fallback_nominal`、credit drift、bucket coverage；不得凭直觉放宽门限 |
-| failure index 接口 | 现有索引脚本按旧 `v2_p6_paired_*` 命名发现运行目录，当前 smoke 是 `v3_wp6_*_boundaryfixed` | WP-B 第一步先适配脚本并加 v3 命名回归测试 |
+| failure index 接口 | 已完成 V3 目录发现、配对校验和回归测试 | 保留 v2 兼容；后续只扩展新 protocol，不覆盖当前索引 |
 | reliability fault injection | smoke 只证明已观测运行的安全/延迟/provenance；尚未覆盖所有 OOD、stale、non-finite 注入组合 | WP-D/WP-F 完成后才标记 reliability gate 完成 |
 
 因此，当前“可安全运行”不等于“已证明可部署”，当前“prediction gate 通过”也不等于
@@ -197,19 +200,21 @@ defender 越界为 0。WP-H boundary-fixed smoke 也已完成，原始结果未�
 
 **目标：** 把失败分解为预测漂移、ledger 错信、候选排序、CBF 过度修正、QP 不可行或任务几何原因。
 
-- [ ] 先让 `scripts/index_jepa_safe_capture_failures.py` 同时支持当前
+- [x] 让 `scripts/index_jepa_safe_capture_failures.py` 同时支持当前
   `jepa_safe_capture_v3_wp6_*_boundaryfixed` 目录和后续 `v3_wp7_*` 目录；
   保留旧 v2 输入兼容，并为目录发现、episode 数和 boundary 字段增加测试。
-- [ ] 使用适配后的索引脚本建立只读 failure index；索引过程不得修改任何源结果目录。
-- [ ] 每个类别至少选择 3 个代表 episode：遮挡/过期观测、CBF controlled abort、低净空、候选振荡、target motion shift。
+- [x] 使用适配后的索引脚本建立只读 failure index；索引过程不得修改任何源结果目录。
+- [ ] 从 `failure_index.csv` 固定选择 replay 集，不得临时按结果挑样本：M3 相对 M0 回归、high-credit abort、`fallback_nominal` abort、候选振荡、stale/noisy matched case、timeout 各至少 3 集；若类别不足，记录实际数量。
 - [ ] 按 `observation -> belief -> JEPA -> ledger -> rank -> CBF -> executed action -> termination` 逐步重放。
-- [ ] 记录 ledger state/credit、candidate score margin、selected candidate、CBF active constraints、correction norm、solver status、最小净空和终止原因。
+- [ ] 每个 step 记录 observation/message age、finite/OOD、candidate validity/reachability、candidate scores/margins、ledger state/credit/fallback reason、CBF active constraints/correction norm/feasibility/solver status、executed action 和 termination。
+- [ ] 每个样本至少执行两次 replay；保存输入哈希、逐步 trace 哈希、终止原因、动作序列哈希和环境版本。
 - [ ] 无法由 trace 证明的原因标记为 `unresolved`，不得强行归类。
 - [ ] 统计 high-credit failure、fallback 后安全率、candidate switch rate 和 CBF abort 关联。
 
 **验收：** 100% 失败 episode 有唯一主因或 `unresolved` 标签；同一 episode replay 两次的终止原因、动作和 trace hash 一致。
 
-**产物：** `results/jepa_safe_capture_v3_failure_index/`、`docs/JEPA_SAFE_CAPTURE_WP1_FAILURE_REPLAY_20260904.md`。
+**已完成产物：** `results/jepa_safe_capture_v3_wp1_failure_index_current/`（failure index、报告、provenance、TensorBoard）。
+**待完成产物：** `results/jepa_safe_capture_v3_wp1_failure_replay_current/`（replay JSONL、逐步 trace、哈希清单）、`docs/JEPA_SAFE_CAPTURE_WP1_FAILURE_REPLAY_20260904.md`。
 
 ## WP-C：JEPA reliability 增强（离线优先）
 
@@ -428,21 +433,41 @@ $env:PYTHONPATH = "$PWD\\src;$PWD\\scripts"
 & $py -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 git status --short
 
-# 1. 适配/测试 failure-index 后，先做 smoke 索引，不覆盖源目录
-& $py -m pytest -q tests/test_index_jepa_safe_capture_failures.py
+# 1. V3 failure-index 回归测试（当前已通过：8 passed）
+& $py -m pytest -q tests/test_jepa_safe_capture_wp1_failure_index.py
+
+# 2. 只读重建/核对当前索引；不要覆盖已有目录
 & $py scripts/index_jepa_safe_capture_failures.py `
   --input-root results `
-  --output-dir results/jepa_safe_capture_v3_failure_index `
-  --tensorboard-logdir results/jepa_safe_capture_v3_tensorboard/wp1_failure_index `
+  --input-format v3 `
+  --output-dir results/jepa_safe_capture_v3_wp1_failure_index_next `
+  --tensorboard-logdir results/jepa_safe_capture_v3_tensorboard/wp1_failure_index_next `
+  --freeze-manifest results/jepa_safe_capture_v3_wp0_baseline_freeze_20260904/manifest.json `
   --stage smoke --development-only
 
-# 2. hard replay 和候选可达性审计完成后，再运行完整测试
+# 3. WP-B2 hard replay 完成后，再运行候选可达性和完整测试
 & $py -m pytest -q
 ```
 
-若 `tests/test_index_jepa_safe_capture_failures.py` 尚不存在，先在 WP-B 创建它，
-不得用临时脚本绕过 failure-index 的命名、配对和 provenance 校验。若索引发现的
-运行目录不是同一 canonical scene manifest，立即停止并重建 paired block。
+索引产物必须写入新的空目录；不得用临时脚本绕过 failure-index 的命名、配对和
+provenance 校验。若索引发现的运行目录不是同一 canonical scene manifest，立即停止
+并重建 paired block。
+
+### 7.1.1 WP-B2 replay 命令模板
+
+以下命令是接口约定，脚本尚未完成前不得用手工 notebook 替代；命令执行仍保持
+`development_only=true` 和 `locked_test_opened=false`：
+
+```powershell
+& $py scripts/replay_jepa_safe_capture_failures.py `
+  --failure-index results/jepa_safe_capture_v3_wp1_failure_index_current/failure_index.csv `
+  --output-dir results/jepa_safe_capture_v3_wp1_failure_replay_current `
+  --tensorboard-logdir results/jepa_safe_capture_v3_tensorboard/wp1_failure_replay_current `
+  --repeats 2 --development-only
+```
+
+Replay 必须拒绝缺失 source trace、scene hash 不匹配、episode seed 不匹配、非 finite
+动作或 locked-test 标记；失败样本可以输出 `unresolved`，但不得静默跳过。
 
 ### 7.2 final block 的准入命令模板
 
