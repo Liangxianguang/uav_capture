@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import torch
@@ -711,6 +711,8 @@ class JEPACandidateSelection:
     ledger_used_global_fallback: bool = False
     ledger_key: str | None = None
     predicted_min_clearance_m: float | None = None
+    candidate_chunk_length_steps: int = 1
+    candidate_chunk_is_constant: bool = True
 
 
 class ActionConditionedCandidateReranker:
@@ -749,12 +751,18 @@ class ActionConditionedCandidateReranker:
         observation: dict[str, Any],
         candidate_actions: np.ndarray,
     ) -> tuple[np.ndarray, JEPACandidateSelection]:
-        candidates = np.asarray(candidate_actions, dtype=np.float32)
-        if candidates.ndim != 3 or candidates.shape[1:] != (self.observer.env.n_defenders, 3):
+        raw_candidates = np.asarray(candidate_actions)
+        if raw_candidates.ndim != 3 or raw_candidates.shape[1:] != (self.observer.env.n_defenders, 3):
             raise ValueError(
                 "Expected candidate actions shaped "
-                f"[K, {self.observer.env.n_defenders}, 3], got {candidates.shape}."
+                f"[K, {self.observer.env.n_defenders}, 3], got {raw_candidates.shape}."
             )
+        if not np.isfinite(raw_candidates).all():
+            raise ValueError("Candidate actions must be finite.")
+        # JEPA inference uses float32, but preserve the action representation
+        # selected for CBF.  In particular, a zero-perturbation chunk must
+        # reach CBF with the same float64 speed projection as the baseline.
+        candidates = raw_candidates.astype(np.float32, copy=False)
         auxiliary: dict[str, np.ndarray] | None = None
         if self.reliability_ledger is None:
             means, stds = self.observer.predict_candidates(candidates)
@@ -821,7 +829,37 @@ class ActionConditionedCandidateReranker:
             ledger_key=ledger_key,
             predicted_min_clearance_m=predicted_min_clearance_m,
         )
-        return candidates[selected_index].copy(), diagnostics
+        return raw_candidates[selected_index].copy(), diagnostics
+
+    def select_constant_action_chunks(
+        self,
+        observation: dict[str, Any],
+        candidate_action_chunks: np.ndarray,
+    ) -> tuple[np.ndarray, JEPACandidateSelection]:
+        """Rank constant desired-action chunks and return only the first step.
+
+        The JEPA-v3 chunk dataset labels the consequence of holding each
+        desired action constant for the configured short chunk.  Runtime still
+        executes only the selected first action, then observes and replans; it
+        therefore never commits stale future actions or bypasses the CBF call
+        made by the evaluator immediately after this method returns.
+        """
+        chunks = np.asarray(candidate_action_chunks)
+        if chunks.ndim != 4 or chunks.shape[2:] != (self.observer.env.n_defenders, 3):
+            raise ValueError(
+                "Expected constant candidate chunks shaped "
+                f"[K, steps, {self.observer.env.n_defenders}, 3], got {chunks.shape}."
+            )
+        if chunks.shape[1] <= 0 or not np.isfinite(chunks).all():
+            raise ValueError("Candidate chunks must have positive length and finite values.")
+        if not np.allclose(chunks, chunks[:, :1], rtol=0.0, atol=1e-7):
+            raise ValueError("JEPA-v3 constant-chunk reranking does not accept time-varying action chunks.")
+        action, selection = self.select(observation, chunks[:, 0])
+        return action, replace(
+            selection,
+            candidate_chunk_length_steps=int(chunks.shape[1]),
+            candidate_chunk_is_constant=True,
+        )
 
 
 def make_action_candidates(
@@ -842,3 +880,34 @@ def make_action_candidates(
         sign = 1.0 if ((candidate - 1) // 3) % 2 == 0 else -1.0
         offsets[candidate] = sign * float(perturbation_mps) * axis[None, :]
     return desired[None, :, :] + offsets
+
+
+def make_constant_action_chunks(
+    desired_actions: np.ndarray,
+    *,
+    chunk_length_steps: int,
+    perturbation_mps: float = 0.60,
+    candidate_count: int = 5,
+    max_speed_mps: float,
+) -> np.ndarray:
+    """Create speed-feasible constant desired-action chunks for JEPA-v3.
+
+    The first candidate is the frozen actor's nominal action. The others use
+    deterministic local offsets and are clipped to the environment's
+    velocity-level speed contract. A chunk is deliberately constant: P5 has
+    counterfactual labels for that exact intervention and executes only its
+    first action before replanning.
+    """
+    if chunk_length_steps <= 0 or max_speed_mps <= 0.0:
+        raise ValueError("chunk_length_steps and max_speed_mps must be positive.")
+    candidates = make_action_candidates(
+        desired_actions,
+        perturbation_mps=perturbation_mps,
+        candidate_count=candidate_count,
+    ).astype(np.float64, copy=False)
+    norms = np.linalg.norm(candidates, axis=-1, keepdims=True)
+    candidates = candidates * np.minimum(1.0, float(max_speed_mps) / np.maximum(norms, 1e-12))
+    chunks = np.repeat(candidates[:, None, :, :], int(chunk_length_steps), axis=1)
+    if not np.isfinite(chunks).all():
+        raise RuntimeError("Constant action chunks contain non-finite values.")
+    return chunks

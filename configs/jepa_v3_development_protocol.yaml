@@ -95,6 +95,20 @@ hard_example_replay:
   include_collision_or_boundary_labels: true
   do_not_change_validation_or_development_data: true
 
+action_chunk_reranking:
+  development_only: true
+  enabled_after_p4_decision: true
+  allowed_chunk_lengths_steps: [1, 3, 5]
+  first_development_chunk_length_steps: 3
+  candidate_count: 5
+  candidate_perturbation_mps: 0.10
+  candidate_semantics: constant_desired_action_chunk_execute_first_step_then_replan
+  require_speed_feasibility_before_jepa: true
+  execute_only_first_step_then_reobserve: true
+  cbf_after_reranking: true
+  require_zero_perturbation_regression: true
+  prohibit_locked_test: true
+
 development_gates:
   smoke_episodes: 20
   full_episodes: 60

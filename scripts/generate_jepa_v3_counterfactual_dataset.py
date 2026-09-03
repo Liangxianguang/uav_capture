@@ -2,9 +2,11 @@
 
 For each retained policy-safe state, this generator evaluates a nominal action
 and deterministic local alternatives in cloned simulator states.  Simulator
-truth is used solely to form offline labels.  The deployed model receives only
-the local observation history, past executed actions, and the final desired
-candidate action; the CBF remains outside the learned model.
+truth is used solely to form offline labels. The deployed model receives only
+the local observation history, past executed actions, and the first desired
+action of a constant candidate chunk; the label records the consequence of
+holding that desired action for the configured short chunk. CBF remains
+outside the learned model.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from encirclement3d.observation_encoding import policy_observations  # noqa: E402
-from encirclement3d.prediction import make_action_candidates  # noqa: E402
+from encirclement3d.prediction import make_constant_action_chunks  # noqa: E402
 from encirclement3d.pursuit_controllers import DynamicEncirclementController, PursuitCBFSafetyFilter  # noqa: E402
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
 
@@ -152,13 +154,24 @@ def _roll_counterfactual(
     env: CaptureRadiusPursuit3DEnv,
     controller: DynamicEncirclementController,
     observation: dict[str, Any],
-    candidate: np.ndarray,
+    candidate_chunk: np.ndarray,
     horizon_steps: list[int],
     chunk_length_steps: int,
     clearance_clip_m: float,
     extent: float,
 ) -> dict[str, np.ndarray]:
-    """Execute one desired candidate then a policy continuation in a cloned state."""
+    """Execute a constant desired-action chunk then a policy continuation."""
+    # Preserve the speed-feasible float64 action passed to CBF. The model's
+    # recorded action history remains float32, but changing rollout precision
+    # here would make its labels differ from runtime zero-perturbation control.
+    chunk = np.asarray(candidate_chunk)
+    if chunk.shape != (chunk_length_steps, env.n_defenders, 3):
+        raise ValueError(
+            "Counterfactual candidate chunk shape must be "
+            f"({chunk_length_steps}, {env.n_defenders}, 3), got {chunk.shape}."
+        )
+    if not np.allclose(chunk, chunk[:1], rtol=0.0, atol=1e-7):
+        raise ValueError("JEPA-v3 chunk collection requires constant desired-action chunks.")
     clone = copy.deepcopy(env)
     clone_observation = copy.deepcopy(observation)
     continuation = _clone_controller(controller, clone)
@@ -166,7 +179,7 @@ def _roll_counterfactual(
     maximum_horizon = max(horizon_steps)
     by_step: dict[int, dict[str, np.ndarray]] = {}
     for step in range(1, maximum_horizon + 1):
-        desired = np.asarray(candidate, dtype=np.float64) if step <= chunk_length_steps else continuation.act(clone_observation)
+        desired = np.asarray(chunk[step - 1], dtype=np.float64) if step <= chunk_length_steps else continuation.act(clone_observation)
         executed, diagnostics = safety_filter.filter(desired, clone_observation)
         clone_observation, _reward, _terminated, _truncated, info = clone.step(executed)
         obstacle, teammate = _per_defender_clearances(clone, clearance_clip_m)
@@ -291,17 +304,19 @@ def collect(
             for time_index in range(env.max_steps):
                 desired = np.asarray(controller.act(observation), dtype=np.float32)
                 if time_index >= history_length - 1 and (time_index - (history_length - 1)) % sample_stride == 0:
-                    candidates = make_action_candidates(
+                    candidate_chunks = make_constant_action_chunks(
                         desired,
+                        chunk_length_steps=chunk_length_steps,
                         perturbation_mps=perturbation_mps,
                         candidate_count=candidate_count,
+                        max_speed_mps=float(env.agents["defender_max_speed"]),
                     )
-                    for candidate_index, candidate in enumerate(candidates):
+                    for candidate_index, candidate_chunk in enumerate(candidate_chunks):
                         labels = _roll_counterfactual(
                             env,
                             controller,
                             observation,
-                            candidate,
+                            candidate_chunk,
                             horizon_steps,
                             chunk_length_steps,
                             clearance_clip_m,
@@ -311,7 +326,7 @@ def collect(
                             samples,
                             observations,
                             executed_actions,
-                            candidate,
+                            candidate_chunk[0],
                             labels,
                             seed,
                             scenario_index,
@@ -345,6 +360,8 @@ def collect(
         "candidate_perturbation_mps": perturbation_mps,
         "sample_stride": sample_stride,
         "chunk_length_steps": chunk_length_steps,
+        "candidate_action_semantics": "constant_desired_action_chunk_execute_first_step_then_replan",
+        "candidate_chunk_is_constant": True,
         "clearance_clip_m": clearance_clip_m,
         "action_history_normalization": "actions_divided_by_frozen_actor_action_scale",
         "action_scale": action_scale,
@@ -411,6 +428,7 @@ def main() -> None:
                     PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_env.py",
                     PROJECT_ROOT / "src" / "encirclement3d" / "pursuit_controllers.py",
                     PROJECT_ROOT / "src" / "encirclement3d" / "observation_encoding.py",
+                    PROJECT_ROOT / "src" / "encirclement3d" / "prediction.py",
                 )
             },
             "collection_config_sha256": _sha256(args.collection_config.resolve()),

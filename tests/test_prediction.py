@@ -16,6 +16,7 @@ from encirclement3d.prediction import (
     deterministic_mse,
     gaussian_nll,
     make_action_candidates,
+    make_constant_action_chunks,
 )
 from encirclement3d.reliability import ReliabilityLedger, make_global_key
 from encirclement3d.learning import RecurrentCentralizedSharedActorCritic
@@ -161,6 +162,40 @@ def test_action_conditioned_candidate_history_keeps_outgoing_action_alignment() 
     np.testing.assert_allclose(past_actions[:, -1], action / 5.0)
     candidates = make_action_candidates(np.zeros((4, 3), dtype=np.float32), perturbation_mps=0.0, candidate_count=2)
     history.predict_candidates(candidates)
+
+
+def test_constant_action_chunks_are_speed_feasible_and_execute_only_the_first_step() -> None:
+    config = yaml.safe_load(
+        (PROJECT_ROOT / "configs" / "capture_radius_pursuit_central_v4_flee.yaml").read_text(encoding="utf-8")
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=1, target_speed_scale=0.45)
+    observation = env.reset(seed=520208)
+    base = __import__("encirclement3d.observation_encoding", fromlist=["policy_observations"]).policy_observations(
+        env, observation
+    )
+    model = ActionConditionedJEPAPredictor(63, 4, hidden_dim=8, latent_dim=6)
+    history = ActionConditionedCandidateHistory(env, model, torch.device("cpu"), history_length=8, action_scale=5.0)
+    history.reset(base)
+    chunks = make_constant_action_chunks(
+        np.full((4, 3), 8.0, dtype=np.float32),
+        chunk_length_steps=3,
+        perturbation_mps=0.2,
+        candidate_count=5,
+        max_speed_mps=5.0,
+    )
+    assert chunks.shape == (5, 3, 4, 3)
+    assert chunks.dtype == np.float64
+    assert np.allclose(chunks, chunks[:, :1])
+    assert np.all(np.linalg.norm(chunks, axis=-1) <= 5.0 + 1e-6)
+    expected_nominal = env._clip_rows(np.full((4, 3), 8.0, dtype=np.float64), 5.0)
+    np.testing.assert_array_equal(chunks[0, 0], expected_nominal)
+    reranker = ActionConditionedCandidateReranker(history, horizon_seconds=0.5, position_extent=10.0)
+    action, selection = reranker.select_constant_action_chunks(observation, chunks)
+    assert action.shape == (4, 3)
+    assert action.dtype == np.float64
+    np.testing.assert_array_equal(action, chunks[selection.selected_index, 0])
+    assert selection.candidate_chunk_length_steps == 3
+    assert selection.candidate_chunk_is_constant is True
 
 
 def test_interaction_aware_jepa_uses_structured_groups_and_factory() -> None:

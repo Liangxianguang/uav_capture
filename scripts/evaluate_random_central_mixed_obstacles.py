@@ -78,6 +78,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--jepa-uncertainty-weight", type=float, default=0.10)
     parser.add_argument("--jepa-action-change-weight", type=float, default=0.02)
     parser.add_argument(
+        "--jepa-action-chunk-length",
+        type=int,
+        choices=(1, 3, 5),
+        default=1,
+        help="Constant desired-action chunk length. Only its first step is executed before replanning and CBF.",
+    )
+    parser.add_argument(
         "--jepa-reliability-ledger",
         type=Path,
         help="Read-only execution-settled ledger. Low-credit contexts fall back to the frozen nominal action before CBF.",
@@ -167,6 +174,20 @@ def load_action_conditioned_jepa(
     model = build_action_conditioned_predictor(str(model_type), model_config)
     model.load_state_dict(state_dict, strict=True)
     return model.to(device).eval()
+
+
+def validate_action_chunk_checkpoint_contract(checkpoint_path: Path, chunk_length_steps: int) -> None:
+    """Require a model trained with the same constant-chunk semantics."""
+    if chunk_length_steps == 1:
+        return
+    checkpoint = torch.load(checkpoint_path.resolve(), map_location="cpu", weights_only=True)
+    train_metadata = checkpoint.get("train_metadata")
+    if not isinstance(train_metadata, dict):
+        raise ValueError("Action-chunk reranking requires checkpoint train metadata.")
+    if int(train_metadata.get("chunk_length_steps", -1)) != int(chunk_length_steps):
+        raise ValueError("JEPA checkpoint chunk_length_steps does not match --jepa-action-chunk-length.")
+    if train_metadata.get("candidate_action_semantics") != "constant_desired_action_chunk_execute_first_step_then_replan":
+        raise ValueError("JEPA checkpoint was not trained with the P5 constant action-chunk contract.")
 
 
 def _sha256(path: Path) -> str:
@@ -346,6 +367,10 @@ def main() -> None:
     )
     if jepa_checkpoint is not None and not jepa_checkpoint.is_file():
         raise FileNotFoundError(f"Action-conditioned JEPA checkpoint does not exist: {jepa_checkpoint}")
+    if args.split == "locked_test" and jepa_checkpoint is not None:
+        raise ValueError("JEPA candidate reranking is development-only and may not open the locked test.")
+    if jepa_checkpoint is not None:
+        validate_action_chunk_checkpoint_contract(jepa_checkpoint, args.jepa_action_chunk_length)
     if args.jepa_reliability_ledger is not None and jepa_checkpoint is None:
         raise ValueError("jepa-reliability-ledger requires action-conditioned-jepa-checkpoint.")
     reliability_ledger_path = args.jepa_reliability_ledger.resolve() if args.jepa_reliability_ledger is not None else None
@@ -461,6 +486,7 @@ def main() -> None:
                 jepa_uncertainty_weight=args.jepa_uncertainty_weight,
                 jepa_action_change_weight=args.jepa_action_change_weight,
                 jepa_reliability_ledger=reliability_ledger,
+                jepa_action_chunk_length=args.jepa_action_chunk_length,
             )
         metadata = scenario_metadata(scenario)
         row.update(
@@ -545,6 +571,14 @@ def main() -> None:
                 "jepa_perturbation_mps": args.jepa_perturbation_mps if jepa_predictor is not None else None,
                 "jepa_uncertainty_weight": args.jepa_uncertainty_weight if jepa_predictor is not None else None,
                 "jepa_action_change_weight": args.jepa_action_change_weight if jepa_predictor is not None else None,
+                "jepa_action_chunk_length_steps": args.jepa_action_chunk_length if jepa_predictor is not None else None,
+                "jepa_action_chunk_semantics": (
+                    "constant_desired_action_chunk_execute_first_step_then_replan"
+                    if jepa_predictor is not None and args.jepa_action_chunk_length > 1
+                    else "single_step_candidate"
+                    if jepa_predictor is not None
+                    else None
+                ),
                 "jepa_reliability_ledger": str(reliability_ledger_path) if reliability_ledger_path is not None else None,
                 "jepa_reliability_ledger_enabled": reliability_ledger is not None,
                 "recurrent_reset_interval_steps": recurrent_reset_interval,

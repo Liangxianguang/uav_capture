@@ -128,6 +128,27 @@ def load_dataset(path: Path, metadata_path: Path, required_split: str) -> tuple[
     return tensors, metadata
 
 
+def validate_paired_dataset_contract(train_metadata: dict[str, Any], validation_metadata: dict[str, Any]) -> None:
+    """Reject train/validation pairs collected under different action contracts."""
+    fields = (
+        "history_length",
+        "candidate_count",
+        "candidate_perturbation_mps",
+        "chunk_length_steps",
+        "candidate_action_semantics",
+        "candidate_chunk_is_constant",
+        "action_history_normalization",
+        "action_scale",
+    )
+    mismatch = {
+        field: {"train": train_metadata.get(field), "validation": validation_metadata.get(field)}
+        for field in fields
+        if train_metadata.get(field) != validation_metadata.get(field)
+    }
+    if mismatch:
+        raise ValueError(f"Train/validation counterfactual contracts differ: {mismatch}")
+
+
 class MixedReplaySampler(Sampler[int]):
     """Deterministically mix a uniform pool with weighted hard-example draws."""
 
@@ -340,6 +361,14 @@ def main() -> None:
     validation_tensors, validation_metadata = load_dataset(
         args.validation_dataset.resolve(), args.validation_metadata.resolve(), "validation"
     )
+    validate_paired_dataset_contract(train_metadata, validation_metadata)
+    chunk_length = int(train_metadata.get("chunk_length_steps", 1))
+    if chunk_length > 1:
+        chunk_policy = protocol.get("action_chunk_reranking", {})
+        if chunk_policy.get("candidate_semantics") != train_metadata.get("candidate_action_semantics"):
+            raise ValueError("Protocol and dataset action-chunk semantics differ.")
+        if chunk_length not in [int(value) for value in chunk_policy.get("allowed_chunk_lengths_steps", [])]:
+            raise ValueError("Dataset chunk_length_steps is not allowed by the P5 protocol.")
     replay_weights: torch.Tensor | None = None
     replay_manifest: dict[str, Any] | None = None
     replay_uniform_fraction = 0.50

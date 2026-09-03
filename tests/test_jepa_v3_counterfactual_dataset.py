@@ -38,3 +38,16 @@ def test_counterfactual_action_history_uses_runtime_action_normalization() -> No
     np.testing.assert_allclose(samples["action_history"][0][0], np.full(3, 0.2, dtype=np.float32))
     np.testing.assert_allclose(samples["action_history"][0][-1], np.ones(3, dtype=np.float32))
     assert np.isclose(samples["candidate_action_norm_mps"][0], np.sqrt(75.0))
+
+
+def test_counterfactual_candidate_groups_are_complete_without_contiguous_row_assumption() -> None:
+    # Collection loops over candidates and then defenders, so one group need
+    # not occupy five consecutive rows. Group by its explicit state-agent key.
+    episode_seed = np.array([7, 7, 7, 8, 8, 8])
+    time_index = np.array([3, 3, 3, 4, 4, 4])
+    agent_id = np.array([0, 0, 0, 1, 1, 1])
+    candidate_index = np.array([2, 0, 1, 1, 2, 0])
+    keys = np.stack([episode_seed, time_index, agent_id], axis=1)
+    _groups, inverse = np.unique(keys, axis=0, return_inverse=True)
+    for group in range(int(np.max(inverse)) + 1):
+        np.testing.assert_array_equal(np.sort(candidate_index[inverse == group]), np.arange(3))

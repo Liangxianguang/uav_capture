@@ -25,6 +25,7 @@ from encirclement3d.prediction import (  # noqa: E402
     ActionConditionedCandidateReranker,
     ActionConditionedJEPAPredictor,
     make_action_candidates,
+    make_constant_action_chunks,
 )
 from encirclement3d.reliability import ReliabilityLedger  # noqa: E402
 from encirclement3d.pursuit_controllers import (  # noqa: E402
@@ -249,6 +250,14 @@ def _finalize_showcase_row(
     return row
 
 
+def requires_zero_perturbation_identity_bypass(
+    jepa_predictor: ActionConditionedJEPAPredictor | None,
+    perturbation_mps: float,
+) -> bool:
+    """Keep the nominal actor-to-CBF path bit-stable for zero-regression."""
+    return bool(jepa_predictor is not None and float(perturbation_mps) == 0.0)
+
+
 def rollout_showcase(
     policy: Any,
     config: dict[str, Any],
@@ -267,9 +276,21 @@ def rollout_showcase(
     jepa_uncertainty_weight: float = 0.10,
     jepa_action_change_weight: float = 0.02,
     jepa_reliability_ledger: ReliabilityLedger | None = None,
+    jepa_action_chunk_length: int = 1,
 ) -> tuple[dict[str, Any], CaptureRadiusPursuit3DEnv]:
     if recurrent_reset_interval is not None and recurrent_reset_interval <= 0:
         raise ValueError("recurrent_reset_interval must be positive when provided.")
+    if jepa_action_chunk_length not in {1, 3, 5}:
+        raise ValueError("jepa_action_chunk_length must be one of 1, 3, or 5.")
+    if jepa_action_chunk_length > 1 and jepa_predictor is None:
+        raise ValueError("Action chunks require an action-conditioned JEPA predictor.")
+    # This is a regression-only identity mode.  At zero perturbation every
+    # candidate would be nominal, so entering the reranker would only change
+    # numeric representation before CBF and defeat a strict nominal replay.
+    # Non-zero action-conditioned control never takes this path.
+    jepa_zero_perturbation_identity_bypass = requires_zero_perturbation_identity_bypass(
+        jepa_predictor, jepa_perturbation_mps
+    )
     env = CaptureRadiusPursuit3DEnv(
         config,
         obstacle_count=len(scenario.obstacles),
@@ -288,7 +309,7 @@ def rollout_showcase(
             history_length=jepa_history_length,
             action_scale=action_scale,
         )
-        if jepa_predictor is not None
+        if jepa_predictor is not None and not jepa_zero_perturbation_identity_bypass
         else None
     )
     jepa_reranker = (
@@ -342,12 +363,22 @@ def rollout_showcase(
             desired_action = torch.tanh(distribution.mean).cpu().numpy() * action_scale
             action = desired_action
             if jepa_reranker is not None:
-                candidates = make_action_candidates(
-                    desired_action,
-                    perturbation_mps=jepa_perturbation_mps,
-                    candidate_count=jepa_candidate_count,
-                )
-                action, selection = jepa_reranker.select(observation, candidates)
+                if jepa_action_chunk_length == 1:
+                    candidates = make_action_candidates(
+                        desired_action,
+                        perturbation_mps=jepa_perturbation_mps,
+                        candidate_count=jepa_candidate_count,
+                    )
+                    action, selection = jepa_reranker.select(observation, candidates)
+                else:
+                    candidate_chunks = make_constant_action_chunks(
+                        desired_action,
+                        chunk_length_steps=jepa_action_chunk_length,
+                        perturbation_mps=jepa_perturbation_mps,
+                        candidate_count=jepa_candidate_count,
+                        max_speed_mps=float(env.agents["defender_max_speed"]),
+                    )
+                    action, selection = jepa_reranker.select_constant_action_chunks(observation, candidate_chunks)
                 jepa_selection_indices.append(int(selection.selected_index))
                 jepa_selection_scores.append(float(selection.scores[selection.selected_index]))
                 if selection.ledger_credit is not None:
@@ -403,15 +434,24 @@ def rollout_showcase(
         "use_cbf": bool(use_cbf),
         "recurrent_reset_interval_steps": recurrent_reset_interval,
         "recurrent_hidden_resets": recurrent_hidden_resets,
-        "jepa_enabled": jepa_reranker is not None,
-        "jepa_candidate_count": jepa_candidate_count if jepa_reranker is not None else None,
-        "jepa_perturbation_mps": jepa_perturbation_mps if jepa_reranker is not None else None,
+        "jepa_enabled": jepa_predictor is not None,
+        "jepa_candidate_count": jepa_candidate_count if jepa_predictor is not None else None,
+        "jepa_perturbation_mps": jepa_perturbation_mps if jepa_predictor is not None else None,
+        "jepa_action_chunk_length_steps": jepa_action_chunk_length if jepa_predictor is not None else None,
+        "jepa_action_chunk_semantics": (
+            "constant_desired_action_chunk_execute_first_step_then_replan"
+            if jepa_predictor is not None and jepa_action_chunk_length > 1
+            else "single_step_candidate"
+            if jepa_predictor is not None
+            else None
+        ),
         "jepa_mean_selected_index": float(np.mean(jepa_selection_indices)) if jepa_selection_indices else None,
         "jepa_mean_selected_score": float(np.mean(jepa_selection_scores)) if jepa_selection_scores else None,
         "jepa_reliability_ledger_enabled": jepa_reliability_ledger is not None,
         "jepa_ledger_mean_credit": float(np.mean(jepa_ledger_credits)) if jepa_ledger_credits else None,
         "jepa_ledger_nominal_fallback_fraction": float(np.mean(jepa_ledger_fallbacks)) if jepa_ledger_fallbacks else None,
         "jepa_ledger_global_fallback_fraction": float(np.mean(jepa_ledger_global_fallbacks)) if jepa_ledger_global_fallbacks else None,
+        "jepa_zero_perturbation_identity_bypass": jepa_zero_perturbation_identity_bypass,
     }
     return _finalize_showcase_row(
         row,

@@ -15,10 +15,18 @@ from scripts.evaluate_random_central_mixed_obstacles import (
     resolved_episode_count,
     summarize_rows,
 )
+from scripts.run_mixed_obstacle_showcase import requires_zero_perturbation_identity_bypass
 from encirclement3d.observation_encoding import policy_observations
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_zero_perturbation_identity_bypass_only_applies_to_enabled_jepa() -> None:
+    predictor = object()
+    assert requires_zero_perturbation_identity_bypass(predictor, 0.0) is True
+    assert requires_zero_perturbation_identity_bypass(predictor, 1e-12) is False
+    assert requires_zero_perturbation_identity_bypass(None, 0.0) is False
 
 
 def showcase_config() -> dict:
