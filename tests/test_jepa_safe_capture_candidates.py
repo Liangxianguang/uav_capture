@@ -225,6 +225,41 @@ def test_ranker_tie_tolerance_covers_cpu_cuda_roundoff_scale() -> None:
     assert 2.05e-4 <= config.score_tie_tolerance_m
 
 
+def test_ranker_abstains_to_nominal_when_top_two_margin_is_small() -> None:
+    history = _FakeHistory()
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 1.0
+    result = SafeCaptureJEPARanker(
+        history,
+        config=SafeCaptureRankerConfig(top_two_abstention_margin_m=10.0),
+    ).rank(_observation(), _batch(actions))
+
+    assert result.selected_index == 0
+    assert result.execution_mode == "fallback_nominal"
+    assert result.fallback_reason == "top_two_margin_abstention"
+    assert result.trace.rank_abstention_reason == "top_two_margin_abstention"
+
+
+def test_ranker_exposes_hold_and_hysteresis_inputs_without_changing_cbf_boundary() -> None:
+    history = _FakeHistory()
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 1.0
+    result = SafeCaptureJEPARanker(
+        history,
+        config=SafeCaptureRankerConfig(candidate_hysteresis_margin_m=10.0, minimum_hold_steps=2),
+    ).rank(
+        _observation(),
+        _batch(actions),
+        previous_selected_index=1,
+        hold_steps_remaining=2,
+    )
+
+    assert result.selected_index == 1
+    assert result.execution_mode == "trusted"
+    assert result.trace.hysteresis_applied is False
+    assert result.trace.hold_steps_remaining == 1
+
+
 def test_projected_candidates_use_the_reachable_first_step_envelope() -> None:
     nominal = np.full((2, 3), 5.0, dtype=np.float64)
     previous = np.zeros_like(nominal)

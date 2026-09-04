@@ -19,7 +19,7 @@ import platform
 import subprocess
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Mapping
@@ -135,6 +135,28 @@ def _fresh(path: Path, label: str) -> Path:
     return resolved
 
 
+def _raw_unverified_executed(
+    *,
+    safety_filter_enabled: bool,
+    diagnostics: Any,
+) -> bool:
+    """Return whether the executed command bypassed a verified safety path.
+
+    ``controlled_abort`` deliberately returns a finite emergency command while
+    reporting ``verified_feasible=False``. It is a safety failure and must
+    invalidate ``safe_capture``, but it is not the requested raw command. The
+    explicit fallback modes are therefore kept separate from a true raw
+    execution (including the A3 no-CBF diagnostic).
+    """
+
+    if not safety_filter_enabled or diagnostics is None:
+        return True
+    if bool(getattr(diagnostics, "verified_feasible", False)):
+        return False
+    fallback_mode = str(getattr(diagnostics, "fallback_mode", ""))
+    return fallback_mode not in {"safe_hold", "nominal_cbf", "controlled_abort"}
+
+
 def _scene_hash(metadata: Mapping[str, Any]) -> str:
     payload = json.dumps(_jsonable(metadata), sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
@@ -218,20 +240,40 @@ def _load_ledger(path: Path, checkpoint_path: Path) -> SafeCaptureReliabilityLed
     return ledger
 
 
-def _ranker_config(variant: str) -> SafeCaptureRankerConfig:
+def _ranker_config(
+    variant: str,
+    ranking_contract: Mapping[str, Any] | None = None,
+) -> SafeCaptureRankerConfig:
     # M1/M2 retain target and uncertainty terms but remove auxiliary safety
     # terms from the score. M3/A1 use the complete frozen score. A2 removes
     # only clearance and visibility terms while retaining TTC and CBF-risk.
     if variant in {"m1", "m2"}:
-        return SafeCaptureRankerConfig(
+        base = SafeCaptureRankerConfig(
             clearance_weight=0.0,
             ttc_weight=0.0,
             visibility_weight=0.0,
             cbf_risk_weight=0.0,
         )
-    if variant == "a2":
-        return SafeCaptureRankerConfig(clearance_weight=0.0, visibility_weight=0.0)
-    return SafeCaptureRankerConfig()
+    elif variant == "a2":
+        base = SafeCaptureRankerConfig(clearance_weight=0.0, visibility_weight=0.0)
+    else:
+        base = SafeCaptureRankerConfig()
+    contract = dict(ranking_contract or {})
+    profile = str(contract.pop("profile", "legacy"))
+    if profile not in {"legacy", "p11_conservative_v1"}:
+        raise ValueError(f"Unknown candidate_ranking profile: {profile}")
+    allowed = {
+        "score_tie_tolerance_m",
+        "top_two_abstention_margin_m",
+        "minimum_predicted_clearance_m",
+        "candidate_hysteresis_margin_m",
+        "minimum_hold_steps",
+    }
+    unknown = sorted(set(contract).difference(allowed))
+    if unknown:
+        raise ValueError(f"Unknown candidate_ranking fields: {unknown}")
+    values = {name: contract[name] for name in allowed if name in contract}
+    return replace(base, **values) if values else base
 
 
 def _variant_contract(variant: str) -> dict[str, Any]:
@@ -388,6 +430,7 @@ def _run_episode(
     ledger: SafeCaptureReliabilityLedger | None,
     history_length: int,
     recurrent_reset_interval: int | None,
+    ranker_config: SafeCaptureRankerConfig | None,
     output_dir: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     episode_index = int(manifest_item["episode_index"])
@@ -424,7 +467,7 @@ def _run_episode(
         }
         ranker = SafeCaptureJEPARanker(
             candidate_history,
-            config=_ranker_config(str(contract["variant"])),
+            config=ranker_config or _ranker_config(str(contract["variant"])),
             reliability_ledger=ledger if contract["use_ledger"] else None,
             context_defaults=context_defaults,
         )
@@ -436,6 +479,8 @@ def _run_episode(
     # rejecting that request before CBF would trap every JEPA variant in
     # permanent safe-hold from step one.
     previous_action = np.asarray(env.defender_velocities, dtype=np.float64).copy()
+    previous_selected_index: int | None = None
+    hold_steps_remaining = 0
     candidate_config = SafeCaptureCandidateConfig(
         candidate_count=5,
         chunk_length_steps=3,
@@ -464,6 +509,7 @@ def _run_episode(
     cbf_timeout_steps = 0
     cbf_abort_steps = 0
     cbf_unverified_steps = 0
+    raw_unverified_executed_steps = 0
     cbf_fallback_steps = 0
     cbf_intervention_steps = 0
     rank_fallback_steps = 0
@@ -494,7 +540,13 @@ def _run_episode(
                 config=candidate_config,
                 previous_action=previous_action,
             )
-            rank_result = ranker.rank(observation, batch, previous_action=previous_action)
+            rank_result = ranker.rank(
+                observation,
+                batch,
+                previous_action=previous_action,
+                previous_selected_index=previous_selected_index,
+                hold_steps_remaining=hold_steps_remaining,
+            )
             requested_action = np.asarray(rank_result.selected_action, dtype=np.float64)
             selected_indices.append(int(rank_result.selected_index))
             ledger_states.extend(list(rank_result.trace.ledger_states))
@@ -502,6 +554,15 @@ def _run_episode(
                 rank_fallback_steps += 1
             if rank_result.execution_mode == "safe_hold":
                 safe_hold_steps += 1
+            if rank_result.execution_mode == "trusted":
+                if previous_selected_index != int(rank_result.selected_index):
+                    hold_steps_remaining = int(ranker.config.minimum_hold_steps)
+                else:
+                    hold_steps_remaining = int(rank_result.trace.hold_steps_remaining)
+                previous_selected_index = int(rank_result.selected_index)
+            else:
+                previous_selected_index = 0
+                hold_steps_remaining = 0
         diagnostics = None
         if safety_filter is not None:
             execution_mode = "safe_hold" if rank_result is not None and rank_result.execution_mode == "safe_hold" else "normal"
@@ -527,9 +588,19 @@ def _run_episode(
                 cbf_unverified_steps += 1
             if diagnostics.fallback_mode == "controlled_abort":
                 cbf_abort_steps += 1
+            raw_unverified_executed = _raw_unverified_executed(
+                safety_filter_enabled=True,
+                diagnostics=diagnostics,
+            )
         else:
             action = requested_action
             fallback_modes.append("none")
+            raw_unverified_executed = _raw_unverified_executed(
+                safety_filter_enabled=False,
+                diagnostics=None,
+            )
+        if raw_unverified_executed:
+            raw_unverified_executed_steps += 1
         if not np.isfinite(action).all():
             raise RuntimeError("Execution action became non-finite.")
         observation, _reward, terminated, truncated, final_info = env.step(action, record_history=True)
@@ -555,6 +626,7 @@ def _run_episode(
                 "reachable_nominal_action": reachable_nominal_action,
                 "requested_action": requested_action,
                 "executed_action": action,
+                "raw_unverified_executed": bool(raw_unverified_executed),
                 "observation": {
                     "target_visible": observation.get("target_visible"),
                     "target_observation_age_steps": observation.get("target_observation_age_steps"),
@@ -617,6 +689,7 @@ def _run_episode(
         or pairwise_violation
         or target_collision
         or cbf_unverified_steps > 0
+        or raw_unverified_executed_steps > 0
     )
     final_info["safe_capture_success"] = safe_capture
     row: dict[str, Any] = {
@@ -654,6 +727,7 @@ def _run_episode(
         "cbf_timeout_steps": cbf_timeout_steps,
         "cbf_controlled_abort_steps": cbf_abort_steps,
         "cbf_unverified_steps": cbf_unverified_steps,
+        "raw_unverified_executed_steps": raw_unverified_executed_steps,
         "cbf_fallback_steps": cbf_fallback_steps,
         "cbf_intervention_steps": cbf_intervention_steps,
         "cbf_mean_solve_latency_ms": float(np.mean(cbf_latencies)) if cbf_latencies else 0.0,
@@ -745,6 +819,7 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "cbf_timeout_steps": count("cbf_timeout_steps"),
         "cbf_controlled_abort_steps": count("cbf_controlled_abort_steps"),
         "cbf_unverified_steps": count("cbf_unverified_steps"),
+        "raw_unverified_executed_steps": count("raw_unverified_executed_steps"),
         "cbf_fallback_steps": count("cbf_fallback_steps"),
         "transit_success_rate": rate("transit_success"),
         "mean_capture_time_seconds": float(np.mean(capture_times)) if capture_times else None,
@@ -808,6 +883,7 @@ def _write_tensorboard(
             writer.add_scalar("CBF/timeout_steps", float(row["cbf_timeout_steps"]), index)
             writer.add_scalar("CBF/fallback_steps", float(row["cbf_fallback_steps"]), index)
             writer.add_scalar("CBF/unverified_steps", float(row["cbf_unverified_steps"]), index)
+            writer.add_scalar("Safety/raw_unverified_executed_steps", float(row["raw_unverified_executed_steps"]), index)
             writer.add_scalar("CBF/intervention_steps", float(row["cbf_intervention_steps"]), index)
             writer.add_scalar("CBF/p95_solve_latency_ms", float(row["cbf_p95_solve_latency_ms"]), index)
             writer.add_scalar("Fallback/rank_steps", float(row["rank_fallback_steps"]), index)
@@ -823,6 +899,7 @@ def _write_tensorboard(
             0,
         )
         writer.add_scalar("Aggregate/pairwise_violation_rate", float(summary["pairwise_violation_rate"]), 0)
+        writer.add_scalar("Aggregate/raw_unverified_executed_steps", float(summary["raw_unverified_executed_steps"]), 0)
         writer.add_scalar("Aggregate/p95_cbf_latency_ms", float(summary["max_cbf_p95_solve_latency_ms"]), 0)
         writer.flush()
     event_files = sorted(path.name for path in logdir.glob("events.out.tfevents.*"))
@@ -873,6 +950,10 @@ def main() -> None:
         if not path.is_file():
             raise FileNotFoundError(f"{label} does not exist: {path}")
     protocol = load_protocol(protocol_path)
+    ranking_contract = protocol.get("candidate_ranking", {})
+    if not isinstance(ranking_contract, Mapping):
+        raise ValueError("candidate_ranking protocol section must be a mapping.")
+    ranker_config = _ranker_config(str(contract["variant"]), ranking_contract)
     configured_episodes = int(protocol["episodes_per_split"][args.split])
     if args.episodes > configured_episodes:
         raise ValueError(f"Requested {args.episodes} episodes but validation has {configured_episodes}.")
@@ -963,6 +1044,7 @@ def main() -> None:
             ledger=ledger,
             history_length=args.jepa_history_length,
             recurrent_reset_interval=recurrent_reset_interval,
+            ranker_config=ranker_config,
             output_dir=output_dir,
         )
         row["training_seed"] = int(args.training_seed)
@@ -1014,6 +1096,10 @@ def main() -> None:
             "execute_first_step_then_replan": True,
             "project_to_reachable_dynamics": True,
             "score_tie_tolerance_m": 5e-4,
+            "top_two_abstention_margin_m": float(ranker_config.top_two_abstention_margin_m),
+            "minimum_predicted_clearance_m": float(ranker_config.minimum_predicted_clearance_m),
+            "candidate_hysteresis_margin_m": float(ranker_config.candidate_hysteresis_margin_m),
+            "minimum_hold_steps": int(ranker_config.minimum_hold_steps),
         },
         "cbf_contract": cbf_contract,
         "recurrent_reset_interval_steps": recurrent_reset_interval,

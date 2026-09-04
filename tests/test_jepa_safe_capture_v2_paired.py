@@ -13,7 +13,10 @@ from encirclement3d.jepa_safe_capture_candidates import (
     make_safe_capture_candidate_chunks,
 )
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv, CylinderObstacle
-from scripts.evaluate_jepa_safe_capture_v2_paired import _variant_contract
+from scripts.evaluate_jepa_safe_capture_v2_paired import (
+    _raw_unverified_executed,
+    _variant_contract,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +102,28 @@ def test_infeasible_or_timeout_never_executes_raw_request() -> None:
     assert not diagnostics.verified_feasible
     assert np.isfinite(action).all()
     assert not np.allclose(action, requested)
+
+
+def test_controlled_abort_is_unverified_but_not_raw_execution() -> None:
+    diagnostics = type(
+        "Diagnostics",
+        (),
+        {"verified_feasible": False, "fallback_mode": "controlled_abort"},
+    )()
+    assert not _raw_unverified_executed(safety_filter_enabled=True, diagnostics=diagnostics)
+
+
+def test_unverified_unknown_cbf_path_is_counted_as_raw_execution() -> None:
+    diagnostics = type(
+        "Diagnostics",
+        (),
+        {"verified_feasible": False, "fallback_mode": "none"},
+    )()
+    assert _raw_unverified_executed(safety_filter_enabled=True, diagnostics=diagnostics)
+
+
+def test_no_cbf_path_is_always_raw_execution() -> None:
+    assert _raw_unverified_executed(safety_filter_enabled=False, diagnostics=None)
 
 
 def test_safe_capture_requires_verified_cbf_and_no_collision() -> None:

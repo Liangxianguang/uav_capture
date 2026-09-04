@@ -1,0 +1,48 @@
+protocol_name: central_random_mixed_obstacle_s3_v5_rank_guard_development
+protocol_version: 5
+candidate_ranking:
+  profile: p11_conservative_v1
+  score_tie_tolerance_m: 0.0005
+  top_two_abstention_margin_m: 0.0015
+  minimum_predicted_clearance_m: 0.35
+  candidate_hysteresis_margin_m: 0.001
+  minimum_hold_steps: 2
+phase: development_only
+locked_test_opened: false
+task: partially_observable_3d_capture_radius_random_central_mixed_obstacles
+not_a_replacement_for_existing_locked_benchmarks: true
+parent_protocol: configs/central_random_mixed_obstacle_s3_v4_p9_cbf_jacobian_development_protocol.yaml
+change_note: conservative_settled_rank_guard_with_margin_abstention_clearance_floor_and_hysteresis
+seed_blocks:
+  train: 648001
+  validation: 650001
+  locked_test: 651001
+episodes_per_split:
+  train: 40
+  validation: 40
+  locked_test: 100
+s3:
+  target_crossing_required: false
+  required_defender_zone_entries: 2
+  obstacle_count_range: [3, 5]
+  initial_side_distances: [6.0, 6.5, 7.0, 7.5]
+  defender_sides: [left, right]
+  target_speed_scales: [0.45, 0.55]
+  target_crossing_speed_scales: [0.90]
+  target_motion_modes: [flee_persistence, s_curve]
+  observation_conditions:
+    - name: nominal
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.15
+        observation_noise_std: 0.03
+        message_delay_steps: 2
+        message_dropout_probability: 0.05
+    - name: delayed_noisy
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.22
+        observation_noise_std: 0.06
+        message_delay_steps: 4
+        message_dropout_probability: 0.10
+  max_sampling_attempts: 500

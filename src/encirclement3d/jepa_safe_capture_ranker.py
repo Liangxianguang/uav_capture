@@ -33,6 +33,12 @@ class SafeCaptureRankerConfig:
     # The tolerance is fixed before a paired block so CPU/CUDA score roundoff
     # cannot change a near-tied candidate decision.
     score_tie_tolerance_m: float = 5e-4
+    # Optional P11 safeguards.  Zero/negative-infinity values preserve the
+    # historical ranking behavior; a new protocol must opt into them.
+    top_two_abstention_margin_m: float = 0.0
+    minimum_predicted_clearance_m: float = float("-inf")
+    candidate_hysteresis_margin_m: float = 0.0
+    minimum_hold_steps: int = 0
 
     def __post_init__(self) -> None:
         if self.horizon_index < 0 or self.horizon_seconds <= 0.0 or self.position_extent_m <= 0.0:
@@ -43,6 +49,10 @@ class SafeCaptureRankerConfig:
             raise ValueError("nominal_anchor_margin_m must be non-negative.")
         if self.score_tie_tolerance_m < 0.0:
             raise ValueError("score_tie_tolerance_m must be non-negative.")
+        if self.top_two_abstention_margin_m < 0.0 or self.candidate_hysteresis_margin_m < 0.0:
+            raise ValueError("P11 ranking margins must be non-negative.")
+        if self.minimum_hold_steps < 0:
+            raise ValueError("minimum_hold_steps must be non-negative.")
         weights = (
             self.target_weight,
             self.uncertainty_weight,
@@ -84,6 +94,10 @@ class SafeCaptureRankingTrace:
     selected_index: int
     execution_mode: str
     fallback_reason: str | None
+    top_two_margin_m: float = float("inf")
+    rank_abstention_reason: str | None = None
+    hysteresis_applied: bool = False
+    hold_steps_remaining: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -111,6 +125,10 @@ class SafeCaptureRankingTrace:
             "selected_index": int(self.selected_index),
             "execution_mode": self.execution_mode,
             "fallback_reason": self.fallback_reason,
+            "top_two_margin_m": float(self.top_two_margin_m),
+            "rank_abstention_reason": self.rank_abstention_reason,
+            "hysteresis_applied": bool(self.hysteresis_applied),
+            "hold_steps_remaining": int(self.hold_steps_remaining),
         }
 
 
@@ -218,6 +236,8 @@ class SafeCaptureJEPARanker:
         candidate_batch: SafeCaptureCandidateBatch,
         *,
         previous_action: np.ndarray | None = None,
+        previous_selected_index: int | None = None,
+        hold_steps_remaining: int = 0,
     ) -> SafeCaptureRankingResult:
         chunks = np.asarray(candidate_batch.chunks)
         if chunks.ndim != 4 or chunks.shape[0] != len(candidate_batch.labels) or chunks.shape[1] <= 0:
@@ -226,6 +246,10 @@ class SafeCaptureJEPARanker:
             raise ValueError("P4 requires exactly five [steps, defenders, action_dim] candidate chunks.")
         if not np.isfinite(chunks).all():
             raise ValueError("Candidate chunks must be finite before ranking.")
+        if previous_selected_index is not None and not 0 <= int(previous_selected_index) < 5:
+            raise ValueError("previous_selected_index must be in [0, 4].")
+        if hold_steps_remaining < 0:
+            raise ValueError("hold_steps_remaining must be non-negative.")
         valid = np.asarray(candidate_batch.valid_mask, dtype=bool)
         if valid.shape != (chunks.shape[0],):
             raise ValueError("Candidate valid_mask shape mismatch.")
@@ -324,8 +348,18 @@ class SafeCaptureJEPARanker:
 
         nominal_decision = decisions[0]
         eligible = valid & np.asarray([decision.state == "trusted" for decision in decisions], dtype=bool)
+        # Predicted safety quantities are only a ranking gate.  The CBF still
+        # verifies every selected nominal/candidate action before execution.
+        clearance_gate = np.isfinite(min_clearance) & (
+            min_clearance >= float(self.config.minimum_predicted_clearance_m)
+        )
+        eligible &= clearance_gate
         execution_mode = "trusted"
         fallback_reason: str | None = None
+        rank_abstention_reason: str | None = None
+        hysteresis_applied = False
+        top_two_margin = float("inf")
+        remaining_hold = max(int(hold_steps_remaining) - 1, 0)
         selected_index = 0
         if not bool(valid[0]):
             execution_mode = "safe_hold"
@@ -341,7 +375,10 @@ class SafeCaptureJEPARanker:
             eligible[0] = True
             trusted_indices = np.flatnonzero(eligible)
             if trusted_indices.size:
-                best_score = float(np.min(scores[trusted_indices]))
+                ordered = trusted_indices[np.argsort(scores[trusted_indices], kind="mergesort")]
+                best_score = float(scores[ordered[0]])
+                if ordered.size > 1:
+                    top_two_margin = float(max(scores[ordered[1]] - best_score, 0.0))
                 tied = trusted_indices[
                     scores[trusted_indices] <= best_score + self.config.score_tie_tolerance_m
                 ]
@@ -350,6 +387,26 @@ class SafeCaptureJEPARanker:
                 best = int(np.min(tied))
                 if best != 0 and scores[0] <= scores[best] + self.config.nominal_anchor_margin_m:
                     best = 0
+                if best != 0 and (
+                    self.config.top_two_abstention_margin_m > 0.0
+                    and top_two_margin <= self.config.top_two_abstention_margin_m
+                    and bool(eligible[0])
+                ):
+                    best = 0
+                    execution_mode = "fallback_nominal"
+                    rank_abstention_reason = "top_two_margin_abstention"
+                    fallback_reason = rank_abstention_reason
+                elif previous_selected_index is not None and int(previous_selected_index) != 0:
+                    previous = int(previous_selected_index)
+                    previous_eligible = bool(eligible[previous]) and np.isfinite(scores[previous])
+                    if previous_eligible and best != previous:
+                        score_gap = float(scores[previous] - best_score)
+                        force_hold = hold_steps_remaining > 0
+                        within_hysteresis = score_gap <= self.config.candidate_hysteresis_margin_m
+                        if force_hold or within_hysteresis:
+                            best = previous
+                            hysteresis_applied = True
+                            remaining_hold = max(remaining_hold, self.config.minimum_hold_steps - 1)
                 selected_index = best
             else:
                 execution_mode = "fallback_nominal"
@@ -384,6 +441,10 @@ class SafeCaptureJEPARanker:
             selected_index=selected_index,
             execution_mode=execution_mode,
             fallback_reason=fallback_reason,
+            top_two_margin_m=top_two_margin,
+            rank_abstention_reason=rank_abstention_reason,
+            hysteresis_applied=hysteresis_applied,
+            hold_steps_remaining=remaining_hold,
         )
         return SafeCaptureRankingResult(
             selected_index=selected_index,

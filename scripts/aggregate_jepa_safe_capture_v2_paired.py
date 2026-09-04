@@ -145,6 +145,9 @@ def load_run(path: Path, *, stage: str, expected_episodes: int) -> dict[str, Any
             "cbf_infeasible_steps": _as_int(row.get("cbf_infeasible_steps", 0), "cbf_infeasible_steps"),
             "cbf_timeout_steps": _as_int(row.get("cbf_timeout_steps", 0), "cbf_timeout_steps"),
             "cbf_unverified_steps": _as_int(row.get("cbf_unverified_steps", 0), "cbf_unverified_steps"),
+            "raw_unverified_executed_steps": _as_int(
+                row.get("raw_unverified_executed_steps", 0), "raw_unverified_executed_steps"
+            ),
             "termination_reason": str(row.get("termination_reason", "")),
         }
     if sorted(episode_map) != list(range(expected_episodes)):
@@ -207,6 +210,9 @@ def _run_metric(run: dict[str, Any]) -> dict[str, Any]:
         "cbf_infeasible_steps": int(overall.get("cbf_infeasible_steps", 0)),
         "cbf_timeout_steps": int(overall.get("cbf_timeout_steps", 0)),
         "cbf_unverified_steps": int(overall.get("cbf_unverified_steps", 0)),
+        "raw_unverified_executed_steps": int(overall.get("raw_unverified_executed_steps", 0)),
+        "cbf_fallback_steps": int(overall.get("cbf_fallback_steps", 0)),
+        "cbf_controlled_abort_steps": int(overall.get("cbf_controlled_abort_steps", 0)),
         "transit_success_rate": float(overall.get("transit_success_rate", 0.0)),
         "mean_capture_time_seconds": overall.get("mean_capture_time_seconds"),
         "mean_cbf_p95_solve_latency_ms": float(overall.get("mean_cbf_p95_solve_latency_ms", 0.0)),
@@ -286,6 +292,11 @@ def aggregate(runs: list[dict[str, Any]], *, stage: str, expected_episodes: int)
             "pairwise_violation_count_total": int(sum(row["pairwise_violation_count"] for row in rows)),
             "cbf_infeasible_steps_total": int(sum(row["cbf_infeasible_steps"] for row in rows)),
             "cbf_timeout_steps_total": int(sum(row["cbf_timeout_steps"] for row in rows)),
+            "cbf_fallback_steps_total": int(sum(row["cbf_fallback_steps"] for row in rows)),
+            "cbf_controlled_abort_steps_total": int(sum(row["cbf_controlled_abort_steps"] for row in rows)),
+            "raw_unverified_executed_steps_total": int(
+                sum(row["raw_unverified_executed_steps"] for row in rows)
+            ),
             "transit_success_rate": finite_stats(float(row["transit_success_rate"]) for row in rows),
             "diagnostic_only": variant == "a3",
         }
@@ -306,8 +317,15 @@ def aggregate(runs: list[dict[str, Any]], *, stage: str, expected_episodes: int)
         row["collision_count"] == 0 and row["boundary_violation_count"] == 0 and row["pairwise_violation_count"] == 0
         for row in safe_rows
     )
+    # An infeasible request can still resolve through a solver-verified
+    # nominal-CBF or hold fallback, so infeasible and unverified counts need
+    # not match. Every infeasible request must be visibly routed to fallback;
+    # every unverified result must be a controlled abort; no timeout may hide.
     reliability_gate = all(
-        row["cbf_timeout_steps"] == 0 and row["cbf_unverified_steps"] == row["cbf_infeasible_steps"]
+        row["cbf_timeout_steps"] == 0
+        and row["cbf_fallback_steps"] >= row["cbf_infeasible_steps"]
+        and row["cbf_controlled_abort_steps"] == row["cbf_unverified_steps"]
+        and row["raw_unverified_executed_steps"] == 0
         for row in safe_rows
     )
     m3_seed_deltas = [item["delta_rate"] for item in m3_seed_comparisons]
