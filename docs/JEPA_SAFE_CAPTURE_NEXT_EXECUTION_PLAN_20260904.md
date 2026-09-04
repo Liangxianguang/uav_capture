@@ -59,7 +59,7 @@ target 越界必须单独记录为 target diagnostic，不得冒充 defender bou
 | WP-D/F fault injection | 已完成 | 6 个 CBF 场景、5 个 ledger 场景；finite fallback；`raw_unverified_executed=0`；p95 < 100 ms | 补滚动闭环多约束压力和通信故障矩阵 |
 | WP-6 CPU/CUDA 基础 replay | 已完成但有风险 | 20/20 settled safety outcomes 相同；安全失败均为 0；原始 9/820 ranking steps 有浮点 drift | 已建立 tie3 protocol |
 | WP-6 CUDA/CPU tie3 replay | 安全等价已闭合 | 两侧均 `safe_capture=7/20=35.0%`；安全失败均为 0；CBF abort 12；p95 <= 25.82 ms | 记录 3/20 episode 的已知 decision drift，固定 final 在 RTX 5050 |
-| 三 seed final development block | 尚未开始 | 当前仍只有 smoke/replay 证据 | WP-6 tie3 安全出口和所有前置 gate 通过后再开始 |
+| 三 seed final development block | 即将开始 | tie3 安全出口通过；尚无 40 集 final 结果 | 固定 RTX 5050，运行聚合器要求的 7 变体矩阵 |
 
 当前 tie3 结果的定位是 **development replay**，不是三 seed 任务结论。历史 boundary-fixed smoke 中 M3 低于 M0 的结果仍需保留为负向开发证据，不能通过改写统计或选择 seed 消除。CPU/CUDA 只保证安全结算等价，不声称逐步动作 bitwise 等价。
 
@@ -99,11 +99,11 @@ separation-preserving safe-hold
 
 ### T0：运行前只读检查
 
-- [ ] 确认当前工作目录为 `D:\\uav-capture\\uav_capture`。
-- [ ] 确认 RTX 5050、CUDA、PyTorch、Conda 环境和 `PYTHONPATH`。
-- [ ] 确认 protocol 的 `phase=development_only`、`locked_test_opened=false`。
-- [ ] 检查 git diff，确认 tie-policy 变更没有混入无关 E1/V5 文件。
-- [ ] 记录 protocol、actor、JEPA、ledger 和 scene manifest 的 SHA-256。
+- [x] 确认当前工作目录为 `D:\\uav-capture\\uav_capture`。
+- [x] 确认 RTX 5050、CUDA、PyTorch、Conda 环境和 `PYTHONPATH`。
+- [x] 确认 protocol 的 `phase=development_only`、`locked_test_opened=false`。
+- [x] 检查 git diff，确认 tie-policy 变更没有混入无关 E1/V5 文件。
+- [x] 记录 protocol、actor、JEPA、ledger 和 scene manifest 的 SHA-256。
 
 ```powershell
 Set-Location D:\\uav-capture\\uav_capture
@@ -118,7 +118,7 @@ git diff --check
 
 - [x] 使用与 CUDA tie3 完全相同的 scene manifest、actor checkpoint、JEPA checkpoint、ledger 和 protocol。
 - [x] 使用全新目录 `results/jepa_safe_capture_v3_wp6_replay_m3_seed20260911_cpu_tie3/`。
-- [ ] 保持 `--development-only`；不要传入 locked split。
+- [x] 保持 `--development-only`；不要传入 locked split。
 
 ```powershell
 & $py scripts/evaluate_jepa_safe_capture_v2_paired.py `
@@ -153,13 +153,13 @@ git diff --check
 
 通过条件：
 
-- [ ] 20/20 episode 的 settled safety outcome、termination reason 和 CBF verification 计数一致；
-- [ ] collision、defender boundary、target boundary、pairwise violation 均为 0；
-- [ ] `raw_unverified_executed=0`，所有动作 finite；
-- [ ] candidate rejection reason 字段在全部 ranking steps 存在；
+- [x] 20/20 episode 的 settled safety outcome、termination reason 和 CBF verification 计数一致；
+- [x] collision、defender boundary、target boundary、pairwise violation 均为 0；
+- [x] `raw_unverified_executed=0`，所有动作 finite；
+- [x] candidate rejection reason 字段在全部 ranking steps 存在；
 - [x] tie3 后 settled safety outcomes 和 CBF status 完全一致；3/20 episode 的 candidate/ledger decision drift 已报告，final 主实验固定在 RTX 5050，不混用 CPU/CUDA 任务率；
-- [ ] CPU/CUDA 端到端 p95 latency 均不超过 100 ms；
-- [ ] 两侧 provenance、scene hash、protocol hash 和 checkpoint hash 完整一致。
+- [x] CPU/CUDA 端到端 p95 latency 均不超过 100 ms；
+- [x] 两侧 provenance、scene hash、protocol hash 和 checkpoint hash 完整一致。
 
 ### T3：运行针对性测试
 
@@ -172,16 +172,16 @@ git diff --check
   tests/test_replay_jepa_safe_capture_failures.py
 ```
 
-- [ ] 测试通过后再运行完整 `pytest`。
-- [ ] 任一测试失败时，保留失败输出，修复代码/测试并新建 protocol revision；不得修改旧结果。
+- [x] 测试通过后再运行完整 `pytest`（targeted 27 passed，full 312 passed）。
+- [x] 任一测试失败时，保留失败输出，修复代码/测试并新建 protocol revision；本轮无失败。
 
 ### T4：更新报告、提交和可追溯性
 
 - [x] 更新 `docs/JEPA_SAFE_CAPTURE_WP6_DEVICE_REPLAY_20260904.md`，明确 tie3 输入、结果和 decision drift。
 - [x] 更新本计划的 WP-6 状态和实际产物路径。
-- [ ] 检查 JSON、CSV、step traces、TensorBoard 和 Markdown 中的 episode 数、safe-capture、安全计数一致。
-- [ ] 只提交 tie-policy 相关代码、配置、测试和报告；禁止 `git add .`。
-- [ ] 创建独立 conventional commit；push 失败时保留本地 commit 和失败原因。
+- [x] 检查 JSON、CSV、step traces、TensorBoard 和 Markdown 中的 episode 数、safe-capture、安全计数一致。
+- [x] 只提交 tie-policy 相关代码、配置、测试和报告；禁止 `git add .`。
+- [x] 创建独立 conventional commit；push 因网络 reset 失败，commit 已保留本地。
 
 WP-6 的安全闭环出口在 T0--T4 通过后闭合。跨设备 decision drift 作为已知限制归档，未闭合前不得启动 final block；tie3 审计已通过该安全出口。
 
@@ -191,13 +191,13 @@ WP-6 的安全闭环出口在 T0--T4 通过后闭合。跨设备 decision drift 
 
 运行前必须在 checklist 中确认：
 
-- [ ] WP-B2 replay 双次 hash 一致，所有失败有唯一主因或 `unresolved`；
-- [ ] WP-E candidate 可达性通过，invalid candidate 不进入 JEPA；
-- [ ] WP-D/F fault injection 中 OOD、stale、non-finite、QP infeasible/timeout 均显式 fallback，raw=0；
+- [x] WP-B2 replay 双次 hash 一致，所有失败有唯一主因或 `unresolved`；
+- [x] WP-E candidate 可达性通过，invalid candidate 不进入 JEPA；
+- [x] WP-D/F fault injection 中 OOD、stale、non-finite、QP infeasible/timeout 均显式 fallback，raw=0；
 - [x] WP-6 tie3 CPU/CUDA 安全结算审计通过；
-- [ ] protocol、scene manifest、checkpoint、ledger、solver 和 tie tolerance 已冻结；
-- [ ] `locked_test_opened=false` 且 split 仅为 `validation`；
-- [ ] 没有待解释的安全回归或 provenance 缺失。
+- [x] protocol、scene manifest、checkpoint、ledger、solver 和 tie tolerance 已冻结；
+- [x] `locked_test_opened=false` 且 split 仅为 `validation`；
+- [x] 已知跨设备 decision drift 有报告；不存在未解释的安全回归或 provenance 缺失。
 
 若任一项不满足，选择“修复并新建 development protocol”或“归档为不足证据/任务回归”，不能为了凑 episode 数量直接进入 final。
 
@@ -206,14 +206,16 @@ WP-6 的安全闭环出口在 T0--T4 通过后闭合。跨设备 decision drift 
 | 变体 | 含义 | 用途 |
 |---|---|---|
 | M0 | nominal planner + Joint CBF-QP | 安全保留基线和主比较对象 |
+| M1 | JEPA + target/uncertainty ranking + CBF，无 auxiliary safety terms | 基础 JEPA 排序消融 |
+| M2 | JEPA + ledger + target/uncertainty ranking + CBF | ledger 与 auxiliary score 对照 |
 | M3 | JEPA + reliability ledger + auxiliary safety ranking + CBF | 主方法 |
 | A1 | M3 去除 ledger + CBF | ledger 消融 |
 | A2 | M3 去除 clearance/visibility ranking + CBF | 辅助安全排序消融 |
 | A3 | raw/no-CBF | 仅诊断 CBF 必要性，不进入安全结论 |
 
-- [ ] training seed 固定为 `20260911`、`20260912`、`20260913`。
-- [ ] 每个安全变体每个 seed 至少 40 个 episode；总计 M0/M3/A1/A2 为 480 个配对 episode。
-- [ ] A3 如运行，使用同一 paired block、独立目录，并明确标记 `diagnostic_only=true`。
+- [x] training seed 固定为 `20260911`、`20260912`、`20260913`。
+- [ ] 每个变体每个 seed 至少 40 个 episode；完整矩阵为 7 变体 × 3 seed × 40 集 = 840 集。
+- [ ] A3 使用同一 paired block、独立目录，并明确标记 `diagnostic_only=true`。
 - [ ] 变体之间使用相同 episode index、layout、target motion、observation condition 和初始状态。
 - [ ] 每个 seed/variant 使用独立 results 和 TensorBoard 目录。
 
@@ -229,12 +231,12 @@ WP-6 的安全闭环出口在 T0--T4 通过后闭合。跨设备 decision drift 
 
 ```text
 M0 (3 seeds, 40 episodes) -> 安全硬门
-    -> M3 (3 seeds, 40 episodes) -> 安全硬门
+    -> M1/M2/M3 (3 seeds, 40 episodes) -> 安全硬门
         -> A1/A2 (3 seeds, 40 episodes) -> 安全硬门
-            -> A3 diagnostic（可选）
+            -> A3 diagnostic（同一 paired block）
 ```
 
-命令模板（实际参数以 `--help` 和冻结 protocol 为准）：
+命令模板（实际参数以 `--help` 和冻结 protocol 为准；目录名必须匹配聚合器）：
 
 ```powershell
 & $py scripts/evaluate_jepa_safe_capture_v2_paired.py `
@@ -247,8 +249,8 @@ M0 (3 seeds, 40 episodes) -> 安全硬门
   --actor-checkpoint models/v5_development_exact_reactive_seed661606.pt `
   --jepa-checkpoint results/jepa_safe_capture_v3_wp2_seed20260911/checkpoint.pt `
   --reliability-ledger results/jepa_safe_capture_v3_wp3_ledger_seed20260911/reliability_ledger.json `
-  --output-dir results/jepa_safe_capture_v3_wp7_m0_seed20260911 `
-  --tensorboard-dir results/jepa_safe_capture_v3_tensorboard/wp7_m0_seed20260911 `
+  --output-dir results/jepa_safe_capture_v2_p6_paired_full_seed20260911_m0 `
+  --tensorboard-dir results/jepa_safe_capture_v3_tensorboard/wp7_full_seed20260911_m0 `
   --device cuda `
   --development-only
 ```
