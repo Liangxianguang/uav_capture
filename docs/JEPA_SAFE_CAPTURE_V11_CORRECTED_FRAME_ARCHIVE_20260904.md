@@ -1,8 +1,8 @@
 # JEPA Safe-Capture v11 corrected-frame archive 审计报告
 
-**日期：** 2026-09-04  
-**阶段：** P1 archive generation and audit  
-**边界：** `development_only=true`，`locked_test_opened=false`  
+**日期：** 2026-09-04
+**阶段：** P1 archive generation and audit
+**边界：** `development_only=true`，`locked_test_opened=false`
 **硬件/环境：** RTX 5050，Conda `uav-encirclement-gpu`，Python 3.11.16，PyTorch 2.7.1+cu128
 
 ## 1. 目的
