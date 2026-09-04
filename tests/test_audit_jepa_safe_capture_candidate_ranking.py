@@ -33,6 +33,31 @@ def test_validate_ranking_enforces_fixed_contract_and_margin() -> None:
     assert result["rejection_reasons_present"] is False
 
 
+def test_validate_ranking_checks_recorded_rejection_reasons() -> None:
+    reasons = [[], [], ["speed_limit"], [], []]
+    ranking = _ranking(
+        valid_mask=[True, True, False, True, True],
+        eligible_mask=[True, True, False, True, True],
+        selected_index=0,
+        candidate_rejection_reasons=reasons,
+    )
+    result = _validate_ranking(ranking, identifier="1:m3:0000", step=1)
+    assert result["rejection_reasons_present"] is True
+    assert result["rejection_reasons"][2] == ["speed_limit"]
+
+    with pytest.raises(ValueError, match="no rejection reason"):
+        _validate_ranking(
+            _ranking(
+                valid_mask=[True, True, False, True, True],
+                eligible_mask=[True, True, False, True, True],
+                selected_index=0,
+                candidate_rejection_reasons=[[], [], [], [], []],
+            ),
+            identifier="1:m3:0000",
+            step=1,
+        )
+
+
 @pytest.mark.parametrize(
     "overrides, message",
     [

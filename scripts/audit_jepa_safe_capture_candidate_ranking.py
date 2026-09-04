@@ -109,6 +109,22 @@ def _validate_ranking(ranking: Mapping[str, Any], *, identifier: str, step: int)
     for field in SCORE_FIELDS[1:]:
         if ranking.get(field) is not None:
             _finite_list(ranking.get(field), f"candidate_ranking.{field}", allow_nonfinite=True)
+    rejection_reasons: list[list[str]] | None = None
+    rejection_field = "candidate_rejection_reasons"
+    if rejection_field in ranking:
+        raw_reasons = ranking.get(rejection_field)
+        if not isinstance(raw_reasons, list) or len(raw_reasons) != 5:
+            raise ValueError(f"Candidate rejection reasons must have length five for {identifier} step {step}")
+        rejection_reasons = []
+        for index, reasons in enumerate(raw_reasons):
+            if not isinstance(reasons, list):
+                raise ValueError(f"Candidate rejection reasons must be lists for {identifier} step {step}")
+            values = [str(reason) for reason in reasons]
+            if valid_mask[index] and values:
+                raise ValueError(f"Valid candidate has rejection reasons for {identifier} step {step} index {index}")
+            if not valid_mask[index] and not values:
+                raise ValueError(f"Invalid candidate has no rejection reason for {identifier} step {step} index {index}")
+            rejection_reasons.append(values)
     selected = _as_int(ranking.get("selected_index"), "candidate_ranking.selected_index")
     if not 0 <= selected < 5 or not valid_mask[selected]:
         raise ValueError(f"Selected candidate is invalid for {identifier} step {step}: {selected}")
@@ -127,7 +143,8 @@ def _validate_ranking(ranking: Mapping[str, Any], *, identifier: str, step: int)
         "selected_index": selected,
         "execution_mode": mode,
         "top_two_score_margin": margin,
-        "rejection_reasons_present": "rejection_reasons" in ranking,
+        "rejection_reasons_present": rejection_field in ranking,
+        "rejection_reasons": rejection_reasons,
     }
 
 
@@ -203,6 +220,7 @@ def audit_failure_index(failure_index: Path) -> dict[str, Any]:
     invalid_selected_count = 0
     trusted_ineligible_count = 0
     missing_rejection_reason_steps = 0
+    rejection_reason_counts: Counter[str] = Counter()
     m0_unranked_episodes = 0
     for key in sorted(rows_by_key):
         row = rows_by_key[key]
@@ -232,6 +250,9 @@ def audit_failure_index(failure_index: Path) -> dict[str, Any]:
             )
             if not validated["rejection_reasons_present"]:
                 missing_rejection_reason_steps += 1
+            elif validated["rejection_reasons"] is not None:
+                for reasons in validated["rejection_reasons"]:
+                    rejection_reason_counts.update(reasons)
             selected_indices.append(int(validated["selected_index"]))
             if validated["top_two_score_margin"] is not None:
                 margins.append(float(validated["top_two_score_margin"]))
@@ -307,6 +328,7 @@ def audit_failure_index(failure_index: Path) -> dict[str, Any]:
             "rejection_reasons_missing_steps": missing_rejection_reason_steps,
             "settled_counterfactual_per_candidate_labels": False,
             "settled_label_scope": "selected_trajectory_episode_only",
+            "rejection_reason_counts": dict(sorted(rejection_reason_counts.items())),
         },
         "invariant_counts": {
             "invalid_candidate_eligible": invalid_mask_count,

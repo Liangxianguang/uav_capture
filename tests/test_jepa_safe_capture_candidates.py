@@ -158,6 +158,7 @@ def test_ranker_follows_action_and_executes_only_first_step() -> None:
     assert result.selected_chunk.shape == (3, 2, 3)
     assert result.trace.predicted_visibility[1] > 0.99
     assert result.trace.scores[1] < result.trace.scores[0]
+    assert result.trace.candidate_rejection_reasons == ((), (), (), (), ())
 
 
 def test_ranker_nominal_fallback_and_safe_hold_never_use_untrusted_candidate() -> None:

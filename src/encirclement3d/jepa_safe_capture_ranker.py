@@ -75,6 +75,7 @@ class SafeCaptureRankingTrace:
     ledger_credits: tuple[float, ...]
     ledger_keys: tuple[str, ...]
     ledger_fallback_reasons: tuple[str | None, ...]
+    candidate_rejection_reasons: tuple[tuple[str, ...], ...]
     selected_index: int
     execution_mode: str
     fallback_reason: str | None
@@ -101,6 +102,7 @@ class SafeCaptureRankingTrace:
             "ledger_credits": list(self.ledger_credits),
             "ledger_keys": list(self.ledger_keys),
             "ledger_fallback_reasons": list(self.ledger_fallback_reasons),
+            "candidate_rejection_reasons": [list(value) for value in self.candidate_rejection_reasons],
             "selected_index": int(self.selected_index),
             "execution_mode": self.execution_mode,
             "fallback_reason": self.fallback_reason,
@@ -364,6 +366,10 @@ class SafeCaptureJEPARanker:
             ledger_credits=tuple(float(decision.credit) for decision in decisions),
             ledger_keys=tuple(decision.key for decision in decisions),
             ledger_fallback_reasons=tuple(decision.fallback_reason for decision in decisions),
+            candidate_rejection_reasons=tuple(
+                tuple(str(reason) for reason in reasons)
+                for reasons in candidate_batch.rejection_reasons
+            ),
             selected_index=selected_index,
             execution_mode=execution_mode,
             fallback_reason=fallback_reason,

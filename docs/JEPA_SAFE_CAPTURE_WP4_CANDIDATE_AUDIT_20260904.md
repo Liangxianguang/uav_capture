@@ -30,7 +30,7 @@ counterfactual candidate success rate.
 
 `candidate_reachability_gate=true` and all execution invariants pass. The gate
 for rejection-reason observability is false because the historical trace schema
-does not contain per-candidate `rejection_reasons`; no reason was inferred from
+does not contain per-candidate `candidate_rejection_reasons`; no reason was inferred from
 the boolean mask. The counterfactual settled-outcome gate is also false because
 each episode has one settled outcome for the selected trajectory, not five
 settled outcomes under the same initial belief.

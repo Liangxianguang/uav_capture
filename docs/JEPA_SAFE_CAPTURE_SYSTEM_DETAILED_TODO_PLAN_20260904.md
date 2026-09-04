@@ -222,13 +222,13 @@ credit 不是安全证明；低信用必须改变执行路径，而不是只降�
 
 ### WP-6：滚动时域闭环集成审计
 
-- [ ] 固定每周期顺序：时间戳检查、belief 更新、候选生成、可达性过滤、JEPA batch、ledger、ranking、CBF、执行第一步。
-- [ ] JEPA、ledger、ranker 或 CBF 任一超时立即走显式 fallback。
-- [ ] 记录输入 hash、预测、uncertainty、credit、selected candidate、CBF 诊断、动作和全链路 latency。
-- [ ] 做 CPU 与 RTX 5050 的 deterministic replay；允许浮点容差，但不得改变安全结算。
-- [ ] 从空 output 目录重跑 1 episode，核对 summary、episodes、step traces、TensorBoard 和报告。
+- [x] 固定每周期顺序：时间戳检查、belief 更新、候选生成、可达性过滤、JEPA batch、ledger、ranking、CBF、执行第一步；20 集 replay trace 完整存在。
+- [x] JEPA、ledger、ranker 或 CBF 任一超时立即走显式 fallback；CBF fault matrix 和 20 集 replay 均保留 reason/status。
+- [x] 记录输入 hash、预测、uncertainty、credit、selected candidate、CBF 诊断、动作和全链路 latency。
+- [x] 做 CPU 与 RTX 5050 replay；20/20 settled safety outcomes 相同、raw/unverified=0、p95<100 ms，但 9/820 ranking steps 出现浮点 tie decision drift。
+- [x] 从全新 output 目录重跑 20 episodes，核对 summary、episodes、step traces、TensorBoard 和报告；单 episode smoke 仍可补充。
 
-**出口：** 每个 episode 都有完整闭环 trace；只执行第一步；下一周期确实重新观测和 replan。
+**出口：** 安全结算跨 CPU/CUDA 等价且所有 episode 有完整 trace；候选排序存在小规模浮点 decision drift，须在 final block 前冻结 tie policy 并新建 protocol revision。
 
 ### WP-7：三 seed paired development final block
 
