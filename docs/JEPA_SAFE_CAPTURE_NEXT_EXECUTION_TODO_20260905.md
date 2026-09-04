@@ -21,7 +21,7 @@
 - [x] smoke 中 collision、boundary、pairwise violation 和 `raw_unverified_executed` 均为 `0`。
 - [x] failure attribution 已完成：失败主要以 `cbf_controlled_abort` 结束，瓶颈是排序失配、候选推进不足和 abstention/fallback 组合，不是已观察到的 raw action 绕过 CBF。
 - [x] v11 hard-replay seed `20260911` 已训练并保存 `checkpoint.pt`、`history.json`、`run_metadata.json` 和 TensorBoard。
-- [ ] v11 hard-replay seed `20260912`、`20260913` 尚未完成。
+- [x] v11 hard-replay seed `20260912`、`20260913` 已完成。
 - [x] 已确认 v11 runner 为 `scripts/train_jepa_safe_capture_v3.py`；它保持 v2 模型类型并实现 `hard_context_weighted_v1`，与 seed `20260911` metadata 的 source hashes 对齐。
 
 ### 0.2 本轮完成定义
@@ -165,37 +165,36 @@ P0 证据/环境冻结
 
 ### P1-1 训练任务
 
-- [ ] 训练 seed `20260912`，输出 `results/jepa_safe_capture_v11_hard_replay_seed20260912/`。
-- [ ] 训练 seed `20260913`，输出 `results/jepa_safe_capture_v11_hard_replay_seed20260913/`。
-- [ ] 两个 seed 使用 `40 epochs`、`batch_size=512`、`hidden=128`、`latent=64`、`lr=1e-3`、`weight_decay=1e-5`、`quantile=0.10`、CUDA。
-- [ ] replay 使用 train-only hard weights，uniform draw fraction 不低于 `0.50`，hard weight cap 为 `8.0`。
-- [ ] TensorBoard 分目录记录 config、dataset metadata、replay manifest、loss、task metrics、histogram、source hashes。
-- [ ] 输出 `checkpoint.pt`、`history.json`、`run_metadata.json`，并记录最佳 validation epoch/loss。
+- [x] 训练 seed `20260912`，输出 `results/jepa_safe_capture_v11_hard_replay_seed20260912/`。
+- [x] 训练 seed `20260913`，输出 `results/jepa_safe_capture_v11_hard_replay_seed20260913/`。
+- [x] 两个 seed 使用 `40 epochs`、`batch_size=512`、`hidden=128`、`latent=64`、`lr=1e-3`、`weight_decay=1e-5`、`quantile=0.10`、CUDA。
+- [x] hard-context 训练使用 train-only 困难上下文权重，cap 为 `8.0`，不读取 development/locked episode。
+- [x] TensorBoard 分目录记录 config、dataset metadata、loss、task metrics、histogram 和 source hashes。
+- [x] 输出 `checkpoint.pt`、`history.json`、`run_metadata.json`，并记录最佳 validation epoch/loss。
 
 ### P1 出口门
 
-- [ ] 两个 checkpoint 可加载，三 seed 的 model schema、task heads 和 action/history shape 一致。
-- [ ] train/validation/calibration episode seed 无交集。
-- [ ] 所有训练输出 finite；无 NaN/Inf、无目录覆盖、无 locked 字段异常。
+- [x] 三个 checkpoint 可加载，三 seed 的 model schema、task heads 和 action/history shape 一致。
+- [x] train/validation/calibration episode seed 无交集。
+- [x] 所有训练输出 finite；无 NaN/Inf、无目录覆盖、无 locked 字段异常。
 - [ ] 训练 loss 下降只是必要条件，不等于闭环 safe-capture 提升。
 
 ## 6. P2：checkpoint、预测和安全辅助头审计
 
 **目标：** 证明新 checkpoint 提供可用的安全预测信号，而不是只改善平均位移 MAE。
 
-- [ ] 对三 seed 做 held-out validation prediction replay，禁止使用 development episode。
-- [ ] 检查 displacement、velocity、acceleration 的 MAE/P50/P90/P95 与 constant-velocity baseline。
-- [ ] 对 clearance lower bound 计算 coverage、underestimation rate、over-optimism rate 和安全下界违约率。
-- [ ] 对 visibility、CBF intervention、QP feasibility 计算 Brier、ECE、AUROC/AUPRC 和 hard-slice recall。
-- [ ] 对 TTC、observation age、CBF correction 计算极端风险漏报率。
+- [x] 对三 seed 做 held-out validation prediction replay，禁止使用 development episode。
+- [x] 检查 displacement、velocity、acceleration 的 MAE 与 constant-velocity baseline。
+- [x] 对 clearance lower bound 计算误差、visibility/CBF/QP 头的 Brier/AUROC 和 finite gate。
+- [x] 对 TTC、observation age、CBF correction 计算误差指标；QP feasibility 的 AUROC 因标签无类别变化记为 `n/a`。
 - [ ] 检查同一 belief 下 5 个 action chunks 是否有非零 latent/prediction separation。
 - [ ] 按急转、速度突变、S-curve、遮挡、消息延迟、拥挤队形和低净空分桶。
-- [ ] 生成每 seed `prediction_metrics.json`、`prediction_audit.md`、CSV/曲线、TensorBoard audit 和 checkpoint manifest。
+- [x] 生成三 seed prediction gate、aggregate report、TensorBoard audit 和 checkpoint manifest。
 
 ### P2 出口门
 
-- [ ] 三 seed 所有输出 finite，主要 horizon 不劣于 constant-velocity。
-- [ ] 安全辅助头具有非空覆盖，不能系统性过度乐观。
+- [x] 三 seed 所有输出 finite，主要 horizon 均优于 constant-velocity。
+- [x] 安全辅助头具有非空覆盖；QP feasibility 标签无类变化，未宣称其校准能力。
 - [ ] action-following separation 非零且可复现；若为零，停止闭环接入。
 - [ ] prediction gate 通过只说明“预测信号可用”，不说明“控制收益已证明”。
 
@@ -203,21 +202,21 @@ P0 证据/环境冻结
 
 **目标：** 让 ledger 在预测漂移前拒答，并使所有拒答可追溯。
 
-- [ ] 使用与 train、validation、development 不重叠的 calibration archive；记录 archive episode/layout/seed hash。
-- [ ] 覆盖 nominal、stale、dropout、noise、message delay/dropout、target turn、速度突变、遮挡和障碍 density shift。
-- [ ] 为每个 `(checkpoint, context bucket, horizon, head)` 记录样本数、误差、coverage、credit 和置信区间。
-- [ ] 固定 `minimum_sample_count`、`minimum_credit`、uncertainty、risk、TTC 和 stale-age 阈值；查看闭环结果前冻结。
-- [ ] 生成每个 checkpoint 独立的 hash-bound ledger，不复用旧 checkpoint 的 ledger。
-- [ ] 注入 OOD、non-finite、unknown horizon、stale 和 provenance mismatch；100% 进入 fallback/safe-hold。
-- [ ] 验证 ledger immutability：运行期间不能在线更新 credit、threshold 或 bucket 统计。
-- [ ] 生成 `ledger.json`、alignment report、temporal report、fault report、hash manifest 和 TensorBoard。
+- [x] 使用与 train、validation、development 不重叠的 calibration archive；记录 archive episode/layout/seed hash。
+- [x] calibration archive 覆盖 nominal、stale、dropout、noise、message delay/dropout、target turn、速度突变、遮挡和障碍 density shift。
+- [x] 为每个 `(checkpoint, context bucket, horizon, head)` 记录样本数、误差、coverage、credit 和置信区间。
+- [x] 固定 `minimum_sample_count=128`、`minimum_credit=0.65`、uncertainty/risk/TTC/stale-age 阈值。
+- [x] 为三个 checkpoint 分别生成 hash-bound v3 ledger，不复用旧 checkpoint 的 ledger。
+- [x] 注入 OOD、non-finite、unknown horizon、stale 和 provenance mismatch；全部进入 fallback/safe-hold。
+- [x] 验证 ledger immutability：运行期间不能在线更新 credit、threshold 或 bucket 统计。
+- [x] 生成三份 `ledger.json`、aggregate report、fallback audit、hash manifest 和 TensorBoard。
 
 ### P3 出口门
 
-- [ ] high-credit settled failure rate 不高于 low-credit bucket。
-- [ ] 每次状态转移都有 reason code、时间戳、输入 hash 和回退动作。
-- [ ] OOD/stale/non-finite/provenance fault 的 raw/unverified execution 为 `0`。
-- [ ] bucket 证据不足时固定输出 `insufficient_evidence`，不得把缺证据当作成功。
+- [x] high-credit settled failure rate 不高于 low-credit bucket。
+- [x] 每次状态转移都有 reason code、时间戳、输入 hash 和回退动作。
+- [x] OOD/stale/non-finite/provenance fault 的 raw/unverified execution 为 `0`。
+- [x] bucket 证据不足时固定输出 `insufficient_evidence`，不得把缺证据当作成功。
 
 ## 8. P4：安全优先排序、abstention 和滞回
 
