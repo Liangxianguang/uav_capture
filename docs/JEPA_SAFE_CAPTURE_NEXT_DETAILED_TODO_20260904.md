@@ -465,3 +465,23 @@ P15: docs(jepa): archive paired development block
 8. 所有结果保持 `development_only=true`、`locked_test_opened=false`；没有用户单独授权不得打开新的 locked test。
 
 最终能够严谨主张的系统定义是：**JEPA 负责 action-conditioned interaction-aware 反事实候选评价，reliability ledger 负责可信度和拒答，Joint CBF-QP 负责不可绕过的安全边界，rolling horizon 负责闭环修正；是否存在任务收益只能由多 seed safe-capture 证据决定。**
+
+## 18. P12 floor015 执行更新（2026-09-04）
+
+本轮已将 `minimum_predicted_clearance_m` 从 `0.35` 调整为经独立 calibration 支持的 `0.15`，并在同一 scene manifest、seed `20260911` 上完成 M0/M3/A1/A2 各 20 集开发 smoke。结果与后续安排如下：
+
+- [x] M0 floor015：`10/20=50.0%` safe-capture，几何安全硬门通过，raw-unverified 为 0。
+- [x] M3 floor015：`9/20=45.0%`，相对 M0 配对 `0/1/19=-5.0 pp`；rank trace、CBF 和 provenance gate 通过。
+- [x] A1 floor015：`8/20=40.0%`，相对 M0 配对 `0/2/18=-10.0 pp`；说明去除 ledger 的变体在本 block 出现更明显退化，但不能据此做单 seed 因果结论。
+- [x] A2 floor015：`10/20=50.0%`，相对 M0 配对 `0/0/20=0.0 pp`。
+- [x] Temporal ledger audit：OOD、stale、non-finite、高 uncertainty、联合 TTC/CBF risk、unknown horizon 均正确进入 `safe_hold`；ledger 文件保持只读哈希不变。
+- [x] 所有变体 collision、boundary、pairwise violation 和 CBF timeout 为 0；`raw_unverified_executed_steps=0`。
+- [x] 已归档报告：`docs/JEPA_SAFE_CAPTURE_P12_FLOOR015_SENSITIVITY_20260904.md`，并写入 README 入口。
+
+P12 的出口结论是“预测 floor 不再过度阻塞候选，但闭环任务收益尚未证明”。因此下一步严格按以下顺序执行：
+
+1. 完成 T2 settled counterfactual replay，优先解释 11 个 M3 controlled-abort episode 及 M3/A1 的 degraded episode；输出每个 decision 的 settled safe outcome、CBF correction、净空、visibility、ledger state 和 candidate rank。
+2. 基于独立 calibration archive 完成 T3 ledger temporal/adversarial 重校准；新阈值、credit decay/recovery 和状态转移必须生成新 protocol/ledger hash，禁止在线改阈值。
+3. 完成 T4 安全辅助头校准与困难片段双次 deterministic replay；若 prediction signal 与 settled outcome 仍失配，标记 `prediction_signal_no_control_gain`，不扩大模型规模。
+4. 完成 T5/T6 rolling-horizon、zero-perturbation、fallback 与至少 100 control cycle 的延迟/安全审计；所有 candidate、nominal、safe-hold、fallback 继续经过同一个 Joint CBF-QP。
+5. 仅在 T2-T6 gate 全部通过后，运行 T7 三 seed smoke，再进入 T8 三 seed paired development。主指标仍为 safe-capture；不设置必须达到 95% 的硬目标，也不提前打开 locked test。
