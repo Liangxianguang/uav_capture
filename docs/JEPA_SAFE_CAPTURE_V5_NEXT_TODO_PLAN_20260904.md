@@ -1,7 +1,7 @@
 # V5 下一阶段目标与 TODO 计划书
 
 **系统名称：** Interaction-aware Action-conditioned JEPA + Reliability Ledger + Joint CBF-QP + Rolling Horizon
-**版本：** v1.0（2026-09-04，P2 settled-ranking 审计之后）
+**版本：** v1.1（2026-09-04，v9 三 seed smoke 之后）
 **执行目录：** `D:\\uav-capture\\uav_capture`
 **设备：** NVIDIA RTX 5050，CUDA 12.8，PyTorch 2.7.1+cu128
 **Conda 环境：** `uav-encirclement-gpu`
@@ -65,16 +65,16 @@ JEPA 是轨迹评价器，只能输出预测特征和候选排序依据；它不
 - `BLOCKED_BY_SAFETY`: 出现 collision、boundary、pairwise、raw action 或不可解释的 CBF 失败，立即停止扩大规模。
 - `INSUFFICIENT_EVIDENCE`: 样本、bucket、manifest、hash 或审计字段不足，必须补证据。
 
-## 3. P0: 冻结 v8 protocol 和运行环境
+## 3. P0: 冻结 v9 protocol 和运行环境
 
 **目标：** 把 P2 审计后的规则冻结为可复现输入，防止运行中临时调权重或阈值。
 
 ### TODO
 
-- [ ] 选择性提交 `configs/central_random_mixed_obstacle_s3_v5_p2_ranking_audit_freeze_development_protocol.yaml`；提交前保留工作区已有 E1/V5/tmp 改动，禁止 `git add .`、reset 或删除历史产物。
-- [ ] 记录 protocol v8 的 hash；确认 `phase=development_only`、`locked_test_opened=false`、`not_a_replacement_for_existing_locked_benchmarks=true`。
+- [x] 选择性提交 `configs/central_random_mixed_obstacle_s3_v5_p2_ranking_audit_freeze_v9_development_protocol.yaml`；提交前保留工作区已有 E1/V5/tmp 改动，禁止 `git add .`、reset 或删除历史产物。
+- [x] 记录 protocol v9 的 hash；确认 `phase=development_only`、`locked_test_opened=false`、`not_a_replacement_for_existing_locked_benchmarks=true`。
 - [ ] 固定候选和排序合同：`K=5`、chunk=3、execute-first-step、tie tolerance `0.0005 m`、top-two abstention margin `0.0015 m`、minimum clearance `0.15 m`、hysteresis `0.001 m`、minimum hold `2`。
-- [ ] 固定环境配置、actor checkpoint、三个 JEPA checkpoint、三个 checkpoint-bound ledger；如果 ledger 的 source protocol hash 不是 v8，先生成新的 ledger revision，不能静默复用旧 ledger。
+- [x] 固定环境配置、actor checkpoint、三个 JEPA checkpoint、三个 checkpoint-bound v9 ledger；如果 ledger 的 source protocol hash 不是 v9，先生成新的 ledger revision，不能静默复用旧 ledger。
 - [ ] 校验 RTX 5050/CUDA/PyTorch/Conda 包清单、Git revision、命令行和 `PYTHONPATH`。
 - [ ] 运行 targeted tests、`git diff --check` 和 protocol schema 检查。
 
@@ -85,7 +85,7 @@ Set-Location D:\\uav-capture\\uav_capture
 $py = 'D:\\miniconda3\\envs\\uav-encirclement-gpu\\python.exe'
 $env:PYTHONPATH = "$PWD\\src;$PWD\\scripts"
 & $py -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
-& $py -c "from pathlib import Path; from evaluate_random_central_mixed_obstacles import load_protocol; p=load_protocol(Path('configs/central_random_mixed_obstacle_s3_v5_p2_ranking_audit_freeze_development_protocol.yaml')); assert p['phase']=='development_only' and p['locked_test_opened'] is False; print('protocol v8: OK')"
+& $py -c "from pathlib import Path; from evaluate_random_central_mixed_obstacles import load_protocol; p=load_protocol(Path('configs/central_random_mixed_obstacle_s3_v5_p2_ranking_audit_freeze_v9_development_protocol.yaml')); assert p['phase']=='development_only' and p['locked_test_opened'] is False; print('protocol v9: OK')"
 & $py -m pytest -q tests/test_jepa_safe_capture_v2_model.py tests/test_jepa_safe_capture_v2_training.py tests/test_jepa_safe_capture_latency.py
 git diff --check
 ```
@@ -96,9 +96,9 @@ git diff --check
 - [ ] protocol schema、targeted tests、GPU 可用性全部通过。
 - [ ] 任何 hash 不一致、非空 output 覆盖风险或 locked 字段异常都停止后续运行。
 
-## 4. P1: 三个 seed 的 paired scene manifest 与 ledger 对齐
+## 4. P1: 三个 seed 的 paired scene manifest 与 v9 ledger 对齐
 
-**目标：** 为 `20260911`、`20260912`、`20260913` 建立独立但可配对的 validation 场景块，确保 M0/M3/A1/A2 在同一 seed 内逐 episode 比较。
+**目标：** 为 `20260911`、`20260912`、`20260913` 建立独立但可配对的 validation 场景块，确保 M0/M3/A1/A2 在同一 seed 内逐 episode 比较，并让 ledger source protocol 与 v9 完全一致。
 
 ### TODO
 
@@ -106,16 +106,16 @@ git diff --check
 - [ ] 对每个 seed 固定同一 manifest 给 M0、M3、A1、A2；不同变体不得重新采样场景或调整 episode 顺序。
 - [ ] 预先计算 manifest SHA-256 和 canonical scene hash；写入每个 run 的 provenance。
 - [ ] 确认每个 JEPA checkpoint 与 ledger 的 checkpoint SHA-256 一致，ledger 的 source protocol/checkpoint/calibration hash 完整。
-- [ ] 若 seed 20260912/20260913 尚无 v8-bound ledger，使用独立 calibration archive 运行 ledger builder；不得使用 development episode 反向拟合 credit 或阈值。
+- [x] 三个 seed 均已使用独立 calibration archive 生成 v9-bound ledger；不得使用 development episode 反向拟合 credit 或阈值。
 - [ ] 为每个 seed 建立新的 results root 和 TensorBoard root，非空目录必须拒绝写入。
 
 ### 推荐输入映射
 
 | seed | JEPA checkpoint（待 hash 校验） | ledger 要求 |
 |---:|---|---|
-| 20260911 | `results/jepa_safe_capture_v3_wp2_seed20260911/checkpoint.pt` | v8-bound revision，不能仅凭文件名认定兼容 |
-| 20260912 | `results/jepa_safe_capture_v3_wp2_seed20260912/checkpoint.pt` | 用同 seed checkpoint 绑定的 v8 ledger |
-| 20260913 | `results/jepa_safe_capture_v3_wp2_seed20260913/checkpoint.pt` | 用同 seed checkpoint 绑定的 v8 ledger |
+| 20260911 | `results/jepa_safe_capture_v3_wp2_seed20260911/checkpoint.pt` | v9-bound revision，不能仅凭文件名认定兼容 |
+| 20260912 | `results/jepa_safe_capture_v3_wp2_seed20260912/checkpoint.pt` | 用同 seed checkpoint 绑定的 v9 ledger |
+| 20260913 | `results/jepa_safe_capture_v3_wp2_seed20260913/checkpoint.pt` | 用同 seed checkpoint 绑定的 v9 ledger |
 
 ### P1 出口门
 
@@ -124,9 +124,9 @@ git diff --check
 - [ ] ledger OOD、stale、non-finite、unknown horizon 和 provenance mismatch 的单元测试全部通过。
 - [ ] manifest、protocol、checkpoint、ledger 的 provenance 关系没有缺失或冲突。
 
-## 5. P2: 20 集 paired smoke（先 M0，再 M3/A1/A2）
+## 5. P2: v9 20 集 paired smoke（先 M0，再 M3/A1/A2）
 
-**目标：** 在扩大到 40 集前，验证新 v8 合同不会引入安全回归、raw action 或不可追溯输出。
+**目标：** 在扩大到 40 集前，验证新 v9 合同不会引入安全回归、raw action 或不可追溯输出。
 
 ### 5.1 固定变体
 
@@ -184,25 +184,26 @@ $manifest = 'results/jepa_safe_capture_v5_p2_smoke_m0_seed<seed>/scene_manifest.
 
 ### 5.4 Smoke 硬门
 
-- [ ] M0/M3/A1/A2 的 collision、defender boundary、pairwise violation 均为 0。
-- [ ] `raw_unverified_executed=0`；CBF timeout/infeasible 必须为 0，或每次都有 verified safe-hold/nominal fallback，并单独计数。
+- [x] M0/M3/A1/A2 三 seed 的 collision、defender boundary、pairwise violation 均为 0。
+- [x] `raw_unverified_executed=0`；CBF timeout 为 0；CBF infeasible 均记录为 controlled-abort/fallback，并单独计数。
 - [ ] 所有执行 action finite；所有 `verified=true` 动作确实来自同一 Joint CBF-QP。
 - [ ] candidate rejection、ledger state/reason、ranker selection、CBF diagnostics 在每个 cycle 都存在。
-- [ ] scene/protocol/actor/JEPA/ledger/environment hash 全部一致；TensorBoard、JSON、CSV cycle/episode 数一致。
+- [x] scene/protocol/actor/JEPA/ledger/environment hash 全部一致；TensorBoard、JSON、CSV cycle/episode 数一致。
 - [ ] 任何硬门失败立即停止该 seed 的扩大运行，保留产物并创建新的 protocol revision；不得手改 summary 或删除失败 episode。
 
-## 6. P3: smoke 审计与排序诊断
+## 6. P3: smoke 聚合审计与排序诊断
 
 **目标：** 先回答“选出的候选是否更接近安全最优”，再讨论任务率。
 
 ### TODO
 
-- [ ] 对 M3/A1/A2 运行 settled counterfactual audit，逐 `(episode_index, step)` join online trace 和 settled rows。
-- [ ] 计算 selected-not-settled-best、top-1 safety precision、Spearman、Kendall、top-two margin、nominal displacement、switch/oscillation。
-- [ ] 按 `high credit (>=0.65)`、low/missing credit、OOD、stale、non-finite、visibility、TTC、CBF active-set 分桶。
+- [x] 对 M0/M3/A1/A2 完成显式矩阵聚合；聚合器拒绝历史 v2/v3 目录，并强制检查每个 run 的 step traces 与 TensorBoard event file。
+- [x] 对 M3/A2 三个 seed 运行 settled counterfactual audit，逐 `(episode_index, step)` join online trace 和 settled rows。
+- [x] 计算 selected-not-settled-best、top-1 safety precision、Spearman、Kendall、top-two margin、nominal displacement、switch/oscillation。
+- [x] 按 `high credit (>=0.65)`、low/missing credit、OOD、stale、non-finite、visibility、TTC、CBF active-set 分桶。
 - [ ] 统计 ranker abstention、safe-hold、nominal fallback、CBF abort 前状态和最终 CBF correction；不要只看 correction norm。
-- [ ] 双次重放同一 run，比较除 wall-clock 外的逐字段结果；差异必须有明确分类和报告。
-- [ ] 对每个变体运行 ledger alignment、temporal ledger、CBF/fault、latency 和 provenance audit。
+- [x] 双次重放同一 run，比较除 wall-clock 外的逐字段结果；差异必须有明确分类和报告。
+- [x] 对每个安全变体运行 ledger alignment、temporal ledger、CBF/fault、latency 和 provenance audit。
 
 ### P3 解释规则
 
@@ -210,6 +211,18 @@ $manifest = 'results/jepa_safe_capture_v5_p2_smoke_m0_seed<seed>/scene_manifest.
 - low/missing credit 必须确定性回退；若仍执行 JEPA 选择或 raw action，标记 `BLOCKED_BY_SAFETY`。
 - safe-capture 上升但安全计数非零：不能称为改进，只能标记安全失败。
 - safe-capture 与 M0 接近但证据不足：标记 `INSUFFICIENT_EVIDENCE`，扩大样本前先补 provenance。
+
+### v9 smoke 结果
+
+v9 三 seed、四安全变体共 240 个 episode 的显式聚合已经完成。M0 为 `30/60=50.0%`，M3 为
+`25/60=41.7%`，A1 为 `25/60=41.7%`，A2 为 `27/60=45.0%`。M3 相对 M0 的 seed delta 为
+`-10/-10/-5 pp`，episode 配对为 improved/degraded/tied=`3/8/49`，bootstrap 95% CI 为
+`[-10.0,-5.0] pp`。collision、defender boundary、pairwise、CBF timeout 和 raw-unverified
+均为 0；CBF infeasible/controlled-abort 被显式记录，不能从 safe-capture 中删除。
+
+因此 P3/P2 smoke 的任务结论为 `useful_safety_fallback_only` / `no_control_gain`，不能进入 40 集
+validation，也不能打开 locked test。下一动作是冻结这批负向证据，进入排序/abstention 或安全辅助头
+修复，建立新 protocol 和新 checkpoint 后再重跑 smoke。
 
 ## 7. P4: 40 集三 seed paired validation
 
@@ -338,8 +351,8 @@ docs(jepa): archive three-seed safe-capture development
 
 | 时间盒 | 交付物 | 通过条件 |
 |---|---|---|
-| Day 0 | protocol v8、preflight、hash manifest | development-only、locked closed、targeted tests pass |
-| Day 1 | 三 seed manifest、v8-bound ledger | checkpoint/ledger/protocol hash 完整 |
+| Day 0 | protocol v9、preflight、hash manifest | development-only、locked closed、targeted tests pass |
+| Day 1 | 三 seed manifest、v9-bound ledger | checkpoint/ledger/protocol hash 完整 |
 | Day 2-3 | M0/M3/A1/A2 各 seed 20 集 smoke | 全部安全硬门和 provenance 门通过 |
 | Day 4 | settled/ranking/ledger/CBF/latency aggregate | 可重放，明确 no-control-gain 或进入 validation |
 | Day 5-7 | 三 seed、每变体 40 集 validation | safe_capture 优先的 paired 统计和 CI |
@@ -347,7 +360,7 @@ docs(jepa): archive three-seed safe-capture development
 
 本计划完成的最低定义是：
 
-1. v8 合同、三 seed paired manifest 和所有输入 hash 冻结；
+1. v9 合同、三 seed paired manifest 和所有输入 hash 冻结；
 2. JEPA、ledger、ranker、CBF、rolling horizon 的每步输出可审计；
 3. M0/M3/A1/A2 三 seed smoke 完成且无安全硬门失败；
 4. 40 集 validation 按完整 episode 报告 safe-capture、配对 delta 和不确定性；
