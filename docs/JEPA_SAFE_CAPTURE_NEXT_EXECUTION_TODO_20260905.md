@@ -2,7 +2,7 @@
 # Interaction-Aware Action-Conditioned JEPA + Reliability Ledger + Joint CBF-QP + Rolling Horizon
 # 下一步执行版 TODO 计划书
 
-**版本：** 2026-09-05 execution plan 1.0
+**版本：** 2026-09-05 execution plan 1.1
 **执行目录：** `D:\\uav-capture\\uav_capture`
 **硬件：** NVIDIA GeForce RTX 5050，CUDA 12.8，Conda `uav-encirclement-gpu`
 **当前阶段：** `development_only=true`
@@ -24,7 +24,18 @@
 - [x] v11 hard-replay seed `20260912`、`20260913` 已完成。
 - [x] 已确认 v11 runner 为 `scripts/train_jepa_safe_capture_v3.py`；它保持 v2 模型类型并实现 `hard_context_weighted_v1`，与 seed `20260911` metadata 的 source hashes 对齐。
 
-### 0.2 本轮完成定义
+### 0.2 已完成的 v11 hard-replay smoke 证据
+
+- [x] 三 seed x 四变体 x 20 集已完成，使用同一 canonical S3 scene manifest；aggregate：`results/jepa_safe_capture_v11_hard_replay_smoke_aggregate/`。
+- [x] M0：`50.0% +/- 0.0%`；M3：`46.7% +/- 2.9%`；A1：`51.7% +/- 7.6%`；A2：`50.0% +/- 5.0%`。
+- [x] M3 paired delta（相对 M0）：seed `20260911=-5` pp、`20260912=0` pp、`20260913=-5` pp；improved/degraded/tied=`3/5/52`。
+- [x] 所有安全保留变体 collision、boundary、pairwise 和 raw-unverified 均为 `0`；`controlled_abort` 保留在失败分母中。
+- [x] failure index：`119/240` safe capture；119 个失败为 `cbf_controlled_abort`，另有 2 个 timeout；online trace 不推断 target drift。
+- [x] settled counterfactual ranking 三 seed 的 Spearman 为 `-0.348/-0.564/-0.605`，selected-not-best 为 `7.4%/30.5%/38.1%`；因此排序收益门未通过。
+- [x] ledger fault fallback、temporal ledger、CBF fault matrix、三 seed latency、CPU/CUDA decision equivalence 和 12-run deterministic trace replay 均通过。
+- [ ] 结论：当前分类为 `prediction_signal_no_control_gain`；不得扩大到 P7 40/60 集，不得打开 locked test。
+
+### 0.3 本轮完成定义
 
 本轮只有同时满足以下条件才算完成：
 
@@ -222,7 +233,7 @@ P0 证据/环境冻结
 
 **目标：** 解决当前 `selected_not_settled_best`、负 settled rank correlation 和 CBF abort 推进不足，同时不放宽安全边界。
 
-- [ ] 新建 ranking protocol revision，冻结候选、单位、权重、tie tolerance、abstention margin、minimum hold 和 hysteresis。
+- [x] 新建 ranking protocol revision，冻结候选、单位、权重、tie tolerance、abstention margin、minimum hold 和 hysteresis。
 - [ ] 使用词典序：`finite/reachability -> safety lower bound -> ledger state -> task progress`。
 - [ ] 预测 clearance/TTC/visibility lower bound 不满足时，禁止用任务进展分数抬高候选。
 - [ ] 仅当 ledger=`trusted` 且 top-two margin 足够时允许 JEPA 改变候选；否则走 nominal-CBF 或 safe-hold-CBF。
@@ -235,7 +246,28 @@ P0 证据/环境冻结
 
 - [ ] settled ranking mismatch 和 high-credit failure 相对当前 revision 改善，或至少不超过预设 non-regression 容差。
 - [ ] abstention 不执行 raw action；`raw_unverified_executed=0`。
-- [ ] 双次 replay 的候选选择、CBF verification、fallback 和结算逐字段一致。
+- [x] 双次 replay 的候选选择、CBF verification、fallback 和结算逐字段一致。
+- [ ] 但 settled ranking mismatch 门未通过；下一轮必须修复 rank objective/候选分离后重新审计，不能调低 CBF 安全边界。
+
+### P4.1 下一轮立即执行的排序修复清单
+
+- [ ] 先冻结本轮四变体结果、三份 settled decision rows、ledger 和 protocol hash；修复过程不得覆盖这些证据。
+- [ ] 按 `observation_condition`、`target_motion_mode`、obstacle count、clearance bucket、ledger state 和 candidate separation 分桶，定位负 Spearman 与 `selected_not_best` 的来源。
+- [ ] 对每个候选同时计算 task progress、conservative clearance lower bound、pairwise TTC、visibility/age risk、CBF correction cost、action-change cost 和 ledger credit；保存未归一化值与单位。
+- [ ] 将排序实现为硬安全词典序：finite/reachability -> clearance/TTC lower bound -> ledger state -> visibility/age -> task progress；任务分数不能抬高安全下界不足的候选。
+- [ ] 对 clearance 使用校准后的低分位下界，并单独惩罚 clearance over-prediction；不得用平均 MAE 代替下界校准。
+- [ ] 增加 candidate-separation gate：top-two 差小于 `0.0015 m` 或候选动作范数差小于固定阈值时，保持 nominal/上一动作，不强行切换。
+- [ ] 保留 nominal anchor、minimum hold `2` 和 hysteresis `0.001 m`；所有 abstention/fallback 仍必须经过 Joint CBF-QP。
+- [ ] 用离线 settled counterfactual 只做诊断，不回灌训练；只有明确发现训练标签/坐标错位时才建立新 archive 和新 checkpoint。
+- [ ] 先用单元测试覆盖 score 单位、词典序、tie/abstention、ledger state routing、候选 separation 和 CBF-only execution，再跑三 seed smoke。
+
+### P4.2 修复后的验收门
+
+- [ ] 三 seed selected-not-best 相对本轮 `7.4%/30.5%/38.1%` 均不恶化，且 Spearman/Kendall 不再系统为负。
+- [ ] high-credit failure rate 不高于 low-credit bucket；低信用覆盖不足时标记 `insufficient_evidence`，不得判定通过。
+- [ ] m3 相对 m0 至少 `2/3` seed 非负，平均 paired delta 不低于 `0`；safe-capture 是唯一主门。
+- [ ] collision、boundary、pairwise、CBF timeout/infeasible/unverified、controlled-abort、raw-unverified 均逐项解释并保持安全硬门。
+- [ ] 通过后才进入三 seed x 四变体 x 40/60 集；任一门失败则回到 P4.1，不打开 locked test。
 
 ## 9. P5：100-cycle rolling-horizon 与 Joint CBF 回归
 
@@ -243,16 +275,17 @@ P0 证据/环境冻结
 - [ ] 对 non-zero candidate path 做至少 100 个 control cycles 的双次 deterministic replay。
 - [ ] 验证每周期顺序固定为 observe -> belief -> candidates -> JEPA -> ledger -> rank -> CBF -> execute-first-step。
 - [ ] 验证 action chunk 后续步骤绝不在 open-loop 中执行。
-- [ ] 注入 JEPA timeout、ledger timeout、non-finite prediction、CBF infeasible、CBF timeout、通信中断和 solver fault。
-- [ ] 验证所有 fallback 仍走同一个 Joint CBF-QP，记录 status、slack、active constraints、correction norm、latency。
-- [ ] 在 RTX 5050 和 CPU 上重放，比较 candidate decision、verified action、safety settlement 和 trace hash。
-- [ ] 汇总 cycle p50/p95/p99、queue age、CBF p95；当前 contract 为端到端 p95 不超过 `100 ms`。
+- [x] 注入 JEPA timeout、ledger timeout、non-finite prediction、CBF infeasible、CBF timeout、通信中断和 solver fault 的 fallback 语义。
+- [x] 验证所有 fallback 仍走同一个 Joint CBF-QP，记录 status、slack、active constraints、correction norm、latency。
+- [x] 在 RTX 5050 和 CPU 上重放，candidate decision、verified action、safety settlement 和 trace hash 等价。
+- [x] 汇总 cycle p50/p95/p99、queue age、CBF p95；三 seed m3 cycle p95 约 `20.7 ms`，低于 `100 ms` contract。
 
 ### P5 出口门
 
-- [ ] collision/boundary/pairwise/raw-unverified 均为 `0`。
-- [ ] CBF timeout/infeasible 只产生显式 fallback 或 controlled abort，不返回 raw request。
-- [ ] CPU/CUDA replay 结算一致；若浮点 tie 造成 decision drift，先冻结 tie policy 再进入 smoke。
+- [x] collision/boundary/pairwise/raw-unverified 均为 `0`。
+- [x] CBF timeout/infeasible 只产生显式 fallback 或 controlled abort，不返回 raw request。
+- [x] CPU/CUDA replay 结算一致；candidate decision drift 未观察到。
+- [ ] 尚未完成独立 100-cycle/500-cycle/1000-cycle 长序列压力回放，保留到 P8。
 
 ## 10. P6：三 seed、四变体、每 seed 20 集 smoke
 
@@ -265,17 +298,17 @@ P0 证据/环境冻结
 | A1-new | JEPA + auxiliary rank，无 ledger + CBF | ledger 消融 |
 | A2-new | JEPA + ledger，无 clearance/visibility rank + CBF | auxiliary-head 消融 |
 
-- [ ] 每个 training seed 先生成唯一 paired scene manifest；M0/M3/A1/A2 复用同一 manifest。
-- [ ] 每个变体每 seed 运行 20 集；每个 output、TensorBoard 和报告目录全新创建。
-- [ ] 记录 episode、step trace、scene、provenance、checkpoint/ledger hash 和命令行。
-- [ ] 运行 safety、latency、ledger alignment、temporal ledger、settled ranking、failure index 和 deterministic replay。
-- [ ] 统计 per-seed `safe_capture`、paired delta、improved/degraded/tied、95% CI、CBF abort、fallback 和 failure cause。
+- [x] 每个 training seed 使用 paired scene manifest；M0/M3/A1/A2 复用同一 canonical manifest。
+- [x] 每个变体每 seed 运行 20 集；每个 output、TensorBoard 和报告目录独立创建。
+- [x] 记录 episode、step trace、scene、provenance、checkpoint/ledger hash 和命令行。
+- [x] 运行 safety、latency、ledger alignment、temporal ledger、settled ranking、failure index 和 deterministic replay。
+- [x] 统计 per-seed `safe_capture`、paired delta、improved/degraded/tied、bootstrap CI、CBF abort、fallback 和 failure cause。
 
 ### P6 硬门
 
-- [ ] 任一 collision、boundary、pairwise、raw-unverified 或不可解释安全回退，立即停止扩大规模。
-- [ ] M3-new 不得相对 M0 在三 seed 中系统性退化；不能用平均值掩盖单 seed 安全回归。
-- [ ] 若安全全通过但没有控制收益，分类为 `prediction_signal_no_control_gain` 或 `safe_non_inferior`，回到 P4，不重复采样掩盖结果。
+- [x] 任一 collision、boundary、pairwise、raw-unverified 或不可解释安全回退均未出现。
+- [x] M3-new 未通过跨 seed 控制收益门（平均 delta 为负，只有 1/3 seed 非负）；未把结果写成提升。
+- [x] 安全全通过但没有控制收益，已分类为 `prediction_signal_no_control_gain`，回到 P4，不重复采样掩盖结果。
 
 ## 11. P7：三 seed paired development（每 seed 40/60 集）
 
@@ -352,16 +385,16 @@ P0 证据/环境冻结
 
 ## 15. 近期实际执行顺序
 
-1. [ ] 完成 P0 preflight，并确认 v11 trainer/protocol 兼容性。
-2. [ ] 完成 hard-replay seed `20260912`。
-3. [ ] 完成 hard-replay seed `20260913`。
-4. [ ] 审计三份 checkpoint、validation prediction、auxiliary heads 和 TensorBoard。
-5. [ ] 为三份 checkpoint 生成独立 calibration-bound ledger。
-6. [ ] 冻结新的 safety-first ranking/abstention/hysteresis protocol。
-7. [ ] 完成 100-cycle replay、CBF fault、latency 和 CPU/CUDA regression。
-8. [ ] 运行三 seed x 四变体 x 20 集 smoke。
-9. [ ] 只有 smoke 安全硬门通过且 M3 不再系统性退化，才运行三 seed x 四变体 x 40/60 集 paired development。
-10. [ ] 最后运行 robustness/SIL/HIL readiness，并根据预定义分类决定是否创建新的 locked preregistration。
+1. [x] 完成 P0 preflight，并确认 v11 trainer/protocol 兼容性。
+2. [x] 完成 hard-replay seed `20260912` 和 `20260913`。
+3. [x] 审计三份 checkpoint、validation prediction、auxiliary heads 和 TensorBoard。
+4. [x] 为三份 checkpoint 生成独立 calibration-bound ledger。
+5. [x] 冻结新的 safety-first ranking/abstention/hysteresis protocol。
+6. [x] 完成 CBF fault、latency、CPU/CUDA regression 和当前 trace deterministic replay。
+7. [x] 运行三 seed x 四变体 x 20 集 smoke，并生成 aggregate/failure index。
+8. [ ] 修复 settled ranking mismatch、候选分离不足和 controlled-abort 推进不足；重新通过 P4 ranking/ledger gates。
+9. [ ] 只有修复后 smoke 的 M3 至少 2/3 seed 非负且安全硬门全通过，才运行三 seed x 四变体 x 40/60 集 paired development。
+10. [ ] 完成 100/500/1000-cycle stress、robustness/SIL/HIL readiness，再决定是否创建新的 locked preregistration。
 
 ## 16. 禁止事项和停止规则
 

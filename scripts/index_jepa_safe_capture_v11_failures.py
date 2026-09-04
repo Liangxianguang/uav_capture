@@ -61,7 +61,11 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def _run_path(input_root: Path, seed: int, variant: str) -> Path:
-    return input_root / f"jepa_safe_capture_v5_v11_corrected_frame_smoke_{variant}_seed{seed}"
+    # Prefer the v11 hard-replay smoke naming used by the current protocol,
+    # while retaining compatibility with the earlier corrected-frame archive.
+    current = input_root / f"jepa_safe_capture_v11_hard_replay_smoke_{variant}_seed{seed}"
+    legacy = input_root / f"jepa_safe_capture_v5_v11_corrected_frame_smoke_{variant}_seed{seed}"
+    return current if current.exists() else legacy
 
 
 def load_run(input_root: Path, seed: int, variant: str) -> dict[str, Any]:
