@@ -167,6 +167,7 @@ def _predict(
             parts["pairwise_ttc"].append(auxiliary["pairwise_ttc"].cpu().numpy())
             parts["visibility_probability"].append(torch.sigmoid(auxiliary["target_visibility_logit"]).cpu().numpy())
             parts["observation_age"].append(auxiliary["observation_age"].cpu().numpy())
+            parts["cbf_correction"].append(auxiliary["cbf_correction"].cpu().numpy())
             parts["intervention_probability"].append(torch.sigmoid(auxiliary["cbf_intervention_logit"]).cpu().numpy())
             parts["qp_feasibility_probability"].append(torch.sigmoid(auxiliary["cbf_qp_feasibility_logit"]).cpu().numpy())
     predictions = {key: np.concatenate(value, axis=0) for key, value in parts.items()}
