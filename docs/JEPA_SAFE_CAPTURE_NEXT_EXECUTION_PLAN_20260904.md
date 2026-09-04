@@ -494,6 +494,11 @@ hash 完全一致；原始 WP-7 目录不被修改。
 
 ### P11：candidate block 和排序修复（P8/P10 之后，2--4 天）
 
+**当前状态：** WP-11 trace audit 已完成。degraded 的候选切换率为 0.2161，
+improved 为 0.1320；30 个 degraded 全部是 high-credit failure，表明当前 score
+与 settled safe-capture 失配。尚未修改 ranker 权重，等待 P10 safety heads 和
+离线 settled counterfactual calibration。
+
 - [ ] 继续使用 5 个候选和 3-step chunk 作为合同基线，先修复评分与 settled outcome 的
   失配，再考虑增加候选数量。
 - [ ] 采用安全优先的分层排序：先排除不可达/明显不安全候选，再比较 task progress；
