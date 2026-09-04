@@ -1,12 +1,12 @@
 # V5 下一阶段目标与 TODO 计划书
 
-**系统名称：** Interaction-aware Action-conditioned JEPA + Reliability Ledger + Joint CBF-QP + Rolling Horizon  
-**版本：** v1.0（2026-09-04，P2 settled-ranking 审计之后）  
-**执行目录：** `D:\\uav-capture\\uav_capture`  
-**设备：** NVIDIA RTX 5050，CUDA 12.8，PyTorch 2.7.1+cu128  
-**Conda 环境：** `uav-encirclement-gpu`  
-**实验边界：** `development_only=true`，`locked_test_opened=false`  
-**第一指标：** `safe_capture`  
+**系统名称：** Interaction-aware Action-conditioned JEPA + Reliability Ledger + Joint CBF-QP + Rolling Horizon
+**版本：** v1.0（2026-09-04，P2 settled-ranking 审计之后）
+**执行目录：** `D:\\uav-capture\\uav_capture`
+**设备：** NVIDIA RTX 5050，CUDA 12.8，PyTorch 2.7.1+cu128
+**Conda 环境：** `uav-encirclement-gpu`
+**实验边界：** `development_only=true`，`locked_test_opened=false`
+**第一指标：** `safe_capture`
 **诊断指标：** collision、boundary、pairwise separation、CBF abort/timeout/fallback、最小净空、延迟、路径代价、`mean_capture_time`
 
 > 本文件是当前执行入口，承接 P1 latency 和 P2 settled-ranking 证据。它不是历史 V4 locked-test 结果，也不把单 seed 的 95% 观察值当作目标。所有新运行都必须写入新的 output root，不覆盖已有 results、checkpoint、TensorBoard 或 tmp 数据。
