@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter_ns
 from typing import Any, Mapping
 
 import numpy as np
@@ -98,6 +99,12 @@ class SafeCaptureRankingTrace:
     rank_abstention_reason: str | None = None
     hysteresis_applied: bool = False
     hold_steps_remaining: int = 0
+    # Runtime diagnostics are intentionally separate from ranking decisions.
+    # They are measured at inference time and must never affect selection.
+    jepa_inference_latency_ms: float = 0.0
+    ledger_route_latency_ms: float = 0.0
+    ranker_compute_latency_ms: float = 0.0
+    rank_total_latency_ms: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -129,6 +136,10 @@ class SafeCaptureRankingTrace:
             "rank_abstention_reason": self.rank_abstention_reason,
             "hysteresis_applied": bool(self.hysteresis_applied),
             "hold_steps_remaining": int(self.hold_steps_remaining),
+            "jepa_inference_latency_ms": float(self.jepa_inference_latency_ms),
+            "ledger_route_latency_ms": float(self.ledger_route_latency_ms),
+            "ranker_compute_latency_ms": float(self.ranker_compute_latency_ms),
+            "rank_total_latency_ms": float(self.rank_total_latency_ms),
         }
 
 
@@ -239,6 +250,9 @@ class SafeCaptureJEPARanker:
         previous_selected_index: int | None = None,
         hold_steps_remaining: int = 0,
     ) -> SafeCaptureRankingResult:
+        rank_started_ns = perf_counter_ns()
+        jepa_latency_ms = 0.0
+        ledger_latency_ms = 0.0
         chunks = np.asarray(candidate_batch.chunks)
         if chunks.ndim != 4 or chunks.shape[0] != len(candidate_batch.labels) or chunks.shape[1] <= 0:
             raise ValueError("Candidate batch has an invalid chunk shape.")
@@ -280,10 +294,12 @@ class SafeCaptureJEPARanker:
         ]
         valid_indices = np.flatnonzero(valid)
         if valid_indices.size:
+            jepa_started_ns = perf_counter_ns()
             means, stds, auxiliary = self.history.predict_candidates_multitask(
                 chunks[valid_indices, 0],
                 horizon_index=self.config.horizon_index,
             )
+            jepa_latency_ms = (perf_counter_ns() - jepa_started_ns) / 1_000_000.0
             obstacle = np.asarray(auxiliary["obstacle_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
             inter_agent = np.asarray(auxiliary["inter_agent_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
             ttc = np.asarray(auxiliary["pairwise_ttc"], dtype=np.float64)
@@ -328,6 +344,7 @@ class SafeCaptureJEPARanker:
                 visibility_cost[candidate_index] = 1.0 - visibility[candidate_index]
                 cbf_risk_cost[candidate_index] = cbf_risk[candidate_index]
                 action_change_cost[candidate_index] = float(np.mean(np.linalg.norm(chunks[candidate_index, 0] - reference, axis=1)))
+                ledger_started_ns = perf_counter_ns()
                 decisions[candidate_index] = self._decision(
                     base_context,
                     minimum_clearance_m=min_clearance[candidate_index],
@@ -336,6 +353,7 @@ class SafeCaptureJEPARanker:
                     cbf_risk=cbf_risk[candidate_index],
                     candidate_separation_m=float(separation[local]),
                 )
+                ledger_latency_ms += (perf_counter_ns() - ledger_started_ns) / 1_000_000.0
                 scores[candidate_index] = (
                     self.config.target_weight * target_cost[candidate_index]
                     + self.config.uncertainty_weight * uncertainty_cost[candidate_index]
@@ -445,6 +463,17 @@ class SafeCaptureJEPARanker:
             rank_abstention_reason=rank_abstention_reason,
             hysteresis_applied=hysteresis_applied,
             hold_steps_remaining=remaining_hold,
+            jepa_inference_latency_ms=float(jepa_latency_ms),
+            ledger_route_latency_ms=float(ledger_latency_ms),
+            ranker_compute_latency_ms=float(
+                max(
+                    (perf_counter_ns() - rank_started_ns) / 1_000_000.0
+                    - jepa_latency_ms
+                    - ledger_latency_ms,
+                    0.0,
+                )
+            ),
+            rank_total_latency_ms=float((perf_counter_ns() - rank_started_ns) / 1_000_000.0),
         )
         return SafeCaptureRankingResult(
             selected_index=selected_index,

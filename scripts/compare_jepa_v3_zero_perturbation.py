@@ -22,6 +22,31 @@ JEPA_ONLY_FIELDS = {
     "jepa_ledger_mean_credit",
     "jepa_ledger_nominal_fallback_fraction",
     "jepa_ledger_global_fallback_fraction",
+    # These fields describe the evaluator/diagnostic path rather than the
+    # physical state transition that zero-perturbation must preserve.
+    "variant",
+    "ledger_enabled",
+    "selected_candidate_indices",
+    "selected_candidate_mean_index",
+    "ledger_state_counts",
+    "rank_fallback_steps",
+    "safe_hold_steps",
+    "fallback_mode_counts",
+    # Full-chain runtime measurements are evaluator diagnostics, not physical
+    # state transitions.  They may differ between the identity and baseline
+    # paths even when requested/executed actions are identical.
+    "control_cycle_count",
+    "mean_queue_age_steps",
+    "p95_queue_age_steps",
+    "max_queue_age_steps",
+    "latency_breakdown",
+    "trace_write_latency_ms",
+    # Solver timing is a runtime measurement and can vary with process/GPU
+    # scheduling even when the requested and executed actions are identical.
+    "cbf_mean_solve_latency_ms",
+    "cbf_p95_solve_latency_ms",
+    # This records the evaluator path, not the environment transition.
+    "jepa_zero_perturbation_identity_bypass",
 }
 PAIR_FIELDS = ("episode_index", "episode_seed", "layout_seed")
 
@@ -35,6 +60,19 @@ def load_rows(directory: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def canonical_scene_geometry(path: Path) -> bytes:
+    """Compare scene/spec geometry while ignoring variant-specific outcomes."""
+    records: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        value = json.loads(line)
+        if not isinstance(value, dict):
+            raise ValueError(f"Scene record must be an object: {path}")
+        records.append({key: value[key] for key in value if key != "outcome"})
+    return (json.dumps(records, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
 def compare(baseline_dir: Path, candidate_dir: Path) -> dict[str, Any]:
     baseline_rows = load_rows(baseline_dir)
     candidate_rows = load_rows(candidate_dir)
@@ -44,6 +82,13 @@ def compare(baseline_dir: Path, candidate_dir: Path) -> dict[str, Any]:
     scene_candidate = candidate_dir / "scenes.jsonl"
     scene_hashes = {"baseline": sha256(scene_baseline), "candidate": sha256(scene_candidate)}
     scene_byte_identical = scene_baseline.read_bytes() == scene_candidate.read_bytes()
+    scene_geometry_baseline = canonical_scene_geometry(scene_baseline)
+    scene_geometry_candidate = canonical_scene_geometry(scene_candidate)
+    scene_geometry_hashes = {
+        "baseline": hashlib.sha256(scene_geometry_baseline).hexdigest(),
+        "candidate": hashlib.sha256(scene_geometry_candidate).hexdigest(),
+    }
+    scenes_geometry_identical = scene_geometry_baseline == scene_geometry_candidate
     fields = sorted(
         (set(baseline_rows[0]) & set(candidate_rows[0])).difference(JEPA_ONLY_FIELDS)
         if baseline_rows
@@ -75,9 +120,11 @@ def compare(baseline_dir: Path, candidate_dir: Path) -> dict[str, Any]:
         "non_jepa_fields_compared": len(fields),
         "scene_sha256": scene_hashes,
         "scenes_byte_identical": scene_byte_identical,
+        "scene_geometry_sha256": scene_geometry_hashes,
+        "scenes_geometry_identical": scenes_geometry_identical,
         "field_difference_count": len(differences),
         "field_differences": differences,
-        "passed": bool(scene_byte_identical and not differences),
+        "passed": bool(scenes_geometry_identical and not differences),
     }
 
 

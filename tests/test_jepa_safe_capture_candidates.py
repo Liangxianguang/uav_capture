@@ -260,6 +260,25 @@ def test_ranker_exposes_hold_and_hysteresis_inputs_without_changing_cbf_boundary
     assert result.trace.hold_steps_remaining == 1
 
 
+def test_ranker_exposes_finite_latency_breakdown_without_affecting_selection() -> None:
+    history = _FakeHistory()
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 1.0
+    result = SafeCaptureJEPARanker(history).rank(_observation(), _batch(actions))
+
+    assert result.selected_index == 1
+    timing = result.trace.as_dict()
+    for field in (
+        "jepa_inference_latency_ms",
+        "ledger_route_latency_ms",
+        "ranker_compute_latency_ms",
+        "rank_total_latency_ms",
+    ):
+        assert np.isfinite(float(timing[field]))
+        assert float(timing[field]) >= 0.0
+    assert float(timing["rank_total_latency_ms"]) >= float(timing["jepa_inference_latency_ms"])
+
+
 def test_projected_candidates_use_the_reachable_first_step_envelope() -> None:
     nominal = np.full((2, 3), 5.0, dtype=np.float64)
     previous = np.zeros_like(nominal)

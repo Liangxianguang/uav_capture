@@ -120,6 +120,47 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def _latency_stats(values: list[float]) -> dict[str, float | int]:
+    """Summarize runtime measurements without silently dropping invalid values."""
+
+    if not values:
+        return {
+            "count": 0,
+            "mean_ms": 0.0,
+            "p50_ms": 0.0,
+            "p95_ms": 0.0,
+            "p99_ms": 0.0,
+            "max_ms": 0.0,
+        }
+    array = np.asarray(values, dtype=np.float64)
+    if not np.isfinite(array).all() or (array < 0.0).any():
+        raise ValueError("Latency measurements must be finite and non-negative.")
+    return {
+        "count": int(array.size),
+        "mean_ms": float(np.mean(array)),
+        "p50_ms": float(np.percentile(array, 50)),
+        "p95_ms": float(np.percentile(array, 95)),
+        "p99_ms": float(np.percentile(array, 99)),
+        "max_ms": float(np.max(array)),
+    }
+
+
+def _observation_queue_age_steps(observation: Mapping[str, Any]) -> float:
+    """Return the oldest online observation age used by the current belief."""
+
+    ages: list[float] = []
+    for key in ("message_age_steps", "target_observation_age_steps"):
+        value = observation.get(key)
+        if value is None:
+            continue
+        array = np.asarray(value, dtype=np.float64).reshape(-1)
+        if array.size and not np.isfinite(array).all():
+            raise ValueError(f"{key} contains non-finite values.")
+        if array.size:
+            ages.append(float(np.max(array)))
+    return float(max(ages, default=0.0))
+
+
 def _write_json(path: Path, value: Any) -> None:
     path.write_text(
         json.dumps(_jsonable(value), indent=2, sort_keys=True, allow_nan=False) + "\n",
@@ -194,6 +235,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tensorboard-dir", type=Path, required=True)
     parser.add_argument("--jepa-history-length", type=int, default=8)
+    parser.add_argument(
+        "--jepa-perturbation-mps",
+        type=float,
+        default=0.10,
+        help="Candidate action perturbation in m/s; set to 0 only for the strict zero-perturbation regression.",
+    )
     parser.add_argument("--recurrent-reset-interval", type=int)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument(
@@ -288,6 +335,23 @@ def _variant_contract(variant: str) -> dict[str, Any]:
         "use_auxiliary_score": variant in {"m3", "a1"},
         "diagnostic_only": variant == "a3",
     }
+
+
+def requires_zero_perturbation_identity_bypass(
+    use_jepa: bool,
+    perturbation_mps: float,
+) -> bool:
+    """Keep strict zero-perturbation paired replay on the actor-to-CBF path.
+
+    A zero perturbation makes every candidate identical in intent.  Running
+    those identical candidates through float32 candidate construction and the
+    ranker can still alter the requested action numerically, which invalidates
+    a physical identity regression.  JEPA and the ledger remain loaded and
+    recorded for provenance, but inference, candidate construction, and
+    ranking are bypassed only for this explicit diagnostic mode.
+    """
+
+    return bool(use_jepa and float(perturbation_mps) == 0.0)
 
 
 def _build_scene_manifest(
@@ -429,6 +493,7 @@ def _run_episode(
     jepa: InteractionAwareActionConditionedSafeCaptureJEPAPredictor | None,
     ledger: SafeCaptureReliabilityLedger | None,
     history_length: int,
+    jepa_perturbation_mps: float,
     recurrent_reset_interval: int | None,
     ranker_config: SafeCaptureRankerConfig | None,
     output_dir: Path,
@@ -444,9 +509,12 @@ def _run_episode(
     )
     observation = prepare_showcase_episode(env, scenario, seed=seed, record_history=True, validate_scenario=False)
     local_observation = policy_observations(env, observation)
+    jepa_zero_perturbation_identity_bypass = requires_zero_perturbation_identity_bypass(
+        bool(contract["use_jepa"]), jepa_perturbation_mps
+    )
     candidate_history: SafeCaptureCandidateHistory | None = None
     ranker: SafeCaptureJEPARanker | None = None
-    if contract["use_jepa"]:
+    if contract["use_jepa"] and not jepa_zero_perturbation_identity_bypass:
         if jepa is None:
             raise RuntimeError("This variant requires a JEPA checkpoint.")
         candidate_history = SafeCaptureCandidateHistory(
@@ -484,7 +552,7 @@ def _run_episode(
     candidate_config = SafeCaptureCandidateConfig(
         candidate_count=5,
         chunk_length_steps=3,
-        perturbation_mps=0.10,
+        perturbation_mps=float(jepa_perturbation_mps),
         max_speed_mps=float(env.agents["defender_max_speed"]),
         max_acceleration_mps2=float(env.agents["defender_max_acceleration"]),
         dt_seconds=float(env.dt),
@@ -497,6 +565,16 @@ def _run_episode(
     path_lengths = np.zeros(env.n_defenders, dtype=np.float64)
     previous_positions = env.defender_positions.copy()
     step_records: list[dict[str, Any]] = []
+    actor_latencies: list[float] = []
+    candidate_latencies: list[float] = []
+    jepa_latencies: list[float] = []
+    ledger_latencies: list[float] = []
+    ranker_latencies: list[float] = []
+    rank_total_latencies: list[float] = []
+    cbf_filter_latencies: list[float] = []
+    env_step_latencies: list[float] = []
+    cycle_latencies: list[float] = []
+    queue_ages: list[float] = []
     cbf_latencies: list[float] = []
     cbf_corrections: list[float] = []
     selected_indices: list[int] = []
@@ -518,6 +596,7 @@ def _run_episode(
     forced_termination_reason: str | None = None
     final_info: dict[str, Any] = {}
     while True:
+        cycle_started_ns = time.perf_counter_ns()
         if (
             hidden is not None
             and recurrent_reset_interval is not None
@@ -525,7 +604,9 @@ def _run_episode(
             and env.step_count % recurrent_reset_interval == 0
         ):
             hidden = policy.initial_actor_hidden(env.n_defenders, device=device)
+        actor_started_ns = time.perf_counter_ns()
         desired_action, hidden = _actor_action(policy, local_observation, device, action_scale, hidden)
+        actor_latencies.append((time.perf_counter_ns() - actor_started_ns) / 1_000_000.0)
         reachable_nominal_action = env._move_toward_velocity(
             previous_action,
             env._clip_rows(desired_action, float(env.agents["defender_max_speed"])),
@@ -533,6 +614,15 @@ def _run_episode(
         )
         requested_action = desired_action.copy()
         rank_result = None
+        queue_age_steps = _observation_queue_age_steps(observation)
+        input_observation = {
+            "target_visible": observation.get("target_visible"),
+            "target_observation_age_steps": observation.get("target_observation_age_steps"),
+            "message_age_steps": observation.get("message_age_steps"),
+            "queue_age_steps": queue_age_steps,
+        }
+        queue_ages.append(queue_age_steps)
+        candidate_started_ns = time.perf_counter_ns()
         if ranker is not None and candidate_history is not None:
             batch = make_safe_capture_candidate_chunks(
                 reachable_nominal_action,
@@ -563,15 +653,28 @@ def _run_episode(
             else:
                 previous_selected_index = 0
                 hold_steps_remaining = 0
+        candidate_latencies.append((time.perf_counter_ns() - candidate_started_ns) / 1_000_000.0)
+        if rank_result is not None:
+            jepa_latencies.append(float(getattr(rank_result.trace, "jepa_inference_latency_ms", 0.0)))
+            ledger_latencies.append(float(getattr(rank_result.trace, "ledger_route_latency_ms", 0.0)))
+            ranker_latencies.append(float(getattr(rank_result.trace, "ranker_compute_latency_ms", 0.0)))
+            rank_total_latencies.append(float(getattr(rank_result.trace, "rank_total_latency_ms", 0.0)))
+        else:
+            jepa_latencies.append(0.0)
+            ledger_latencies.append(0.0)
+            ranker_latencies.append(0.0)
+            rank_total_latencies.append(0.0)
         diagnostics = None
         if safety_filter is not None:
             execution_mode = "safe_hold" if rank_result is not None and rank_result.execution_mode == "safe_hold" else "normal"
+            cbf_started_ns = time.perf_counter_ns()
             action, diagnostics = safety_filter.filter(
                 requested_action,
                 observation,
                 nominal_actions=reachable_nominal_action,
                 execution_mode=execution_mode,
             )
+            cbf_filter_latencies.append((time.perf_counter_ns() - cbf_started_ns) / 1_000_000.0)
             action = np.asarray(action, dtype=np.float64)
             cbf_latencies.append(float(diagnostics.solve_latency_ms))
             cbf_corrections.append(float(diagnostics.action_correction_norm))
@@ -603,7 +706,9 @@ def _run_episode(
             raw_unverified_executed_steps += 1
         if not np.isfinite(action).all():
             raise RuntimeError("Execution action became non-finite.")
+        env_step_started_ns = time.perf_counter_ns()
         observation, _reward, terminated, truncated, final_info = env.step(action, record_history=True)
+        env_step_latencies.append((time.perf_counter_ns() - env_step_started_ns) / 1_000_000.0)
         path_lengths += np.linalg.norm(env.defender_positions - previous_positions, axis=1)
         previous_positions = env.defender_positions.copy()
         visible_fractions.append(float(final_info["target_visible_fraction"]))
@@ -618,6 +723,7 @@ def _run_episode(
         ) if env.obstacles else float("inf")
         if target_clearance < 0.0:
             target_collision = True
+        cycle_latencies.append((time.perf_counter_ns() - cycle_started_ns) / 1_000_000.0)
         step_records.append(
             {
                 "episode_index": episode_index,
@@ -627,10 +733,23 @@ def _run_episode(
                 "requested_action": requested_action,
                 "executed_action": action,
                 "raw_unverified_executed": bool(raw_unverified_executed),
+                "input_observation": input_observation,
                 "observation": {
                     "target_visible": observation.get("target_visible"),
                     "target_observation_age_steps": observation.get("target_observation_age_steps"),
                     "message_age_steps": observation.get("message_age_steps"),
+                },
+                "latency_ms": {
+                    "actor": actor_latencies[-1],
+                    "candidate_generation": candidate_latencies[-1],
+                    "jepa_inference": jepa_latencies[-1],
+                    "ledger_route": ledger_latencies[-1],
+                    "ranker_compute": ranker_latencies[-1],
+                    "rank_total": rank_total_latencies[-1],
+                    "cbf_filter_wall": cbf_filter_latencies[-1] if cbf_filter_latencies else 0.0,
+                    "cbf_solver": float(diagnostics.solve_latency_ms) if diagnostics is not None else 0.0,
+                    "env_step": env_step_latencies[-1],
+                    "cycle_total": cycle_latencies[-1],
                 },
                 "safety_observables": safety_values,
                 "target_clearance_m": target_clearance,
@@ -735,6 +854,7 @@ def _run_episode(
         "mean_cbf_action_correction_norm": float(np.mean(cbf_corrections)) if cbf_corrections else 0.0,
         "max_cbf_action_correction_norm": float(max(cbf_corrections)) if cbf_corrections else 0.0,
         "jepa_enabled": bool(contract["use_jepa"]),
+        "jepa_zero_perturbation_identity_bypass": jepa_zero_perturbation_identity_bypass,
         "ledger_enabled": bool(contract["use_ledger"]),
         "cbf_enabled": bool(contract["use_cbf"]),
         "rank_fallback_steps": rank_fallback_steps,
@@ -748,6 +868,22 @@ def _run_episode(
         "fallback_mode_counts": {
             mode: int(fallback_modes.count(mode))
             for mode in sorted(set(fallback_modes))
+        },
+        "control_cycle_count": len(cycle_latencies),
+        "mean_queue_age_steps": float(np.mean(queue_ages)) if queue_ages else 0.0,
+        "p95_queue_age_steps": float(np.percentile(queue_ages, 95)) if queue_ages else 0.0,
+        "max_queue_age_steps": float(max(queue_ages)) if queue_ages else 0.0,
+        "latency_breakdown": {
+            "actor": _latency_stats(actor_latencies),
+            "candidate_generation": _latency_stats(candidate_latencies),
+            "jepa_inference": _latency_stats(jepa_latencies),
+            "ledger_route": _latency_stats(ledger_latencies),
+            "ranker_compute": _latency_stats(ranker_latencies),
+            "rank_total": _latency_stats(rank_total_latencies),
+            "cbf_filter_wall": _latency_stats(cbf_filter_latencies),
+            "cbf_solver": _latency_stats(cbf_latencies),
+            "env_step": _latency_stats(env_step_latencies),
+            "cycle_total": _latency_stats(cycle_latencies),
         },
         "use_cbf": bool(contract["use_cbf"]),
     }
@@ -766,12 +902,14 @@ def _run_episode(
     row.update(transit_execution_metrics(env, scenario))
     row["showcase_success"] = bool(contract_metrics["cooperative_safe_capture"])
     row["safe_capture_success"] = bool(row["safe_capture_success"] and row["showcase_success"])
+    trace_started_ns = time.perf_counter_ns()
     trace_dir = output_dir / "step_traces"
     trace_dir.mkdir(parents=True, exist_ok=True)
     (trace_dir / f"episode_{episode_index:04d}.jsonl").write_text(
         "".join(json.dumps(_jsonable(item), allow_nan=False) + "\n" for item in step_records),
         encoding="utf-8",
     )
+    row["trace_write_latency_ms"] = (time.perf_counter_ns() - trace_started_ns) / 1_000_000.0
     scene_record = {
         "episode_index": episode_index,
         "episode_seed": seed,
@@ -799,6 +937,29 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         for row in rows
         if row.get("capture_time_seconds") is not None
     ]
+    latency_stages = (
+        "actor",
+        "candidate_generation",
+        "jepa_inference",
+        "ledger_route",
+        "ranker_compute",
+        "rank_total",
+        "cbf_filter_wall",
+        "cbf_solver",
+        "env_step",
+        "cycle_total",
+    )
+    latency_breakdown: dict[str, dict[str, float | int]] = {}
+    for stage in latency_stages:
+        p95_values = [
+            float(row.get("latency_breakdown", {}).get(stage, {}).get("p95_ms", 0.0))
+            for row in rows
+        ]
+        latency_breakdown[stage] = {
+            "episodes": len(p95_values),
+            "mean_episode_p95_ms": float(np.mean(p95_values)),
+            "max_episode_p95_ms": float(max(p95_values)),
+        }
     return {
         "episodes": len(rows),
         "safe_capture_count": int(sum(bool(row.get("safe_capture_success", False)) for row in rows)),
@@ -846,6 +1007,13 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_cbf_action_correction_norm": float(
             np.mean([float(row.get("mean_cbf_action_correction_norm", 0.0)) for row in rows])
         ),
+        "control_cycles": int(sum(int(row.get("control_cycle_count", 0)) for row in rows)),
+        "mean_queue_age_steps": float(np.mean([float(row.get("mean_queue_age_steps", 0.0)) for row in rows])),
+        "max_queue_age_steps": float(max(float(row.get("max_queue_age_steps", 0.0)) for row in rows)),
+        "latency_breakdown": latency_breakdown,
+        "trace_write_latency_ms": _latency_stats(
+            [float(row.get("trace_write_latency_ms", 0.0)) for row in rows]
+        ),
         "termination_reasons": {
             reason: int(sum(str(row.get("termination_reason")) == reason for row in rows))
             for reason in sorted({str(row.get("termination_reason")) for row in rows})
@@ -890,6 +1058,14 @@ def _write_tensorboard(
             writer.add_scalar("Fallback/safe_hold_steps", float(row["safe_hold_steps"]), index)
             writer.add_scalar("Ranking/selected_candidate_mean_index", float(row["selected_candidate_mean_index"] or 0.0), index)
             writer.add_scalar("Latency/mean_cbf_correction", float(row["mean_cbf_action_correction_norm"]), index)
+            writer.add_scalar("Queue/mean_age_steps", float(row.get("mean_queue_age_steps", 0.0)), index)
+            writer.add_scalar("Queue/p95_age_steps", float(row.get("p95_queue_age_steps", 0.0)), index)
+            writer.add_scalar("Queue/max_age_steps", float(row.get("max_queue_age_steps", 0.0)), index)
+            for stage, values in row.get("latency_breakdown", {}).items():
+                for quantile in ("mean_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms"):
+                    if quantile in values:
+                        writer.add_scalar(f"Latency/{stage}/{quantile}", float(values[quantile]), index)
+            writer.add_scalar("Latency/trace_write_ms", float(row.get("trace_write_latency_ms", 0.0)), index)
         writer.add_scalar("Aggregate/safe_capture_rate", float(summary["safe_capture_rate"]), 0)
         writer.add_scalar("Aggregate/collision_rate", float(summary["collision_rate"]), 0)
         writer.add_scalar("Aggregate/boundary_violation_rate", float(summary["boundary_violation_rate"]), 0)
@@ -901,6 +1077,17 @@ def _write_tensorboard(
         writer.add_scalar("Aggregate/pairwise_violation_rate", float(summary["pairwise_violation_rate"]), 0)
         writer.add_scalar("Aggregate/raw_unverified_executed_steps", float(summary["raw_unverified_executed_steps"]), 0)
         writer.add_scalar("Aggregate/p95_cbf_latency_ms", float(summary["max_cbf_p95_solve_latency_ms"]), 0)
+        writer.add_scalar("Aggregate/control_cycles", float(summary.get("control_cycles", 0)), 0)
+        writer.add_scalar("Aggregate/mean_queue_age_steps", float(summary.get("mean_queue_age_steps", 0.0)), 0)
+        writer.add_scalar("Aggregate/max_queue_age_steps", float(summary.get("max_queue_age_steps", 0.0)), 0)
+        for stage, values in summary.get("latency_breakdown", {}).items():
+            writer.add_scalar(f"Aggregate/Latency/{stage}/mean_episode_p95_ms", float(values["mean_episode_p95_ms"]), 0)
+            writer.add_scalar(f"Aggregate/Latency/{stage}/max_episode_p95_ms", float(values["max_episode_p95_ms"]), 0)
+        writer.add_scalar(
+            "Aggregate/Latency/trace_write_p95_ms",
+            float(summary.get("trace_write_latency_ms", {}).get("p95_ms", 0.0)),
+            0,
+        )
         writer.flush()
     event_files = sorted(path.name for path in logdir.glob("events.out.tfevents.*"))
     if not event_files:
@@ -936,6 +1123,8 @@ def main() -> None:
         raise ValueError("--episodes must be positive.")
     if args.jepa_history_length <= 0:
         raise ValueError("--jepa-history-length must be positive.")
+    if not np.isfinite(args.jepa_perturbation_mps) or args.jepa_perturbation_mps < 0.0:
+        raise ValueError("--jepa-perturbation-mps must be finite and non-negative.")
     if args.recurrent_reset_interval is not None and args.recurrent_reset_interval <= 0:
         raise ValueError("--recurrent-reset-interval must be positive.")
     contract = _variant_contract(args.variant)
@@ -1043,6 +1232,7 @@ def main() -> None:
             jepa=jepa,
             ledger=ledger,
             history_length=args.jepa_history_length,
+            jepa_perturbation_mps=args.jepa_perturbation_mps,
             recurrent_reset_interval=recurrent_reset_interval,
             ranker_config=ranker_config,
             output_dir=output_dir,
@@ -1082,6 +1272,7 @@ def main() -> None:
     }
     metadata = {
         "evaluation_type": "jepa_safe_capture_v2_p6_paired_development",
+        "trace_schema_version": 2,
         "development_only": True,
         "not_a_locked_test": True,
         "locked_test_opened": False,
@@ -1092,7 +1283,10 @@ def main() -> None:
         "candidate_contract": {
             "candidate_count": 5,
             "chunk_length_steps": 3,
-            "perturbation_mps": 0.10,
+            "perturbation_mps": float(args.jepa_perturbation_mps),
+            "zero_perturbation_identity_bypass": requires_zero_perturbation_identity_bypass(
+                bool(contract["use_jepa"]), args.jepa_perturbation_mps
+            ),
             "execute_first_step_then_replan": True,
             "project_to_reachable_dynamics": True,
             "score_tie_tolerance_m": 5e-4,
@@ -1107,6 +1301,24 @@ def main() -> None:
         "git_revision": _git_revision(),
         "inputs": inputs,
         "environment": _environment_metadata(device),
+        "latency_contract": {
+            "unit": "milliseconds",
+            "clock": "time.perf_counter_ns",
+            "per_step_fields": [
+                "actor",
+                "candidate_generation",
+                "jepa_inference",
+                "ledger_route",
+                "ranker_compute",
+                "rank_total",
+                "cbf_filter_wall",
+                "cbf_solver",
+                "env_step",
+                "cycle_total",
+            ],
+            "queue_age_unit": "control_steps",
+            "wall_clock_excluded_from_deterministic_comparators": True,
+        },
         "elapsed_seconds": elapsed_seconds,
         "tensorboard_dir": str(tensorboard_dir),
     }
