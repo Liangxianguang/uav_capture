@@ -200,14 +200,14 @@ credit 不是安全证明；低信用必须改变执行路径，而不是只降�
 
 ### WP-4：候选动作块可达性和排序诊断
 
-- [ ] 对五类候选统计 finite、speed、acceleration、slew、reachability 通过率。
-- [ ] 统计每类候选被拒原因；不可达候选不得进入 JEPA。
-- [ ] 记录 task progress、lower-quantile clearance、visibility gain、uncertainty、CBF cost、action-change cost 和 nominal anchor 的逐项 score。
-- [ ] 统计 top-1 settled safe outcome、CBF intervention、capture outcome、top-two margin、switch rate 和 oscillation。
-- [ ] 计算预测排序与 settled outcome 的 rank correlation、top-1 precision/recall 和分桶校准。
+- [x] 对五类候选统计 finite、speed、acceleration、slew、reachability 通过率；当前 6577 ranking steps 的五类 valid fraction 均为 1.0。
+- [ ] 统计每类候选被拒原因；历史 trace 未记录 `rejection_reasons`，已明确标记 observability gap；不可达候选不得进入 JEPA 的 invariant 已通过。
+- [x] 记录 task progress、lower-quantile clearance、visibility gain、uncertainty、CBF cost、action-change cost 和 nominal anchor 的逐项 score（保留在 source trace 并完成有限性审计）。
+- [x] 统计 selected-trajectory safe outcome、top-two margin、switch rate 和 oscillation；CBF intervention 继续由 WP-5 单独审计。
+- [ ] 计算预测排序与 settled outcome 的 rank correlation、top-1 precision/recall 和分桶校准；历史 trace 缺少 per-candidate settled counterfactual label，已保持 gate false。
 - [ ] 只有有明确证据时才调整 score；任何调整都新建 calibration manifest 和 protocol revision。
 
-**出口：** 排序信号与 settled safe outcome 的关系可解释；无新增安全失败；zero-perturbation 非 JEPA 字段差异为 0。
+**出口：** 可达性 invariant 通过，但排序因果证据仍不完整；在新增 rejection reason 和 offline counterfactual label 前不得调权重或进入 final block。
 
 ### WP-5：Joint CBF-QP 故障注入和实时性
 
