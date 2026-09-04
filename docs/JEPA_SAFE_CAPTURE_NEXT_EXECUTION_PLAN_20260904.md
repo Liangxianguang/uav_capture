@@ -59,7 +59,7 @@ target 越界必须单独记录为 target diagnostic，不得冒充 defender bou
 | WP-D/F fault injection | 已完成 | 6 个 CBF 场景、5 个 ledger 场景；finite fallback；`raw_unverified_executed=0`；p95 < 100 ms | 补滚动闭环多约束压力和通信故障矩阵 |
 | WP-6 CPU/CUDA 基础 replay | 已完成但有风险 | 20/20 settled safety outcomes 相同；安全失败均为 0；原始 9/820 ranking steps 有浮点 drift | 已建立 tie3 protocol |
 | WP-6 CUDA/CPU tie3 replay | 安全等价已闭合 | 两侧均 `safe_capture=7/20=35.0%`；安全失败均为 0；CBF abort 12；p95 <= 25.82 ms | 记录 3/20 episode 的已知 decision drift，固定 final 在 RTX 5050 |
-| 三 seed final development block | 即将开始 | tie3 安全出口通过；尚无 40 集 final 结果 | 固定 RTX 5050，运行聚合器要求的 7 变体矩阵 |
+| 三 seed final development block | 已完成，但结果门未通过 | 21 个 run、840 集；安全硬门 PASS，M3 配对 delta=-16.7 pp，reliability gate FAIL | 先执行 P8--P13 修复，再用新 protocol 重跑 smoke |
 
 当前 tie3 结果的定位是 **development replay**，不是三 seed 任务结论。历史 boundary-fixed smoke 中 M3 低于 M0 的结果仍需保留为负向开发证据，不能通过改写统计或选择 seed 消除。CPU/CUDA 只保证安全结算等价，不声称逐步动作 bitwise 等价。
 
@@ -214,10 +214,10 @@ WP-6 的安全闭环出口在 T0--T4 通过后闭合。跨设备 decision drift 
 | A3 | raw/no-CBF | 仅诊断 CBF 必要性，不进入安全结论 |
 
 - [x] training seed 固定为 `20260911`、`20260912`、`20260913`。
-- [ ] 每个变体每个 seed 至少 40 个 episode；完整矩阵为 7 变体 × 3 seed × 40 集 = 840 集。
-- [ ] A3 使用同一 paired block、独立目录，并明确标记 `diagnostic_only=true`。
-- [ ] 变体之间使用相同 episode index、layout、target motion、observation condition 和初始状态。
-- [ ] 每个 seed/variant 使用独立 results 和 TensorBoard 目录。
+- [x] 每个变体每个 seed 至少 40 个 episode；完整矩阵为 7 变体 × 3 seed × 40 集 = 840 集。
+- [x] A3 使用同一 paired block、独立目录，并明确标记 `diagnostic_only=true`。
+- [x] 变体之间使用相同 episode index、layout、target motion、observation condition 和初始状态。
+- [x] 每个 seed/variant 使用独立 results 和 TensorBoard 目录。
 
 ### 5.3 场景 manifest 规则
 
@@ -401,3 +401,190 @@ score(k) = task_progress
 9. 未获得单独明确授权前，`locked_test_opened=false` 始终保持不变。
 
 **最终判断标准：** 只有当“JEPA 反事实候选评价 + reliability ledger 拒答 + Joint CBF 硬安全层 + 滚动时域重规划”在多 seed 困难场景中共同通过安全、可靠性、实时性和可复现性证据门，才能称为安全增强的闭环围捕系统；否则应诚实归类为 prediction signal、safety infrastructure 或 development evidence。
+
+---
+
+## 12. WP-7 tie3 完成后的当前状态
+
+WP-7 的 7 变体 x 3 seed x 40 集矩阵已经完成，产物和数字以
+`docs/JEPA_SAFE_CAPTURE_WP7_TIE3_FINAL_DEVELOPMENT_20260904.md` 为准。本轮不是
+“继续增加 episode 数量”阶段，而是“定位回归并修复合同”的阶段：
+
+| 项目 | 结果 | 决定 |
+|---|---:|---|
+| M0 nominal + CBF | 60/120 = 50.0% | 当前安全保留基线 |
+| M3 JEPA + ledger + auxiliary + CBF | 40/120 = 33.3% | 相对 M0 配对 delta = -16.7 pp，停止宣称提升 |
+| M3 非负 seed | 0/3 | 不打开 locked test，不调参后重算旧结果 |
+| M3 improved/degraded/tied | 10/30/80 | 优先分析排序回归和候选切换 |
+| 安全保留变体 collision/boundary/pairwise | 全为 0 | CBF 执行边界保持有效 |
+| A3 raw/no-CBF collision | 120/120 | CBF 必要性得到诊断支持 |
+| reliability observability gate | FAIL | 先修复 1 个 M0 CBF timeout |
+
+### 12.1 当前唯一允许的下一步
+
+- [x] 完成 21 个 run、每 run 40 集，并保存 JSON/CSV/step trace/manifest/provenance/TensorBoard。
+- [x] 运行 paired aggregate，确认 canonical scene manifest 唯一且 120 对 episode 可配对。
+- [x] 运行 WP-8 失败索引：567/840 集失败，421 次 CBF controlled abort，26 次 timeout，
+  197 次 candidate capture regression，92 次 candidate oscillation。
+- [ ] 完成 P8--P11 的失败因果、solver timeout、排序失配和 ledger 校准修复。
+- [ ] 用全新 protocol revision 和全新 output root 进行 smoke，再决定是否重跑三 seed final。
+
+当前必须保留 `locked_test_opened=false`。任何新 checkpoint、ledger、score 权重、CBF
+阈值、chunk 长度或候选合同改变，都必须生成新的 protocol、manifest 和 provenance，
+不得覆盖 `wp7_tie3`。
+
+## 13. 下一阶段分工作包 TODO
+
+### P8：M3 回归的因果定位（立即执行，1--2 天）
+
+- [ ] 从 `results/wp8_failure_index_tie3/failure_index.csv` 取出 30 个 M3 相对 M0
+  degraded episode、10 个 improved episode 和 80 个 tied episode。
+- [ ] 每类至少选 6 个代表片段，按同一 episode seed 重放
+  `belief -> candidate generation -> JEPA -> ledger -> rank -> CBF -> action -> termination`。
+- [ ] 记录每个候选的 task progress、visibility、clearance、uncertainty、CBF
+  intervention cost、top-two margin、ledger state 和 fallback reason。
+- [ ] 为每个 degraded episode 标注唯一主因：错误高信用排序、预测净空过度乐观、
+  可见性估计失配、candidate oscillation、CBF infeasible/abort、timeout 或目标 belief 漂移。
+- [ ] 若无法形成唯一因果链，标为 `unresolved`，禁止凭均值修改权重。
+- [ ] 输出 `results/wp8_failure_replay_tie3/`，包括 replay JSONL、trace hash、因果表和
+  deterministic second replay hash。
+
+**出口：** 30 个 degraded episode 全部有 `primary_cause` 或 `unresolved`；两次 replay
+hash 完全一致；原始 WP-7 目录不被修改。
+
+### P9：CBF/solver reliability gate 修复（与 P8 并行，1--2 天）
+
+- [ ] 定位 M0 seed 20260911 的 1 个 CBF timeout：区分 solver 真实超时、日志计时错误、
+  Windows 调度抖动和输入规模异常。
+- [ ] 为每次 QP 调用记录 monotonic start/end、solver status、iteration、active set、
+  slack、correction norm、fallback mode 和 reason code。
+- [ ] timeout 必须转入有验证的 safe-hold 或 nominal-CBF fallback；不得继续使用旧的
+  desired action，也不得将 timeout 记作 safe capture。
+- [ ] 增加多约束同时激活、通信中断、non-finite、急转、拥挤队形和边界压力测试。
+- [ ] 测试 CPU/CUDA 只要求 settled safety outcome 等价，不要求逐步动作 bitwise 等价；
+  final 主实验固定 RTX 5050。
+- [ ] 若需改变 solver timeout、margin、gamma 或 fallback 顺序，建立新 protocol revision，
+  并重新计算所有输入哈希。
+
+**出口：** timeout=0 或每个 timeout 都有明确、可验证、可回放的安全 fallback；
+`raw_unverified_executed=0`；端到端 CBF p95 <= 100 ms；reliability observability gate PASS。
+
+### P10：JEPA 多任务和不确定性增强（P8 之后，3--6 天）
+
+- [ ] 保留 target displacement 头，同时加入 target velocity/acceleration consistency、
+  obstacle-clearance lower quantile、inter-agent clearance、pairwise TTC、visibility、
+  observation-age risk、CBF intervention probability 和 QP feasibility 头。
+- [ ] 编码 defender-target/defender-defender 相对状态、TTC、队形几何、通信 mask、障碍/边界
+  局部几何、motion-mode embedding；实体编码保持 permutation-invariant 或显式 agent-id 约束。
+- [ ] 对每个候选 action chunk 单独编码，检查相同 belief 下不同候选的未来表示是否可分辨、
+  方向一致；禁止只用无动作条件的 target prediction。
+- [ ] 训练三组全新 seed；train/validation/calibration/development 按 episode 隔离，禁止
+  直接把 WP-7 失败片段回灌旧 archive。
+- [ ] 报告多 horizon MAE、coverage、Brier/AUC、rank consistency、uncertainty calibration，
+  并与 constant-velocity 和旧 JEPA 对照。
+- [ ] 只有 prediction/calibration gate 通过后，才把新 checkpoint 接入闭环；prediction gate
+  通过不等于控制收益。
+
+**出口：** safety-related heads 在 calibration split 有可复现的校准曲线，主要 horizon
+的 rank consistency 不劣于旧模型；checkpoint、训练配置和 archive hash 完整。
+
+### P11：candidate block 和排序修复（P8/P10 之后，2--4 天）
+
+- [ ] 继续使用 5 个候选和 3-step chunk 作为合同基线，先修复评分与 settled outcome 的
+  失配，再考虑增加候选数量。
+- [ ] 采用安全优先的分层排序：先排除不可达/明显不安全候选，再比较 task progress；
+  score 至少包含 clearance lower quantile、visibility gain、CBF intervention cost、
+  uncertainty penalty、action-change cost 和 nominal anchor penalty。
+- [ ] 增加 top-two margin、rank stability、candidate switch rate、oscillation length、
+  CBF correction 和 fallback probability 的日志。
+- [ ] 用离线 settled counterfactual label 计算 top-1 precision/recall、Spearman/Kendall、
+  分桶 calibration 和 CBF intervention 相关性；ground truth 仅在离线使用。
+- [ ] 对高信用但失败的候选设置 conservative abstention：当预测净空过度乐观、visibility
+  gap 突增或 rank margin 太小时，退回 nominal/safe-hold，而不是强行相信 JEPA。
+- [ ] 设定滞回和最小保持时间，抑制 M3 当前约 0.180 的 candidate switch rate；该参数改变
+  必须进入新 protocol。
+
+**出口：** degraded replay 中高信用错误排序显著减少；candidate regression 和 oscillation
+有明确下降；所有候选仍经过同一 Joint CBF-QP。
+
+### P12：reliability ledger 重新校准（P10/P11 之后，2--3 天）
+
+- [ ] 用独立 calibration split 测连续残差突增、目标急转、速度突变、遮挡、通信丢包、
+  density shift 和队形拥挤。
+- [ ] 固定并绑定 hash：minimum bucket、minimum credit、uncertainty 上限、stale age 上限、
+  OOD 规则、credit decay/recovery、abstain hysteresis。
+- [ ] 统计 trusted、fallback_nominal、safe_hold、controlled_abort 四种状态的 episode 率、
+  safe-capture、CBF abort 和 high/low-credit failure rate。
+- [ ] 验证 high-credit failure rate 不高于 low-credit；若不满足，ledger 只能归类为
+  `prediction_signal_no_control_gain`，不能作为可信度提升证据。
+- [ ] 每次 abstain 记录 reason code、状态转移、credit、uncertainty、观测年龄和可回放 trace；
+  在线不更新 threshold 或 checkpoint。
+
+**出口：** ledger observability gate PASS，异常输入不会执行 raw/unverified action，且可由
+单个 trace 解释每次 fallback/abstain。
+
+### P13：滚动时域闭环集成回归（1--2 天）
+
+- [ ] 验证每个控制周期只执行 action chunk 第一步，随后重新获取 observation、更新 belief、
+  重新预测、排序和 CBF 过滤。
+- [ ] 验证候选、nominal、safe-hold 和 fallback 都走同一 Joint CBF-QP；CBF 失败时按
+  `separation-preserving safe-hold -> verified nominal-CBF -> controlled abort` 执行。
+- [ ] 做 zero-perturbation regression：关闭 JEPA 后非 JEPA 字段应完全不变；打开 JEPA 只能
+  改变 candidate score/选择，不能改写 filtered action 或安全约束。
+- [ ] 保存 step-level ledger state、candidate scores、selected candidate、filtered action、
+  active constraints、slack、latency、termination reason 和 trace hash。
+
+**出口：** 关键接口测试全部通过；100 个随机控制周期中无 raw/unverified action；闭环 trace
+可从空目录重放。
+
+### P14：重新验证和统计（P8--P13 全部通过后，3--5 天）
+
+- [ ] 新建 protocol、scene manifest、checkpoint 和 ledger 的独立目录，不覆盖 WP-7。
+- [ ] 先跑每 seed 20 集 smoke：M0、M3、A1、A2；A3 只作为诊断，保持 `diagnostic_only=true`。
+- [ ] smoke 必须通过安全硬门、reliability gate、provenance 完整性和 p95 latency 门，才扩展到
+  3 seed x 40 集 paired development。
+- [ ] 使用同一 episode index/scene manifest 配对；按 seed 计算 safe-capture、paired delta、
+  improved/degraded/tied、bootstrap 95% CI 和 exact McNemar。
+- [ ] 通过标准：安全保留变体 collision/boundary/pairwise=0、raw=0、timeout=0 或有验证 fallback、
+  p95<=100 ms；若要写“JEPA 有任务收益”，还需 M3 平均 paired delta >= 0 且至少 2/3 seed 非负。
+- [ ] 若安全通过但 delta 仍为负，归档为 `prediction_signal_no_control_gain` 或
+  `useful_safety_fallback_only`，不再扩大 episode 数量。
+
+### P15：locked test readiness（仅在用户明确授权后）
+
+- [ ] 只在 P14 通过、结果分类不是 `insufficient_evidence_or_reject`、所有 provenance 双向一致
+  后，生成 locked-test readiness memo。
+- [ ] locked split 必须是新鲜、未见、只读的场景；不能用 development 失败片段调参后直接打开。
+- [ ] 预先冻结主要比较、统计方法、安全门和停止规则；执行期间禁止查看并据此调参。
+- [ ] 未收到明确授权前始终保持 `locked_test_opened=false`。
+
+## 14. 推荐时间盒和交付清单
+
+| 时间盒 | 任务 | 必交付物 |
+|---|---|---|
+| Day 0--1 | P8 失败重放 | failure replay JSONL、因果表、双次 trace hash |
+| Day 0--2 | P9 CBF timeout/reliability | solver audit、fault matrix、更新测试 |
+| Day 2--6 | P10 JEPA 多任务训练 | 新 archive、三 seed checkpoint、prediction/calibration report |
+| Day 5--8 | P11 candidate/ranker | settled rank audit、权重合同、oscillation report |
+| Day 7--10 | P12 ledger 校准 | ledger v4、OOD/stale/credit report |
+| Day 9--11 | P13 闭环回归 | interface/zero-perturbation/replay audit |
+| Day 12--16 | P14 smoke + paired development | 新矩阵、aggregate、bootstrap/McNemar、最终分类 |
+| Day 17+ | P15 readiness | 仅在获得授权后生成 locked-test memo |
+
+## 15. 下一轮 Definition of Done
+
+下一轮只有同时满足以下条件才算完成：
+
+1. M3 相对 M0 的所有 degraded episode 都有可解释的 replay 结论或明确 `unresolved`，且
+   replay hash 可重复。
+2. reliability observability gate 通过；timeout、OOD、stale、non-finite、QP infeasible/timeout
+   均有显式安全回退，raw/unverified execution 永远为 0。
+3. 新 JEPA 的 interaction-aware/action-conditioned safety heads 在独立 calibration split
+   通过 prediction/calibration gate，并绑定 checkpoint/ledger/archive hash。
+4. candidate ranking 在 settled counterfactual label 上可校准，switch/oscillation 不再造成
+   可观测 safe-capture 回归。
+5. 滚动时域每周期只执行第一步，nominal/candidate/fallback 全部经过 Joint CBF-QP，step trace
+   可重放且 p95 latency <= 100 ms。
+6. 三 seed paired development 完整运行；安全保留变体零碰撞、零越界、零 pairwise，safe-capture
+   以配对统计报告；不把 95% 或 mean capture time 作为必要条件。
+7. 若未达到非负 paired delta，诚实归类为安全基础设施或 prediction signal，不打开 locked test。
