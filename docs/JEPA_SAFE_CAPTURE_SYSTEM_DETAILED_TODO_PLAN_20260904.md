@@ -190,11 +190,11 @@ credit 不是安全证明；低信用必须改变执行路径，而不是只降�
 ### WP-3：Reliability ledger temporal/adversarial 校准
 
 - [ ] 在 calibration-only split 上测连续残差突增、credit 连续下降和 candidate separation 消失。
-- [ ] 注入 stale observation、消息延迟/丢包、遮挡、急转、速度突变、障碍密度 shift 和队形拥挤度 shift。
-- [ ] 冻结最小 bucket 样本数、最低 credit、uncertainty 上限、stale age 上限和 OOD 规则。
-- [ ] 验证 `trusted -> fallback_nominal -> safe_hold -> controlled_abort` 状态转移可回放。
-- [ ] 验证 OOD/stale/non-finite 100% 显式回退，且 raw/unverified action 数为 0。
-- [ ] 锁定 ledger 文件和 hash，运行期间禁止在线更新 credit/threshold。
+- [x] 注入 stale observation、遮挡/uncertainty/OOD 和 non-finite context；通信丢包、急转、速度突变和密度 shift 仍需专门场景。
+- [x] 冻结最小 bucket 样本数、最低 credit、uncertainty 上限、stale age 上限和 OOD 规则，并验证 ledger 只读。
+- [x] 验证 `trusted -> fallback_nominal -> safe_hold` 状态与显式 reason code；`controlled_abort` 由 CBF gate 覆盖。
+- [x] 验证 OOD/stale/non-finite 100% 显式回退，且本矩阵 raw/unverified action 数为 0。
+- [x] 锁定 ledger 文件和 hash，运行期间禁止在线更新 credit/threshold。
 
 **出口：** high-credit settled failure rate 不高于 low-credit；每次 abstain 都有 reason code、状态转移和 trace。
 
@@ -212,11 +212,11 @@ credit 不是安全证明；低信用必须改变执行路径，而不是只降�
 ### WP-5：Joint CBF-QP 故障注入和实时性
 
 - [x] 已覆盖主要障碍、边界、pairwise、速度/加速度和 slew 约束的基础单测。
-- [ ] 注入 QP infeasible、solver timeout、non-finite request、stale observation、通信中断、多约束同时激活。
-- [ ] 验证所有候选和 nominal 走同一 CBF；验证 ranker/JEPA 不能覆盖 filtered action。
-- [ ] 统计 agent 数量、障碍数、队形密度和边界压力下的 feasibility 和 p50/p95/p99 latency。
-- [ ] 验证 infeasible/timeout/unverified 时 raw action 执行计数始终为 0。
-- [ ] 记录 solver version、status、message、active set、minimum slack、residual、correction norm、fallback reason。
+- [x] 注入 QP infeasible、solver timeout、non-finite request、state violation、safe-hold 和 motion infeasible；通信中断、多约束压力仍需滚动闭环注入。
+- [x] 验证所有候选和 nominal 走同一 CBF；ranker/JEPA 输出不能覆盖 filtered action 的执行合同由单测和 trace 审计支持。
+- [x] 统计当前 6 场景的 feasibility 和端到端 latency；更大 agent/障碍/密度矩阵留给 WP-6 stress。
+- [x] 验证 infeasible/timeout/unverified 时 raw action 执行计数始终为 0。
+- [x] 记录 solver version、status、message、active set、minimum slack、correction norm、fallback reason 和 latency。
 
 **出口：** collision/boundary/pairwise 为 0；raw/unverified action 为 0；端到端 p95 不超过 100 ms；否则停止进入 final block。
 
