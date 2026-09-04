@@ -54,7 +54,7 @@ degraded 分桶只有 1–2 个 episode，当前只能作为困难片段索引�
 1. 当前 score 对短 chunk target progress 有方向性信息，但 `selected-not-best` 约 24%–30%，且 selected progress 略低于 settled best；不能把 ranker 称为已校准。
 2. M3 degraded episode 的 selected-not-best 很高，优先作为困难片段重放对象；但样本太少，不能直接调整权重或宣称 ledger 因果提升。
 3. score-softmax Brier/ECE 是由 score 构造的 proxy，不是模型输出的 capture probability；在独立 calibration 前不能用于部署阈值。
-4. 继续执行顺序：T3 temporal/adversarial ledger 校准 -> T4 clearance/visibility/TTC/CBF 头与困难重放 -> T5/T6 rolling-horizon/CBF 回归 -> 三 seed smoke。未通过这些门前不运行三 seed final block，不打开 locked test。
+4. T3 ledger alignment 已完成初审，但 low-credit coverage 不足，详见 `docs/JEPA_SAFE_CAPTURE_T3_LEDGER_ALIGNMENT_20260904.md`；继续执行顺序为补充独立 low-credit/adversarial calibration -> T4 clearance/visibility/TTC/CBF 头与困难重放 -> T5/T6 rolling-horizon/CBF 回归 -> 三 seed smoke。未通过这些门前不运行三 seed final block，不打开 locked test。
 
 ## 6. 复现产物
 
