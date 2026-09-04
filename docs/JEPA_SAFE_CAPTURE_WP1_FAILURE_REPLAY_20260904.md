@@ -149,3 +149,33 @@ non-empty trace, all `21/21` runs remain development-only, and all outputs are
 reproducible from the frozen P7 inputs. The next work package is to add
 offline-only future target labels and train/calibrate a new JEPA/ledger version
 against the hard-case buckets. No locked test is opened by this report.
+
+## WP-B2 Deterministic Failure Replay Addendum
+
+The follow-up read-only replay used
+`results/jepa_safe_capture_v3_wp1_failure_index_current/` and produced
+`results/jepa_safe_capture_v3_wp1_failure_replay_current/`. Six failure
+categories were selected deterministically, three episodes per category, for
+18 episodes total with no category shortage. All 18 episodes were serialized
+twice using canonical JSON and had identical SHA-256 hashes. The source outcome
+mix was 14 `cbf_controlled_abort` and 4 `timeout`; this is not a new success
+rate estimate.
+
+The replay rechecked development-only boundary flags, source summary,
+provenance and scene-manifest hashes, episode seeds, trace identity, finite
+actions, CBF diagnostics, and target-versus-defender boundary semantics.
+TensorBoard reload found 74 scalar tags and all required provenance/selection
+text tags. Detailed per-episode hashes and the command are recorded in
+`results/jepa_safe_capture_v3_wp1_failure_replay_current/report.md` and
+`docs/JEPA_SAFE_CAPTURE_WP1_FAILURE_REPLAY_CURRENT_20260904.md`.
+
+### Selection Coverage
+
+| Category | Available | Target | Selected | Shortage |
+|---|---:|---:|---:|---:|
+| `candidate_capture_regression` | 45 | 3 | 3 | 0 |
+| `high_credit_failure` | 121 | 3 | 3 | 0 |
+| `fallback_nominal` | 35 | 3 | 3 | 0 |
+| `candidate_oscillation` | 47 | 3 | 3 | 0 |
+| `stale_or_noisy` | 151 | 3 | 3 | 0 |
+| `timeout` | 8 | 3 | 3 | 0 |
