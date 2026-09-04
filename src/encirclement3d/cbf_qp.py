@@ -451,6 +451,11 @@ class JointCBFQPSafetyFilter:
             delta = flattened - flat_reference
             return 0.5 * float(np.dot(delta, delta))
 
+        def objective_jac(flattened: np.ndarray) -> np.ndarray:
+            # Supplying the exact gradient avoids a finite-difference pass over
+            # every defender velocity at each SLSQP iteration.
+            return flattened - flat_reference
+
         def motion_values(flattened: np.ndarray) -> np.ndarray:
             velocity = flattened.reshape(self.env.n_defenders, 3)
             max_speed = float(self.env.agents["defender_max_speed"])
@@ -462,11 +467,21 @@ class JointCBFQPSafetyFilter:
                 ]
             )
 
+        def motion_jac(flattened: np.ndarray) -> np.ndarray:
+            velocity = flattened.reshape(self.env.n_defenders, 3)
+            jacobian = np.zeros((2 * self.env.n_defenders, flattened.size), dtype=np.float64)
+            for index in range(self.env.n_defenders):
+                columns = slice(3 * index, 3 * index + 3)
+                jacobian[index, columns] = -2.0 * velocity[index]
+                jacobian[self.env.n_defenders + index, columns] = -2.0 * (velocity[index] - current[index])
+            return jacobian
+
         constraints: list[Any] = [
             NonlinearConstraint(
                 motion_values,
                 np.zeros(2 * self.env.n_defenders, dtype=np.float64),
                 np.full(2 * self.env.n_defenders, np.inf, dtype=np.float64),
+                jac=motion_jac,
             )
         ]
         if records:
@@ -482,6 +497,7 @@ class JointCBFQPSafetyFilter:
                 x0=flat_reference,
                 method="SLSQP",
                 constraints=constraints,
+                jac=objective_jac,
                 options={"ftol": 1e-9, "maxiter": self.solver_maxiter, "disp": False},
             )
             solver_success = bool(result.success)

@@ -446,13 +446,17 @@ WP-7 的 7 变体 x 3 seed x 40 集矩阵已经完成，产物和数字以
 - [ ] 为每个 degraded episode 标注唯一主因：错误高信用排序、预测净空过度乐观、
   可见性估计失配、candidate oscillation、CBF infeasible/abort、timeout 或目标 belief 漂移。
 - [ ] 若无法形成唯一因果链，标为 `unresolved`，禁止凭均值修改权重。
-- [ ] 输出 `results/wp8_failure_replay_tie3/`，包括 replay JSONL、trace hash、因果表和
+- [x] 输出 `results/wp8_failure_replay_tie3_v2/`，包括 replay JSONL、trace hash、因果表和
   deterministic second replay hash。
 
 **出口：** 30 个 degraded episode 全部有 `primary_cause` 或 `unresolved`；两次 replay
 hash 完全一致；原始 WP-7 目录不被修改。
 
 ### P9：CBF/solver reliability gate 修复（与 P8 并行，1--2 天）
+
+**当前状态：** solver Jacobian 优化和新 protocol smoke 已完成。固定压力审计与
+`29 passed` targeted tests 通过，M0/M3 smoke 的 CBF timeout 均为 0；任务层 M3
+仍低于 M0，因此 P9 只关闭 solver 子门，不能关闭整体 reliability/task gate。
 
 - [ ] 定位 M0 seed 20260911 的 1 个 CBF timeout：区分 solver 真实超时、日志计时错误、
   Windows 调度抖动和输入规模异常。
