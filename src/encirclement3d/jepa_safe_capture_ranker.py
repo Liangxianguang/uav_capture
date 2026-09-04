@@ -30,6 +30,9 @@ class SafeCaptureRankerConfig:
     cbf_risk_weight: float = 0.75
     action_change_weight: float = 0.05
     nominal_anchor_margin_m: float = 1e-6
+    # The tolerance is fixed before a paired block so CPU/CUDA score roundoff
+    # cannot change a near-tied candidate decision.
+    score_tie_tolerance_m: float = 5e-4
 
     def __post_init__(self) -> None:
         if self.horizon_index < 0 or self.horizon_seconds <= 0.0 or self.position_extent_m <= 0.0:
@@ -38,6 +41,8 @@ class SafeCaptureRankerConfig:
             raise ValueError("max_cbf_correction_mps and ttc_warning_seconds must be positive.")
         if self.nominal_anchor_margin_m < 0.0:
             raise ValueError("nominal_anchor_margin_m must be non-negative.")
+        if self.score_tie_tolerance_m < 0.0:
+            raise ValueError("score_tie_tolerance_m must be non-negative.")
         weights = (
             self.target_weight,
             self.uncertainty_weight,
@@ -336,7 +341,13 @@ class SafeCaptureJEPARanker:
             eligible[0] = True
             trusted_indices = np.flatnonzero(eligible)
             if trusted_indices.size:
-                best = int(trusted_indices[np.argmin(scores[trusted_indices])])
+                best_score = float(np.min(scores[trusted_indices]))
+                tied = trusted_indices[
+                    scores[trusted_indices] <= best_score + self.config.score_tie_tolerance_m
+                ]
+                # Candidate index is the deterministic secondary key.  This
+                # prevents CPU/CUDA roundoff from changing a near-tied action.
+                best = int(np.min(tied))
                 if best != 0 and scores[0] <= scores[best] + self.config.nominal_anchor_margin_m:
                     best = 0
                 selected_index = best

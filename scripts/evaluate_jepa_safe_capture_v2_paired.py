@@ -1013,6 +1013,7 @@ def main() -> None:
             "perturbation_mps": 0.10,
             "execute_first_step_then_replan": True,
             "project_to_reachable_dynamics": True,
+            "score_tie_tolerance_m": 5e-4,
         },
         "cbf_contract": cbf_contract,
         "recurrent_reset_interval_steps": recurrent_reset_interval,

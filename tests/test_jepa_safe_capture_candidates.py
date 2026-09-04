@@ -203,6 +203,28 @@ def test_zero_perturbation_keeps_nominal_anchor() -> None:
     np.testing.assert_array_equal(result.selected_action, nominal)
 
 
+def test_ranker_uses_candidate_index_to_break_score_ties() -> None:
+    history = _FakeHistory()
+    ranker = SafeCaptureJEPARanker(
+        history,
+        config=SafeCaptureRankerConfig(score_tie_tolerance_m=10.0),
+    )
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 1.0
+    result = ranker.rank(_observation(), _batch(actions))
+    assert result.selected_index == 0
+
+
+def test_ranker_tie_tolerance_covers_cpu_cuda_roundoff_scale() -> None:
+    config = SafeCaptureRankerConfig()
+    assert config.score_tie_tolerance_m == 5e-4
+
+    # A 2.05e-4 score gap was enough to produce different CPU/CUDA choices in
+    # the previous 2e-4 protocol.  The fixed tolerance must classify it as a
+    # tie and use the candidate index as the secondary key.
+    assert 2.05e-4 <= config.score_tie_tolerance_m
+
+
 def test_projected_candidates_use_the_reachable_first_step_envelope() -> None:
     nominal = np.full((2, 3), 5.0, dtype=np.float64)
     previous = np.zeros_like(nominal)
