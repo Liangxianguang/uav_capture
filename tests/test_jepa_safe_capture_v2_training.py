@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+
 import torch
 
+from scripts.evaluate_jepa_safe_capture_v2 import load_metadata
 from scripts.train_jepa_safe_capture_v2 import _validate_metadata, pinball_loss
 
 
@@ -35,3 +38,16 @@ def test_corrected_frame_metadata_is_accepted_only_with_frame_revision() -> None
         assert "label_frame_correction_version" in str(error)
     else:  # pragma: no cover - assertion branch
         raise AssertionError("Corrected-frame metadata without a revision must be rejected.")
+
+
+def test_prediction_evaluator_accepts_corrected_frame_validation_metadata(tmp_path) -> None:
+    metadata = {
+        "dataset_version": "jepa_safe_capture_v2_p1_corrected_frame",
+        "split": "validation",
+        "target_relative_frame": "post_action_defender_position",
+        "label_frame_correction_version": 1,
+        "information_boundary": {"locked_test_opened": False},
+    }
+    path = tmp_path / "metadata.json"
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+    assert load_metadata(path)["target_relative_frame"] == "post_action_defender_position"
