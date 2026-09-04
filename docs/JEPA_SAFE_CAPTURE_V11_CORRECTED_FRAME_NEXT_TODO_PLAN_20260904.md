@@ -23,8 +23,8 @@
 | P2 三 seed training | DONE | seeds `20260911/20260912/20260913`，40 epochs；三 checkpoint hash 已归档 | 只读使用 |
 | P3 held-out prediction gate | DONE | 四个 horizon 均优于 constant-velocity；平均 improvement 为 `26.38%/46.98%/55.78%/60.88%` | 不据此宣称控制收益 |
 | P4 reliability ledger | DONE | 三 seed ledger、aggregate、fallback 和 TensorBoard 审计通过；见 [P4 报告](JEPA_SAFE_CAPTURE_V11_CORRECTED_FRAME_LEDGER_20260904.md) | 进入 P5 CBF/rolling replay |
-| P5 CBF + rolling replay | PENDING | 必须在新 ledger 生成后重新绑定和审计 | fault matrix、确定性和延迟 |
-| P6 paired smoke | PENDING | 尚未使用 v11 corrected-frame ledger 完成三 seed 配对 | M0/M3/A1/A2，各 20 集 |
+| P5 CBF + rolling replay | DONE | CBF fault、latency、CPU/CUDA replay 全通过；见 [P5 报告](JEPA_SAFE_CAPTURE_V11_CORRECTED_FRAME_P5_SAFETY_REPLAY_20260905.md) | 进入 P6 paired smoke |
+| P6 paired smoke | IN_PROGRESS | seeds `20260911`、`20260912` 已完成；`20260913` 待运行 | M0/M3/A1/A2，各 20 集 |
 | P7 development validation | GATED | 只能在 P6 M3 相对 M0 非劣后进入 | 三 seed、每变体至少 40 集 |
 | P8/P9 stress + final report | PENDING | locked test 仍关闭 | 压力测试、统计归档、结论分级 |
 
@@ -328,11 +328,11 @@ $env:PYTHONPATH = "$PWD\\src;$PWD\\scripts"
 
 ### P5：Joint CBF-QP 和 rolling-horizon 回归
 
-- [ ] 运行 CBF fault matrix：infeasible、timeout、non-finite desired action、state violation、多约束压力和通信中断。
-- [ ] 对 candidate、nominal、fallback、safe-hold 比较执行合同，确保所有路径都经过同一 CBF。
-- [ ] 每周期检查顺序固定为 timestamp -> belief -> candidate -> reachability -> JEPA -> ledger -> rank -> CBF -> execute-first-step。
-- [ ] CPU 与 RTX 5050 各重放固定 episodes；比较 termination、动作序列、CBF status 和 canonical trace hash（忽略 wall-clock 字段）。
-- [ ] 统计 JEPA、ledger、ranker、CBF、cycle total 的 p50/p95/p99；浮点 tie 必须使用冻结的 tie policy。
+- [x] 运行 CBF fault matrix：infeasible、timeout、non-finite desired action、state violation、多约束压力和通信中断。
+- [x] 对 candidate、nominal、fallback、safe-hold 比较执行合同，确保所有路径都经过同一 CBF。
+- [x] 每周期检查顺序固定为 timestamp -> belief -> candidate -> reachability -> JEPA -> ledger -> rank -> CBF -> execute-first-step。
+- [x] CPU 与 RTX 5050 各重放固定 episodes；比较 termination、动作序列、CBF status 和 canonical trace hash（忽略 wall-clock 字段）。
+- [x] 统计 JEPA、ledger、ranker、CBF、cycle total 的 p50/p95/p99；浮点 tie 使用冻结的 tie policy。
 
 **出口：** collision/boundary/pairwise=0、raw/unverified=0、fallback 可重放、p95<=100 ms；否则停止扩大实验。
 
