@@ -477,10 +477,11 @@ P15: docs(jepa): archive paired development block
 - [x] Temporal ledger audit：OOD、stale、non-finite、高 uncertainty、联合 TTC/CBF risk、unknown horizon 均正确进入 `safe_hold`；ledger 文件保持只读哈希不变。
 - [x] 所有变体 collision、boundary、pairwise violation 和 CBF timeout 为 0；`raw_unverified_executed_steps=0`。
 - [x] 已归档报告：`docs/JEPA_SAFE_CAPTURE_P12_FLOOR015_SENSITIVITY_20260904.md`，并写入 README 入口。
+- [x] T2 settled counterfactual：994/1075/1092 个决策级分支审计完成，source replay 的 manifest/spec/hash/step-count gate 通过；结果归档于 `docs/JEPA_SAFE_CAPTURE_T2_SETTLED_COUNTERFACTUAL_20260904.md`。
 
 P12 的出口结论是“预测 floor 不再过度阻塞候选，但闭环任务收益尚未证明”。因此下一步严格按以下顺序执行：
 
-1. 完成 T2 settled counterfactual replay，优先解释 11 个 M3 controlled-abort episode 及 M3/A1 的 degraded episode；输出每个 decision 的 settled safe outcome、CBF correction、净空、visibility、ledger state 和 candidate rank。
+1. 基于 T2 的 selected-not-best 与 score/progress 失配，优先解释 11 个 M3 controlled-abort episode 及 M3/A1 的 degraded episode；输出每个 decision 的 settled safe outcome、CBF correction、净空、visibility、ledger state 和 candidate rank。
 2. 基于独立 calibration archive 完成 T3 ledger temporal/adversarial 重校准；新阈值、credit decay/recovery 和状态转移必须生成新 protocol/ledger hash，禁止在线改阈值。
 3. 完成 T4 安全辅助头校准与困难片段双次 deterministic replay；若 prediction signal 与 settled outcome 仍失配，标记 `prediction_signal_no_control_gain`，不扩大模型规模。
 4. 完成 T5/T6 rolling-horizon、zero-perturbation、fallback 与至少 100 control cycle 的延迟/安全审计；所有 candidate、nominal、safe-hold、fallback 继续经过同一个 Joint CBF-QP。

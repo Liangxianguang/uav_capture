@@ -71,7 +71,7 @@
 
 ## 7. 下一步 TODO 与准入门
 
-- [ ] T2：对 M0/M3/A1/A2 的 degraded/improved/tied episode 做 settled counterfactual replay，计算 selected-not-best、top-1 precision、rank correlation、CBF correction 与最终 safe outcome 的关系。
+- [x] T2：对 M0/M3/A1/A2 的 degraded/improved/tied episode 做 settled counterfactual replay，计算 selected-not-best、rank correlation、CBF correction 与局部 settled safe outcome 的关系；详见 `docs/JEPA_SAFE_CAPTURE_T2_SETTLED_COUNTERFACTUAL_20260904.md`。
 - [ ] T3：在独立 temporal/adversarial calibration archive 上重校准 ledger；冻结 credit、OOD、stale、uncertainty、TTC/CBF risk 阈值并生成新 ledger hash。
 - [ ] T4：补齐 clearance、visibility、TTC、CBF intervention/feasibility 头的校准与困难片段双次 deterministic replay；不得回写历史 archive。
 - [ ] T5/T6：冻结 candidate score、hysteresis、hold 和 rolling-horizon 顺序，完成至少 100 个 control cycle 的 fallback、latency、zero-perturbation 与 replay audit。
