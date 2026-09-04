@@ -358,6 +358,10 @@ git status --short
 - [ ] scene pairing、zero-perturbation、trace 完整性和 hash 一致性通过。
 - [ ] safe-capture 没有因 rank guard 引入明显回归；若没有改善，归档为安全保持但任务收益未证明。
 
+### T7 当前预演记录
+
+已完成 `training_seed=20260911` 的同 manifest 20 集预演，详见 `docs/JEPA_SAFE_CAPTURE_P11_ABLATION_SMOKE_20260904.md`：M0/M3/A1/A2 的几何安全门和 raw-action gate 均通过，M3 与 M0 持平，A1 为 `-5.0 pp`，A2 持平。由于尚未覆盖三个 training seed，本节不能勾选 T7 全量准入，也不能启动 T8 final block。
+
 ## 13. T8：三 seed paired development
 
 **前置条件：** T0-T7 全部通过；protocol、scene manifest、score、ledger、CBF 和设备冻结后才可执行。
