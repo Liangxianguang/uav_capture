@@ -1,0 +1,112 @@
+protocol_name: central_random_mixed_obstacle_s3_v5_v12_calibrated_clearance_development
+protocol_version: 12
+phase: development_only
+locked_test_opened: false
+not_a_replacement_for_existing_locked_benchmarks: true
+parent_protocol: configs/central_random_mixed_obstacle_s3_v5_v11_hard_replay_development_protocol.yaml
+change_note: checkpoint_bound_q10_clearance_calibration_runtime_transform;_cbf_margin_unchanged
+
+frozen_inputs:
+  environment_config: configs/capture_radius_pursuit_central_v4_flee.yaml
+  calibration_archive: results/jepa_safe_capture_v2_p1_corrected_frame_calibration/counterfactual_safe_capture_v2.npz
+  calibration_metadata: results/jepa_safe_capture_v2_p1_corrected_frame_calibration/metadata.json
+  checkpoint_seed20260911: results/jepa_safe_capture_v11_hard_replay_seed20260911/checkpoint.pt
+  checkpoint_seed20260912: results/jepa_safe_capture_v11_hard_replay_seed20260912/checkpoint.pt
+  checkpoint_seed20260913: results/jepa_safe_capture_v11_hard_replay_seed20260913/checkpoint.pt
+
+model_contract:
+  model_type: interaction_aware_action_conditioned_jepa_safe_capture_v2
+  training_variant: hard_context_weighted_v1
+  world_model_role: candidate_trajectory_evaluator_only
+  candidate_ranking_only: true
+  cbf_is_final_safety_filter: true
+  checkpoint_root: results/jepa_safe_capture_v11_hard_replay_seed<seed>/checkpoint.pt
+
+candidate_contract:
+  candidate_count: 5
+  action_chunk_length_steps: 3
+  execute_first_step_then_replan: true
+  candidate_semantics: constant_desired_action_chunk_execute_first_step_then_replan
+  candidate_labels: [nominal, intercept, lateral_clearance, formation_clearance, visibility_hold]
+  score_units: meters_for_distance_terms_and_normalized_risk_terms
+  require_finite_reachability_before_jepa: true
+  nominal_anchor_required: true
+  safety_lower_bound_before_task_progress: true
+
+candidate_ranking:
+  profile: p12_calibrated_clearance_v1
+  score_tie_tolerance_m: 0.0005
+  score_comparison_quantum_m: 0.0005
+  top_two_abstention_margin_m: 0.0015
+  minimum_predicted_clearance_m: 0.15
+  candidate_hysteresis_margin_m: 0.001
+  minimum_hold_steps: 2
+  clearance_transform: checkpoint_bound_q10_residual_offset_m
+  clearance_quantile: 0.10
+  cbf_margin_changed: false
+
+seed_blocks:
+  train: 648001
+  validation: 650001
+  locked_test: 651001
+
+episodes_per_split:
+  train: 40
+  validation: 20
+  locked_test: 100
+
+reliability_ledger:
+  version: 3
+  enabled: true
+  source_split: calibration_only
+  update_rule: offline_settled_outcomes_only_no_online_update
+  immutable_after_calibration: true
+  checkpoint_hash_bound: true
+  protocol_hash_bound: true
+  clearance_calibration_hash_bound: true
+  states: [trusted, fallback_nominal, safe_hold]
+  minimum_sample_count: 128
+  minimum_credit: 0.65
+  maximum_observation_age_steps: 45.0
+  safe_hold_uncertainty_threshold: 0.40
+  safe_hold_ttc_seconds: 0.30
+  low_credit_action: frozen_v5_nominal_then_cbf
+  ood_action: safe_hold_then_nominal_cbf
+
+tensorboard:
+  required: true
+  root: results/jepa_safe_capture_v12_calibrated_clearance_tensorboard
+
+provenance:
+  target_truth_used_only_for_offline_labels: true
+  require_protocol_hash: true
+  require_checkpoint_hash: true
+  require_calibration_archive_hash: true
+  require_clearance_calibration_hash: true
+  results_are_not_locked_evidence: true
+
+s3:
+  target_crossing_required: false
+  required_defender_zone_entries: 2
+  obstacle_count_range: [3, 5]
+  initial_side_distances: [6.0, 6.5, 7.0, 7.5]
+  defender_sides: [left, right]
+  target_speed_scales: [0.45, 0.55]
+  target_crossing_speed_scales: [0.90]
+  target_motion_modes: [flee_persistence, s_curve]
+  observation_conditions:
+    - name: nominal
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.15
+        observation_noise_std: 0.03
+        message_delay_steps: 2
+        message_dropout_probability: 0.05
+    - name: delayed_noisy
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.22
+        observation_noise_std: 0.06
+        message_delay_steps: 4
+        message_dropout_probability: 0.10
+  max_sampling_attempts: 500

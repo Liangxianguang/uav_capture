@@ -8,6 +8,7 @@ from scripts.verify_jepa_safe_capture_protocol import load_protocol, verify_froz
 
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_PATH = ROOT / "configs" / "jepa_safe_capture_v2_protocol.yaml"
+V12_PROTOCOL_PATH = ROOT / "configs" / "central_random_mixed_obstacle_s3_v5_v12_calibrated_clearance_development_protocol.yaml"
 
 
 def test_safe_capture_protocol_freezes_evaluator_ledger_and_cbf_contract() -> None:
@@ -24,6 +25,18 @@ def test_safe_capture_protocol_frozen_inputs_exist() -> None:
     artifacts = verify_frozen_inputs(protocol, ROOT)
     assert all(item["exists"] for item in artifacts.values())
     assert all(item["sha256"] for item in artifacts.values())
+
+
+def test_v12_calibrated_clearance_protocol_is_closed_and_hash_bound() -> None:
+    protocol = load_protocol(V12_PROTOCOL_PATH)
+    assert protocol["protocol_version"] == 12
+    assert protocol["locked_test_opened"] is False
+    assert protocol["model_contract"]["world_model_role"] == "candidate_trajectory_evaluator_only"
+    assert protocol["candidate_contract"]["execute_first_step_then_replan"] is True
+    assert protocol["reliability_ledger"]["clearance_calibration_hash_bound"] is True
+    artifacts = verify_frozen_inputs(protocol, ROOT)
+    assert artifacts
+    assert all(item["exists"] and item["sha256"] for item in artifacts.values())
 
 
 @pytest.mark.parametrize(

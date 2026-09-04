@@ -31,6 +31,11 @@ def _mapping(value: Any, name: str) -> dict[str, Any]:
 def load_protocol(path: Path) -> dict[str, Any]:
     protocol = yaml.safe_load(path.read_text(encoding="utf-8"))
     _mapping(protocol, "protocol")
+    if str(protocol.get("protocol_name", "")).startswith(
+        "central_random_mixed_obstacle_s3_v5_v12_calibrated_clearance_development"
+    ):
+        _validate_v12_protocol(protocol)
+        return protocol
     if protocol.get("protocol_name") != "jepa_safe_capture_system_v2":
         raise ValueError("Unexpected safe-capture protocol name.")
     if int(protocol.get("protocol_version", -1)) != 2:
@@ -102,8 +107,74 @@ def load_protocol(path: Path) -> dict[str, Any]:
     return protocol
 
 
+def _validate_v12_protocol(protocol: dict[str, Any]) -> None:
+    """Validate the compact v12 development protocol contract.
+
+    v12 is an evaluation protocol, so its schema deliberately differs from
+    the original system-wide v2 protocol.  Keep the safety invariants strict
+    while accepting the versioned v12 layout.
+    """
+
+    if int(protocol.get("protocol_version", -1)) != 12:
+        raise ValueError("Unexpected v12 safe-capture protocol version.")
+    if protocol.get("phase") != "development_only" or protocol.get("locked_test_opened") is not False:
+        raise ValueError("v12 protocol must remain closed development-only.")
+
+    model = _mapping(protocol.get("model_contract"), "model_contract")
+    if model.get("world_model_role") != "candidate_trajectory_evaluator_only":
+        raise ValueError("v12 world model must be an evaluator only.")
+    if model.get("candidate_ranking_only") is not True or model.get("cbf_is_final_safety_filter") is not True:
+        raise ValueError("v12 must rank candidates and use CBF as the final filter.")
+
+    candidate = _mapping(protocol.get("candidate_contract"), "candidate_contract")
+    if int(candidate.get("candidate_count", -1)) != 5:
+        raise ValueError("v12 candidate contract must contain five candidates.")
+    if int(candidate.get("action_chunk_length_steps", -1)) != 3:
+        raise ValueError("v12 action chunks must contain three steps.")
+    if candidate.get("execute_first_step_then_replan") is not True:
+        raise ValueError("v12 requires first-step execution followed by replanning.")
+    if candidate.get("require_finite_reachability_before_jepa") is not True:
+        raise ValueError("v12 candidates must pass finite reachability checks.")
+    if candidate.get("nominal_anchor_required") is not True:
+        raise ValueError("v12 must retain the nominal candidate anchor.")
+
+    ranking = _mapping(protocol.get("candidate_ranking"), "candidate_ranking")
+    if float(ranking.get("score_comparison_quantum_m", 0.0)) <= 0.0:
+        raise ValueError("v12 must declare a positive comparison quantum.")
+    if float(ranking.get("top_two_abstention_margin_m", -1.0)) < 0.0:
+        raise ValueError("v12 abstention margin must be non-negative.")
+    if ranking.get("cbf_margin_changed") is not False:
+        raise ValueError("v12 cannot change the CBF margin.")
+
+    ledger = _mapping(protocol.get("reliability_ledger"), "reliability_ledger")
+    if ledger.get("source_split") != "calibration_only" or ledger.get("immutable_after_calibration") is not True:
+        raise ValueError("v12 ledger must be immutable and calibration-only.")
+    if (
+        ledger.get("checkpoint_hash_bound") is not True
+        or ledger.get("protocol_hash_bound") is not True
+        or ledger.get("clearance_calibration_hash_bound") is not True
+    ):
+        raise ValueError("v12 ledger must bind checkpoint, protocol, and calibration hashes.")
+    if set(ledger.get("states", [])) != {"trusted", "fallback_nominal", "safe_hold"}:
+        raise ValueError("v12 ledger states are incomplete.")
+
+    tensorboard = _mapping(protocol.get("tensorboard"), "tensorboard")
+    if tensorboard.get("required") is not True:
+        raise ValueError("v12 requires TensorBoard records.")
+    provenance = _mapping(protocol.get("provenance"), "provenance")
+    if provenance.get("target_truth_used_only_for_offline_labels") is not True:
+        raise ValueError("v12 target truth must remain offline-only.")
+    if provenance.get("results_are_not_locked_evidence") is not True:
+        raise ValueError("v12 results must remain development-only.")
+
+
 def verify_frozen_inputs(protocol: dict[str, Any], project_root: Path) -> dict[str, Any]:
-    inputs = _mapping(protocol.get("frozen_inputs"), "frozen_inputs")
+    raw_inputs = protocol.get("frozen_inputs")
+    if raw_inputs is None:
+        # Compact evaluation protocols bind their checkpoints and calibration
+        # archive at the run level rather than in one static input map.
+        return {}
+    inputs = _mapping(raw_inputs, "frozen_inputs")
     artifacts: dict[str, Any] = {}
     for name, relative in inputs.items():
         path = (project_root / str(relative)).resolve()
@@ -120,15 +191,26 @@ def verify_frozen_inputs(protocol: dict[str, Any], project_root: Path) -> dict[s
 def verify(protocol_path: Path, project_root: Path) -> dict[str, Any]:
     protocol = load_protocol(protocol_path)
     artifacts = verify_frozen_inputs(protocol, project_root)
+    is_v12 = str(protocol.get("protocol_name", "")).startswith(
+        "central_random_mixed_obstacle_s3_v5_v12_calibrated_clearance_development"
+    )
+    if is_v12:
+        primary_endpoint = "safe_capture"
+        world_model_role = protocol["model_contract"]["world_model_role"]
+        cbf_final_safety_filter = protocol["model_contract"]["cbf_is_final_safety_filter"]
+    else:
+        primary_endpoint = protocol["objective"]["primary_endpoint"]
+        world_model_role = protocol["objective"]["world_model_role"]
+        cbf_final_safety_filter = protocol["cbf_contract"]["final_safety_filter"]
     return {
         "protocol": str(protocol_path.resolve()),
         "protocol_sha256": sha256(protocol_path),
         "protocol_name": protocol["protocol_name"],
         "protocol_version": protocol["protocol_version"],
         "locked_test_opened": protocol["locked_test_opened"],
-        "primary_endpoint": protocol["objective"]["primary_endpoint"],
-        "world_model_role": protocol["objective"]["world_model_role"],
-        "cbf_final_safety_filter": protocol["cbf_contract"]["final_safety_filter"],
+        "primary_endpoint": primary_endpoint,
+        "world_model_role": world_model_role,
+        "cbf_final_safety_filter": cbf_final_safety_filter,
         "all_frozen_inputs_exist": all(item["exists"] for item in artifacts.values()),
         "frozen_inputs": artifacts,
     }
