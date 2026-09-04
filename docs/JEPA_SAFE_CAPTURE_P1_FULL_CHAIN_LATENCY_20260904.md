@@ -1,9 +1,9 @@
 # P1 全链路延迟与可观测性阶段报告
 
-**日期：** 2026-09-04  
-**范围：** development-only；`locked_test_opened=false`  
-**设备：** NVIDIA RTX 5050；CUDA 12.8；PyTorch 2.7.1+cu128  
-**协议：** `configs/central_random_mixed_obstacle_s3_v5_t3_recalibration_development_protocol.yaml`  
+**日期：** 2026-09-04
+**范围：** development-only；`locked_test_opened=false`
+**设备：** NVIDIA RTX 5050；CUDA 12.8；PyTorch 2.7.1+cu128
+**协议：** `configs/central_random_mixed_obstacle_s3_v5_t3_recalibration_development_protocol.yaml`
 **主指标：** `safe_capture`；延迟仅用于实时性门，不替代任务指标
 
 ## 1. 目的
