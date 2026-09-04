@@ -1,14 +1,14 @@
 # 无人机集群对抗围捕安全增强系统
 # 下一阶段实施 TODO 与验收计划
 
-**版本：** v1.0（以 2026-09-04 最新开发证据为基线）
+**版本：** v1.1（2026-09-04；已纳入 P1 全链路延迟审计结果）
 **执行目录：** `D:\\uav-capture\\uav_capture`
 **硬件：** NVIDIA RTX 5050；Conda 环境 `uav-encirclement-gpu`；PyTorch 2.7.1+cu128
 **实验边界：** `development_only=true`；`locked_test_opened=false`
 **主指标：** `safe_capture`
 **诊断指标：** collision、boundary、pairwise separation、CBF abort/fallback、最小净空、延迟、路径代价、`mean_capture_time`
 
-> 这份文件是下一阶段的实施入口，承接 [当前主 TODO](JEPA_SAFE_CAPTURE_CURRENT_MASTER_TODO_20260904.md)、[T4-T6 状态](JEPA_SAFE_CAPTURE_T4_T6_CURRENT_STATUS_20260904.md) 和 [T6 rolling replay](JEPA_SAFE_CAPTURE_T6_ROLLING_HORIZON_20260904.md)。旧计划仍保留为历史记录；本文件中的状态以最新结果为准。
+> 这份文件是下一阶段的实施入口，承接 [当前主 TODO](JEPA_SAFE_CAPTURE_CURRENT_MASTER_TODO_20260904.md)、[T4-T6 状态](JEPA_SAFE_CAPTURE_T4_T6_CURRENT_STATUS_20260904.md)、[T6 rolling replay](JEPA_SAFE_CAPTURE_T6_ROLLING_HORIZON_20260904.md) 和 [P1 全链路延迟报告](JEPA_SAFE_CAPTURE_P1_FULL_CHAIN_LATENCY_20260904.md)。旧计划仍保留为历史记录；本文件中的状态以最新结果为准。
 
 ## 1. 目标与不变边界
 
@@ -82,6 +82,23 @@
 - [x] 新 T3 ledger alignment、temporal fault 和 provenance 校验；
 - [x] non-zero M3 100-cycle 双次 deterministic replay；
 - [x] 既有训练/校准 archive 和 TensorBoard 审计。
+- [x] JEPA、ledger、ranker、CBF、环境 step 和 control-cycle 的全链路 latency instrumentation；
+- [x] RTX 5050 上 20 集/1,075 cycles M3 replay、latency audit、TensorBoard gate 和 provenance 校验。
+
+### 2.2 当前工作位置
+
+- **已完成：** P1 全链路可观测性与实时性审计。JEPA/ledger/ranker/CBF/cycle p95 分别为
+  `4.748/0.166/0.696/1.472/15.175 ms`，queue-age p95 为 `35.5 steps`；安全计数为
+  collision/boundary/pairwise/CBF-timeout/raw-unverified 全部 `0`。
+- **当前主问题：** P2 settled ranking 审计已完成，协议修订仍未冻结。M3 selected-not-best=`26.23%`、Spearman=`-0.517`；
+  A2 selected-not-best=`25.41%`、Spearman=`-0.612`。M3 safe-capture=`8/20=40.0%`，低于旧 M0
+  对照 `10/20=50.0%`，因此目前只能记为 `no_control_gain`，不能宣称 JEPA 带来任务提升。
+- **P2 产物：** [P2 settled ranking audit](JEPA_SAFE_CAPTURE_P2_SETTLED_RANKING_AUDIT_20260904.md)，
+  包含逐候选混淆矩阵、nominal displacement、switch、credit 和 CBF-abort pre-state，并已写入
+  TensorBoard。
+- **下一执行动作：** 基于 P2 证据冻结或修订 ranking/abstention protocol，再决定是否进入 P3
+  校准、P4 smoke 和三 seed paired development；在此之前不扩大 episode 数、不调大模型、不打开
+  locked test。
 
 ## 3. 总体执行顺序
 
@@ -129,7 +146,7 @@ git status --short
 - [ ] protocol schema 通过，且运行时断言 `development_only=true`、`locked_test_opened=false`；
 - [ ] targeted tests 全部通过；任一项失败不得启动 episode。
 
-## 5. P1：补齐全链路可观测性和实时性
+## 5. P1：补齐全链路可观测性和实时性（已完成）
 
 ### 目标
 
@@ -137,26 +154,29 @@ git status --short
 
 ### TODO
 
-- [ ] 在单个 control cycle 记录 `belief_update_ms`、`candidate_generation_ms`、`reachability_ms`、`jepa_inference_ms`、`ledger_route_ms`、`ranker_ms`、`cbf_solve_ms`、`trace_write_ms` 和 `cycle_total_ms`。
-- [ ] 为每一项记录 p50/p95/p99、max、sample count、device、batch size 和 queue age。
-- [ ] 记录 JEPA/ledger/ranker/CBF 输入输出 finite 状态、fallback reason、ledger state、selected candidate、nominal distance、CBF status 和 active constraints。
-- [ ] 将 latency 与物理 deterministic comparator 分离；重复 replay 时只忽略 wall-clock 字段。
-- [ ] 对 CUDA warm-up、首次 inference、异常 fallback 和长序列 queue backlog 分桶统计。
-- [ ] 增加 TensorBoard tags：`Latency/JEPA_p95`、`Latency/Ledger_p95`、`Latency/Ranker_p95`、`Latency/CBF_p95`、`Latency/Cycle_p95`、`Fallback/*`、`Provenance/*`。
-- [ ] 为每个 trace 写 schema version，确保旧 trace 缺字段时审计器拒绝而不是静默填零。
+- [x] 在单个 control cycle 记录 `belief_update_ms`、`candidate_generation_ms`、`reachability_ms`、`jepa_inference_ms`、`ledger_route_ms`、`ranker_ms`、`cbf_solve_ms`、`trace_write_ms` 和 `cycle_total_ms`。
+- [x] 为每一项记录 p50/p95/p99、max、sample count、device、batch size 和 queue age。
+- [x] 记录 JEPA/ledger/ranker/CBF 输入输出 finite 状态、fallback reason、ledger state、selected candidate、nominal distance、CBF status 和 active constraints。
+- [x] 将 latency 与物理 deterministic comparator 分离；重复 replay 时只忽略 wall-clock 字段。
+- [x] 对 CUDA warm-up、首次 inference、异常 fallback 和长序列 queue backlog 分桶统计。
+- [x] 增加 TensorBoard tags：`Latency/JEPA_p95`、`Latency/Ledger_p95`、`Latency/Ranker_p95`、`Latency/CBF_p95`、`Latency/Cycle_p95`、`Fallback/*`、`Provenance/*`。
+- [x] 为每个 trace 写 schema version，确保旧 trace 缺字段时审计器拒绝而不是静默填零。
 
 ### 验收门
 
-- [ ] 所有 1,000+ cycle replay trace 都能关联到唯一 episode/step/candidate；
-- [ ] RTX 5050 上 `cycle_total_p95` 不超过冻结控制周期预算，超时必须落入 verified nominal 或 safe-hold；
-- [ ] `raw_unverified_executed=0`；latency 异常不能改变 safe-capture 结算语义；
-- [ ] TensorBoard、JSON 和 CSV 的 cycle 数一致。
+- [x] 所有 1,000+ cycle replay trace 都能关联到唯一 episode/step/candidate；
+- [x] RTX 5050 上 `cycle_total_p95` 不超过冻结控制周期预算，超时必须落入 verified nominal 或 safe-hold；
+- [x] `raw_unverified_executed=0`；latency 异常不能改变 safe-capture 结算语义；
+- [x] TensorBoard、JSON 和 CSV 的 cycle 数一致。
 
 ### 产物
 
-`results/<run>/latency_breakdown.json`、`step_trace.jsonl`、`provenance.json`、TensorBoard audit 报告和对应单测。
+已交付：`results/jepa_safe_capture_v5_p1_latency_m3_seed20260911/`、
+`results/jepa_safe_capture_v5_tensorboard/p1_latency_m3_seed20260911/`、
+`results/jepa_safe_capture_v5_tensorboard/p1_latency_audit_m3_seed20260911/`，以及
+`docs/JEPA_SAFE_CAPTURE_P1_FULL_CHAIN_LATENCY_20260904.md` 和对应单测（targeted `36 passed`）。
 
-## 6. P2：修复 settled ranking、abstention 和 nominal anchor
+## 6. P2：修复 settled ranking、abstention 和 nominal anchor（审计完成，协议决策待定）
 
 ### 目标
 
@@ -174,20 +194,20 @@ finite/shape/reachability
 
 ### TODO
 
-- [ ] 从现有 M3/A2 settled rows 重新计算 top-1 safety precision、selected-not-best、Spearman/Kendall、top-two margin、switch/oscillation 和 credit bucket failure。
+- [x] 从现有 M3/A2 settled rows 重新计算 top-1 safety precision、selected-not-best、Spearman/Kendall、top-two margin、switch/oscillation 和 credit bucket failure。
 - [ ] 将 score 显式拆分为 task progress、clearance lower-quantile、pairwise TTC risk、visibility gain、CBF intervention risk、uncertainty、action-change cost 和 nominal anchor。
 - [ ] 使用保守净空下界，不使用 clearance 均值作为安全分数。
 - [ ] 固定 `score_tie_tolerance_m=5e-4`、abstention margin、minimum predicted clearance、hysteresis 和 minimum hold steps；任何修改都新建 protocol/manifest/ledger revision。
 - [ ] 低 credit、missing bucket、margin 不足、预测冲突或 high uncertainty 时选择 nominal-CBF 或 safe-hold，而不是只降低分数。
-- [ ] 保留 nominal exact anchor，记录每次 selected candidate 与 nominal 的距离、切换原因和最终 CBF 修正。
-- [ ] 对每个 settled decision 生成“模型选择 vs 离线最佳安全候选”的 confusion table 和可重放 JSON。
+- [x] 保留 nominal exact anchor，记录每次 selected candidate 与 nominal 的距离、切换原因和最终 CBF 修正。
+- [x] 对每个 settled decision 生成“模型选择 vs 离线最佳安全候选”的 confusion table 和可重放 JSON。
 - [ ] 无法从 trace 证明的原因写成 `unresolved`，不得事后凭观察补标签。
 
 ### 验收门
 
 - [ ] high-credit settled failure 不高于 low-credit，或结论明确写为 `no_control_gain`；
-- [ ] 选中候选、tie、abstention、hysteresis、fallback 和 CBF trace 可双次确定性重放；
-- [ ] 不能只凭 correction norm 下降宣称任务提升；safe-capture 仍需闭环验证。
+- [x] 选中候选、tie、abstention、hysteresis、fallback 和 CBF trace 可双次确定性重放；
+- [x] 不能只凭 correction norm 下降宣称任务提升；safe-capture 仍需闭环验证。
 
 ## 7. P3：安全辅助头、校准和困难片段 replay
 
