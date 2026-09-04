@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -111,6 +112,22 @@ def load_gate(path: Path) -> dict[str, Any]:
     return {"path": str(path), "sha256": sha256(path), "gate": gate}
 
 
+def training_seed(run: dict[str, Any]) -> int:
+    """Resolve the declared seed without depending on JSON directory layout."""
+
+    gate = run["gate"]
+    declared = gate.get("training_seed")
+    if declared is not None:
+        return int(declared)
+    checkpoint = str(gate.get("checkpoint", ""))
+    candidates = [Path(checkpoint).parent.name, Path(checkpoint).stem, Path(run["path"]).parent.name]
+    for candidate in candidates:
+        match = re.search(r"seed(\d+)", candidate, flags=re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    raise ValueError(f"Prediction gate does not declare a resolvable training seed: {run['path']}")
+
+
 def _check_shared_contract(runs: list[dict[str, Any]]) -> tuple[list[int], list[float], int, str, str]:
     if len(runs) != 3:
         raise ValueError(f"P2-A requires exactly three prediction gates, got {len(runs)}")
@@ -122,7 +139,7 @@ def _check_shared_contract(runs: list[dict[str, Any]]) -> tuple[list[int], list[
             raise FileNotFoundError(f"Checkpoint referenced by gate is missing: {checkpoint}")
         if sha256(checkpoint) != gate["checkpoint_sha256"]:
             raise ValueError(f"Checkpoint SHA-256 mismatch: {checkpoint}")
-        seeds.append(int(Path(run["path"]).parent.name.rsplit("seed", 1)[-1]))
+        seeds.append(training_seed(run))
     if len(set(seeds)) != 3:
         raise ValueError(f"P2-A requires three distinct seeds, got {seeds}")
     first = runs[0]["gate"]

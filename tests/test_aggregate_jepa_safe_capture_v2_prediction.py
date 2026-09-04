@@ -89,3 +89,16 @@ def test_tensorboard_aggregate_writes_provenance(tmp_path: Path) -> None:
     assert audit["required_text_complete"] is True
     assert audit["scalar_tag_count"] > 0
     assert audit["text_tag_count"] >= 4
+
+
+def test_three_seed_aggregate_resolves_explicit_seed_from_root_level_gate(tmp_path: Path) -> None:
+    gates = []
+    for seed in (20260911, 20260912, 20260913):
+        path = _write_gate(tmp_path, seed)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["training_seed"] = seed
+        root_level = tmp_path / f"prediction_seed{seed}.json"
+        root_level.write_text(json.dumps(payload), encoding="utf-8")
+        gates.append(load_gate(root_level))
+    report = aggregate(gates)
+    assert report["seeds"] == [20260911, 20260912, 20260913]
