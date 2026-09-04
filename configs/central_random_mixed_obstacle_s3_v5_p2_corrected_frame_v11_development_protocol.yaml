@@ -1,0 +1,84 @@
+protocol_name: central_random_mixed_obstacle_s3_v5_p2_corrected_frame_v11_development
+protocol_version: 11
+phase: development_only
+locked_test_opened: false
+not_a_replacement_for_existing_locked_benchmarks: true
+parent_protocol: configs/central_random_mixed_obstacle_s3_v5_p2_ranking_candidate_separation_v10_development_protocol.yaml
+change_note: corrected_post_action_frame_archive_and_checkpoint
+
+ranking_semantics:
+  candidate_separation: nearest_finite_competitor_absolute_target_cost_gap_m
+  invalid_or_single_candidate_separation_m: 0.0
+  target_cost_basis: predicted_target_to_future_defender_mean_distance
+
+candidate_ranking:
+  profile: p11_conservative_v1
+  score_tie_tolerance_m: 0.0005
+  top_two_abstention_margin_m: 0.0015
+  minimum_predicted_clearance_m: 0.15
+  candidate_hysteresis_margin_m: 0.001
+  minimum_hold_steps: 2
+
+seed_blocks:
+  train: 648001
+  validation: 650001
+  locked_test: 651001
+
+episodes_per_split:
+  train: 40
+  validation: 20
+  locked_test: 100
+
+reliability_ledger:
+  version: 3
+  enabled: true
+  source_split: calibration_only
+  update_rule: offline_settled_outcomes_only_no_online_update
+  immutable_after_calibration: true
+  checkpoint_hash_bound: true
+  protocol_hash_bound: true
+  states: [trusted, fallback_nominal, safe_hold]
+  minimum_sample_count: 128
+  minimum_credit: 0.65
+  maximum_observation_age_steps: 45.0
+  safe_hold_uncertainty_threshold: 0.40
+  safe_hold_ttc_seconds: 0.30
+  low_credit_action: frozen_v5_nominal_then_cbf
+  ood_action: safe_hold_then_nominal_cbf
+
+tensorboard:
+  required: true
+  root: results/jepa_safe_capture_v5_tensorboard
+
+provenance:
+  target_truth_used_only_for_offline_labels: true
+  require_protocol_hash: true
+  require_checkpoint_hash: true
+  require_calibration_archive_hash: true
+  results_are_not_locked_evidence: true
+
+s3:
+  target_crossing_required: false
+  required_defender_zone_entries: 2
+  obstacle_count_range: [3, 5]
+  initial_side_distances: [6.0, 6.5, 7.0, 7.5]
+  defender_sides: [left, right]
+  target_speed_scales: [0.45, 0.55]
+  target_crossing_speed_scales: [0.90]
+  target_motion_modes: [flee_persistence, s_curve]
+  observation_conditions:
+    - name: nominal
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.15
+        observation_noise_std: 0.03
+        message_delay_steps: 2
+        message_dropout_probability: 0.05
+    - name: delayed_noisy
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.22
+        observation_noise_std: 0.06
+        message_delay_steps: 4
+        message_dropout_probability: 0.10
+  max_sampling_attempts: 500

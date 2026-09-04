@@ -71,6 +71,9 @@ def _canonical_hash(value: Any) -> str:
 def _validate_contract(protocol: dict[str, Any], collection: dict[str, Any], split: str) -> None:
     if protocol.get("phase") != "development_only" or protocol.get("locked_test_opened") is not False:
         raise ValueError("P1 collection requires a closed development-only protocol.")
+    world = protocol.get("world", {})
+    if not isinstance(world, dict) or not any(key in world for key in ("half_extent_xy_m", "half_extent_xy")):
+        raise ValueError("P1 protocol must declare a world half extent in meters.")
     if split not in ALLOWED_SPLITS:
         raise ValueError(f"P1 collection only permits {ALLOWED_SPLITS}; refusing {split!r}.")
     archive = collection.get("archive_contract")
@@ -90,6 +93,16 @@ def _validate_contract(protocol: dict[str, Any], collection: dict[str, Any], spl
     for experiment in experiments:
         if int(experiment.get("episodes", 0)) <= 0 or int(experiment.get("obstacle_count", -1)) < 0:
             raise ValueError(f"Invalid episode/obstacle count in {experiment!r}.")
+    protocol_archive = protocol.get("archive_contract")
+    if protocol_archive is not None:
+        if not isinstance(protocol_archive, dict):
+            raise ValueError("Protocol archive_contract must be a mapping when present.")
+        if protocol_archive.get("target_relative_frame") != "post_action_defender_position":
+            raise ValueError("P1 archive labels must use the post-action defender frame.")
+        collection_archive = collection["archive_contract"]
+        for field in ("candidate_count", "sample_stride", "history_length", "chunk_length_steps"):
+            if field in protocol_archive and protocol_archive[field] != collection_archive.get(field):
+                raise ValueError(f"Protocol/collection archive contract mismatch for {field}.")
 
 
 def _frozen_actor_action_scale(protocol: dict[str, Any]) -> tuple[Path, float, str]:
@@ -116,11 +129,19 @@ def _scenario_config(config: dict[str, Any], experiment: dict[str, Any]) -> dict
     return scenario
 
 
-def episode_seed(collection: dict[str, Any], split: str, scenario_index: int, episode_index: int) -> int:
+def episode_seed(
+    collection: dict[str, Any],
+    split: str,
+    scenario_index: int,
+    episode_index: int,
+    seed_offset: int = 0,
+) -> int:
     if split not in ALLOWED_SPLITS:
         raise ValueError(f"Unsupported P1 split: {split!r}")
     blocks = collection.get("seed_blocks", {})
-    return int(blocks[split]) + scenario_index * 10_000 + episode_index
+    if int(seed_offset) < 0:
+        raise ValueError("seed_offset must be non-negative.")
+    return int(blocks[split]) + int(seed_offset) + scenario_index * 10_000 + episode_index
 
 
 def _per_defender_clearances(env: CaptureRadiusPursuit3DEnv, clip_m: float) -> tuple[np.ndarray, np.ndarray]:
@@ -226,9 +247,12 @@ def _roll_counterfactual_v2(
         )
         observation_age = np.asarray(clone_observation["target_observation_age_steps"], dtype=np.float32)
         by_step[step] = {
-            # Relative target is measured from the current defender position,
-            # matching the runtime candidate reranker contract.
-            "target_relative": ((clone.target_position[None, :] - env.defender_positions) / extent).astype(np.float32),
+            # Relative target is measured from the post-action defender
+            # position.  The runtime reranker adds this prediction to its
+            # current positions, so using the pre-action ``env`` positions
+            # here would leak candidate displacement into every training
+            # label and invert the action-conditioned ranking signal.
+            "target_relative": ((clone.target_position[None, :] - clone.defender_positions) / extent).astype(np.float32),
             "target_velocity": np.repeat(
                 (clone.target_velocity / float(clone.agents["target_max_speed"]))[None, :],
                 clone.n_defenders,
@@ -351,6 +375,9 @@ def collect(
     split: str,
     episodes_per_scenario: int | None,
     tensorboard_logdir: Path,
+    seed_offset: int = 0,
+    collection_path: Path | None = None,
+    protocol_path: Path | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     _validate_contract(protocol, collection, split)
     archive = collection["archive_contract"]
@@ -360,7 +387,8 @@ def collect(
     perturbation_mps = float(archive["perturbation_mps"])
     sample_stride = int(archive["sample_stride"])
     chunk_length_steps = int(archive["chunk_length_steps"])
-    clip_m = float(protocol["world"]["half_extent_xy_m"])
+    world = protocol.get("world", {})
+    clip_m = float(world.get("half_extent_xy_m", world.get("half_extent_xy")))
     ttc_clip = float(archive["ttc_clip_seconds"])
     max_cbf_correction = float(archive["cbf_max_correction_norm_mps"])
     actor_checkpoint, action_scale, actor_hash = _frozen_actor_action_scale(protocol)
@@ -370,7 +398,10 @@ def collect(
         count = int(experiment["episodes"]) if episodes_per_scenario is None else int(episodes_per_scenario)
         scenario = _scenario_config(collection, experiment)
         experiment_hash = _canonical_hash(experiment)
-        seeds = [episode_seed(collection, split, scenario_index, episode_index) for episode_index in range(count)]
+        seeds = [
+            episode_seed(collection, split, scenario_index, episode_index, seed_offset=seed_offset)
+            for episode_index in range(count)
+        ]
         scenario_records.append(
             {
                 "scenario_index": scenario_index,
@@ -443,6 +474,9 @@ def collect(
         key: np.asarray(value, dtype=np.int64 if key in INDEX_ARRAYS else np.float32)
         for key, value in samples.items()
     }
+    collection_path = (collection_path or PROJECT_ROOT / "configs/jepa_safe_capture_v2_collection.yaml").resolve()
+    protocol_path = (protocol_path or PROJECT_ROOT / "configs/jepa_safe_capture_v2_protocol.yaml").resolve()
+    protocol_archive = protocol.get("archive_contract", {})
     metadata = {
         "task": "jepa_safe_capture_v2_p1_offline_counterfactual_archive",
         "dataset_version": str(archive["dataset_version"]),
@@ -456,6 +490,8 @@ def collect(
         "chunk_length_steps": chunk_length_steps,
         "candidate_action_semantics": str(archive["candidate_semantics"]),
         "candidate_chunk_is_constant": True,
+        "target_relative_frame": str(protocol_archive.get("target_relative_frame", "post_action_defender_position")),
+        "label_frame_correction_version": int(protocol_archive.get("label_frame_correction_version", 1)),
         "clearance_clip_m": clip_m,
         "ttc_clip_seconds": ttc_clip,
         "action_history_normalization": "actions_divided_by_frozen_actor_action_scale",
@@ -467,6 +503,7 @@ def collect(
         "scenario_records": scenario_records,
         "episode_seed_count": int(sum(len(item["episode_seeds"]) for item in scenario_records)),
         "episode_seeds": sorted(seed for item in scenario_records for seed in item["episode_seeds"]),
+        "seed_offset": int(seed_offset),
         "label_units": archive["label_units"],
         "information_boundary": {
             "target_truth_used_only_for_offline_labels": True,
@@ -474,8 +511,8 @@ def collect(
             "development_or_locked_data_used_for_training": False,
             "locked_test_opened": False,
         },
-        "collection_config": str((PROJECT_ROOT / "configs/jepa_safe_capture_v2_collection.yaml").resolve()),
-        "protocol": str((PROJECT_ROOT / "configs/jepa_safe_capture_v2_protocol.yaml").resolve()),
+        "collection_config": str(collection_path),
+        "protocol": str(protocol_path),
         "tensorboard_logdir": str(tensorboard_logdir.resolve()),
         "frozen_actor_checkpoint": str(actor_checkpoint),
         "frozen_actor_checkpoint_sha256": actor_hash,
@@ -487,8 +524,8 @@ def collect(
             "src/encirclement3d/observation_encoding.py": _sha256(PROJECT_ROOT / "src/encirclement3d/observation_encoding.py"),
             "src/encirclement3d/prediction.py": _sha256(PROJECT_ROOT / "src/encirclement3d/prediction.py"),
         },
-        "collection_config_sha256": _sha256(PROJECT_ROOT / "configs/jepa_safe_capture_v2_collection.yaml"),
-        "protocol_sha256": _sha256(PROJECT_ROOT / "configs/jepa_safe_capture_v2_protocol.yaml"),
+        "collection_config_sha256": _sha256(collection_path),
+        "protocol_sha256": _sha256(protocol_path),
         "environment": {
             "python": sys.version.replace("\n", " "),
             "platform": platform.platform(),
@@ -509,6 +546,7 @@ def collect(
     writer.add_scalar("Data/scenario_count", len(scenario_records), 0)
     writer.add_scalar("Data/candidate_count", candidate_count, 0)
     writer.add_scalar("Data/nominal_fraction", metadata["candidate_is_nominal_fraction"], 0)
+    writer.add_scalar("Data/seed_offset", int(seed_offset), 0)
     for name, values in arrays.items():
         if not name.startswith("labels_"):
             continue
@@ -529,6 +567,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
     parser.add_argument("--split", choices=ALLOWED_SPLITS, required=True)
     parser.add_argument("--episodes-per-scenario", type=int)
+    parser.add_argument(
+        "--seed-offset",
+        type=int,
+        default=0,
+        help="Non-negative offset applied to the selected split's episode seeds for an independent archive.",
+    )
     return parser.parse_args()
 
 
@@ -536,13 +580,24 @@ def main() -> None:
     args = parse_args()
     if args.episodes_per_scenario is not None and args.episodes_per_scenario <= 0:
         raise ValueError("episodes-per-scenario must be positive.")
+    if args.seed_offset < 0:
+        raise ValueError("seed-offset must be non-negative.")
     if args.output.exists() and any(args.output.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty output directory: {args.output}")
     if args.tensorboard_logdir.exists() and any(args.tensorboard_logdir.iterdir()):
         raise FileExistsError(f"Refusing to overwrite non-empty TensorBoard directory: {args.tensorboard_logdir}")
     protocol = _load_yaml(args.protocol.resolve())
     collection = _load_yaml(args.collection_config.resolve())
-    arrays, metadata = collect(collection, protocol, args.split, args.episodes_per_scenario, args.tensorboard_logdir.resolve())
+    arrays, metadata = collect(
+        collection,
+        protocol,
+        args.split,
+        args.episodes_per_scenario,
+        args.tensorboard_logdir.resolve(),
+        seed_offset=args.seed_offset,
+        collection_path=args.collection_config.resolve(),
+        protocol_path=args.protocol.resolve(),
+    )
     args.output.mkdir(parents=True, exist_ok=True)
     dataset = args.output / "counterfactual_safe_capture_v2.npz"
     np.savez_compressed(dataset, **arrays)
@@ -568,6 +623,7 @@ def main() -> None:
         "scenario_manifest_sha256": _sha256(args.output / "scenario_manifest.json"),
         "tensorboard_logdir": str(args.tensorboard_logdir.resolve()),
         "episode_seeds": metadata["episode_seeds"],
+        "seed_offset": int(args.seed_offset),
         "locked_test_opened": False,
     }
     (args.output / "archive_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

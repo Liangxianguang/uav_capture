@@ -1,0 +1,79 @@
+protocol_name: jepa_safe_capture_v2_corrected_frame_v11
+protocol_version: 11
+phase: development_only
+locked_test_opened: false
+not_a_replacement_for_existing_locked_benchmarks: true
+parent_protocol: configs/jepa_safe_capture_v2_protocol.yaml
+change_note: align_offline_target_relative_labels_to_post_action_defender_frame
+
+objective:
+  task: 3d_multi_uav_adversarial_encirclement
+  world_model_role: candidate_trajectory_evaluator_only
+  primary_endpoint: safe_capture
+  capture_time_is_rejection_gate: false
+  absolute_safe_capture_threshold_required: false
+
+frozen_inputs:
+  actor_checkpoint: models/v5_development_exact_reactive_seed661606.pt
+
+seed_blocks:
+  train: 26100101
+  validation: 26200101
+  calibration: 26300101
+  development: 26400101
+  locked: 26500101
+
+world:
+  backend: kinematic
+  dt_seconds: 0.1
+  half_extent_xy_m: 10.0
+  minimum_altitude_m: 0.5
+  height_m: 10.0
+  half_extent_xy: 10.0
+  height: 10.0
+  minimum_altitude: 0.5
+  dt: 0.1
+  max_steps: 250
+
+archive_contract:
+  allowed_splits: [train, validation, calibration]
+  dataset_version: jepa_safe_capture_v2_p1_corrected_frame
+  candidate_count: 5
+  perturbation_mps: 0.10
+  sample_stride: 4
+  history_length: 8
+  horizon_steps: [1, 2, 3, 5]
+  chunk_length_steps: 3
+  target_relative_frame: post_action_defender_position
+  target_truth_used_only_for_offline_labels: true
+  locked_test_collection_forbidden: true
+  ttc_clip_seconds: 10.0
+  cbf_max_correction_norm_mps: 5.0
+  candidate_semantics: constant_desired_action_chunk_execute_first_step_then_replan
+  label_units:
+    labels_relative: normalized_by_world_half_extent
+    labels_target_velocity: normalized_by_target_max_speed
+    labels_target_acceleration: normalized_by_target_max_acceleration
+    labels_obstacle_clearance: normalized_by_world_half_extent
+    labels_inter_agent_clearance: normalized_by_world_half_extent
+    labels_pairwise_ttc: seconds_clipped_to_ttc_clip_seconds
+    labels_target_visible: probability_indicator
+    labels_observation_age: integer_steps
+    labels_cbf_correction: meters_per_second
+    labels_cbf_intervention: probability_indicator
+    labels_cbf_qp_feasible: probability_indicator
+    labels_collision: probability_indicator
+    labels_boundary: probability_indicator
+
+training:
+  tensorboard:
+    required: true
+
+reliability_ledger:
+  version: 3
+  source_split: calibration_only
+
+provenance:
+  corrected_label_contract: true
+  development_only_results: true
+  require_tensorboard: true

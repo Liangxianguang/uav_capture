@@ -37,6 +37,10 @@ REQUIRED_ARRAYS = {
     "chunk_length_steps",
 }
 ALLOWED_SPLITS = {"train", "validation", "calibration"}
+SUPPORTED_DATASET_VERSIONS = {
+    "jepa_safe_capture_v2_p1",
+    "jepa_safe_capture_v2_p1_corrected_frame",
+}
 
 
 def sha256(path: Path) -> str:
@@ -83,8 +87,11 @@ def audit(directory: Path) -> dict[str, Any]:
     samples = int(arrays["inputs"].shape[0])
     if samples <= 0 or arrays["inputs"].shape[1:] != (8, 63) or arrays["action_history"].shape[1:] != (8, 3):
         raise ValueError("Archive does not match the frozen 8x63 and 8x3 input contract.")
-    if metadata.get("dataset_version") != "jepa_safe_capture_v2_p1":
-        raise ValueError("Archive metadata is not the P1 v2 dataset version.")
+    if metadata.get("dataset_version") not in SUPPORTED_DATASET_VERSIONS:
+        raise ValueError("Archive metadata is not a supported P1 v2 dataset version.")
+    if metadata.get("dataset_version") == "jepa_safe_capture_v2_p1_corrected_frame":
+        if metadata.get("target_relative_frame") != "post_action_defender_position" or int(metadata.get("label_frame_correction_version", 0)) < 1:
+            raise ValueError("Corrected-frame archive metadata is incomplete.")
     if metadata.get("split") not in ALLOWED_SPLITS:
         raise ValueError("P1 archive split must be train, validation, or calibration.")
     boundary = metadata.get("information_boundary", {})

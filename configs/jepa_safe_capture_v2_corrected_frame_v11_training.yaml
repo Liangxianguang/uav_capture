@@ -1,0 +1,31 @@
+protocol_name: jepa_safe_capture_v2_corrected_frame_v11_training
+protocol: configs/jepa_safe_capture_v2_corrected_frame_v11_protocol.yaml
+model_type: interaction_aware_action_conditioned_jepa_safe_capture_v2
+training_variant: hard_context_weighted_v1
+label_frame_variant: corrected_post_action_frame_v1
+phase: development_only
+locked_test_opened: false
+
+seeds: [20260911, 20260912, 20260913]
+
+model:
+  input_dim: 63
+  action_dim: 3
+  hidden_dim: 128
+  latent_dim: 64
+  num_layers: 1
+  interaction_group_slices: [[0, 15], [15, 33], [33, 48], [48, 63]]
+
+training:
+  epochs: 40
+  batch_size: 512
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  quantile: 0.10
+
+tensorboard:
+  root: results/jepa_safe_capture_v2_corrected_frame_v11_tensorboard
+  required: true
+  log_config_text: true
+  log_provenance_text: true
+  log_histograms: true
