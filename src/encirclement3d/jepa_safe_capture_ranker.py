@@ -34,6 +34,17 @@ class SafeCaptureRankerConfig:
     # The tolerance is fixed before a paired block so CPU/CUDA score roundoff
     # cannot change a near-tied candidate decision.
     score_tie_tolerance_m: float = 5e-4
+    # Fixed-point quantum used by the deterministic comparison profile.  Raw
+    # scores remain in the trace for diagnosis; this key only affects ranking
+    # and never bypasses the downstream CBF-QP.
+    score_comparison_quantum_m: float = 5e-4
+    # Fixed-point comparison is opt-in so legacy development protocols keep
+    # their historical float ranking until a new protocol freezes the key.
+    fixed_point_score_comparison: bool = False
+    # Extra pre-registered band absorbs the largest observed CPU/CUDA score
+    # drift.  It can only route a near-tie to nominal; CBF margins are
+    # unchanged and every resulting action is still verified downstream.
+    score_comparison_safety_band_m: float = 0.0
     # Optional P11 safeguards.  Zero/negative-infinity values preserve the
     # historical ranking behavior; a new protocol must opt into them.
     top_two_abstention_margin_m: float = 0.0
@@ -50,6 +61,10 @@ class SafeCaptureRankerConfig:
             raise ValueError("nominal_anchor_margin_m must be non-negative.")
         if self.score_tie_tolerance_m < 0.0:
             raise ValueError("score_tie_tolerance_m must be non-negative.")
+        if self.score_comparison_quantum_m < 0.0:
+            raise ValueError("score_comparison_quantum_m must be non-negative.")
+        if self.score_comparison_safety_band_m < 0.0:
+            raise ValueError("score_comparison_safety_band_m must be non-negative.")
         if self.top_two_abstention_margin_m < 0.0 or self.candidate_hysteresis_margin_m < 0.0:
             raise ValueError("P11 ranking margins must be non-negative.")
         if self.minimum_hold_steps < 0:
@@ -83,6 +98,8 @@ class SafeCaptureRankingTrace:
     cbf_risk_cost: tuple[float, ...]
     action_change_cost_mps: tuple[float, ...]
     predicted_min_clearance_m: tuple[float, ...]
+    raw_predicted_min_clearance_m: tuple[float, ...]
+    calibration_offset_m: tuple[float, ...]
     predicted_min_ttc_s: tuple[float, ...]
     predicted_uncertainty: tuple[float, ...]
     predicted_visibility: tuple[float, ...]
@@ -96,6 +113,12 @@ class SafeCaptureRankingTrace:
     execution_mode: str
     fallback_reason: str | None
     top_two_margin_m: float = float("inf")
+    top_two_margin_comparison_m: float = float("inf")
+    top_two_abstention_limit_m: float = float("inf")
+    score_comparison_keys: tuple[int | None, ...] = ()
+    fixed_point_score_comparison: bool = False
+    score_comparison_quantum_m: float = 0.0
+    candidate_order: tuple[int, ...] = ()
     rank_abstention_reason: str | None = None
     hysteresis_applied: bool = False
     hold_steps_remaining: int = 0
@@ -120,6 +143,8 @@ class SafeCaptureRankingTrace:
             "cbf_risk_cost": list(self.cbf_risk_cost),
             "action_change_cost_mps": list(self.action_change_cost_mps),
             "predicted_min_clearance_m": list(self.predicted_min_clearance_m),
+            "raw_predicted_min_clearance_m": list(self.raw_predicted_min_clearance_m),
+            "calibration_offset_m": list(self.calibration_offset_m),
             "predicted_min_ttc_s": list(self.predicted_min_ttc_s),
             "predicted_uncertainty": list(self.predicted_uncertainty),
             "predicted_visibility": list(self.predicted_visibility),
@@ -133,6 +158,14 @@ class SafeCaptureRankingTrace:
             "execution_mode": self.execution_mode,
             "fallback_reason": self.fallback_reason,
             "top_two_margin_m": float(self.top_two_margin_m),
+            "top_two_margin_comparison_m": float(self.top_two_margin_comparison_m),
+            "top_two_abstention_limit_m": float(self.top_two_abstention_limit_m),
+            "score_comparison_keys": [
+                None if value is None else int(value) for value in self.score_comparison_keys
+            ],
+            "fixed_point_score_comparison": bool(self.fixed_point_score_comparison),
+            "score_comparison_quantum_m": float(self.score_comparison_quantum_m),
+            "candidate_order": [int(value) for value in self.candidate_order],
             "rank_abstention_reason": self.rank_abstention_reason,
             "hysteresis_applied": bool(self.hysteresis_applied),
             "hold_steps_remaining": int(self.hold_steps_remaining),
@@ -165,6 +198,79 @@ def _minimum_pairwise_distance(positions: np.ndarray) -> float:
         return float("inf")
     distances = [float(np.linalg.norm(positions[first] - positions[second])) for first in range(positions.shape[0]) for second in range(first + 1, positions.shape[0])]
     return min(distances) if distances else float("inf")
+
+
+def _candidate_specific_separation(costs: np.ndarray) -> np.ndarray:
+    """Return each candidate's distance to its nearest cost competitor.
+
+    The separation is a candidate-level confidence signal.  A group-level
+    top-two margin must not be copied to every candidate, because that makes
+    the reliability ledger unable to distinguish the selected candidate from
+    a clearly inferior alternative.  Non-finite costs are ignored and an
+    isolated finite candidate receives zero separation.
+    """
+
+    values = np.asarray(costs, dtype=np.float64)
+    if values.ndim != 1:
+        raise ValueError("Candidate costs must be a one-dimensional array.")
+    result = np.zeros(values.shape, dtype=np.float64)
+    finite = np.isfinite(values)
+    finite_indices = np.flatnonzero(finite)
+    if finite_indices.size < 2:
+        return result
+    finite_values = values[finite_indices]
+    pairwise = np.abs(finite_values[:, None] - finite_values[None, :])
+    np.fill_diagonal(pairwise, np.inf)
+    result[finite_indices] = np.min(pairwise, axis=1)
+    return result
+
+
+def _conservative_margin_for_comparison(margin_m: float, quantum_m: float) -> float:
+    """Return a deterministic lower-rounded margin for abstention decisions."""
+
+    margin = float(margin_m)
+    quantum = float(quantum_m)
+    if not np.isfinite(margin) or quantum <= 0.0:
+        return margin
+    if margin <= 0.0:
+        return 0.0
+    # The lower rounding is intentional: a boundary value is routed to the
+    # conservative nominal path on every device rather than selected as a
+    # candidate because of BLAS/CUDA last-bit differences.
+    return float(np.floor(margin / quantum) * quantum)
+
+
+def _fixed_point_score_key(score_m: float, quantum_m: float) -> int | None:
+    """Map one finite score to a deterministic integer comparison key.
+
+    Scores are costs, so the smallest key wins.  The key uses round-half-up
+    instead of Python's banker rounding and is kept separate from the raw
+    floating-point score stored for diagnostics.  Non-finite scores are not
+    eligible for ranking and therefore return ``None``.
+    """
+
+    score = float(score_m)
+    quantum = float(quantum_m)
+    if not np.isfinite(score):
+        return None
+    if not np.isfinite(quantum) or quantum <= 0.0:
+        raise ValueError("A positive finite score comparison quantum is required.")
+    scaled = score / quantum
+    if not np.isfinite(scaled) or abs(scaled) >= float(np.iinfo(np.int64).max):
+        raise ValueError("Score is outside the fixed-point comparison range.")
+    # Scores are costs and are normally non-negative.  This branch keeps the
+    # mapping symmetric if a future score contract permits negative costs.
+    rounded = np.floor(scaled + 0.5) if scaled >= 0.0 else np.ceil(scaled - 0.5)
+    return int(rounded)
+
+
+def _fixed_point_score_keys(scores: np.ndarray, quantum_m: float) -> tuple[int | None, ...]:
+    """Return JSON-friendly fixed-point keys for all candidate scores."""
+
+    values = np.asarray(scores, dtype=np.float64)
+    if values.ndim != 1:
+        raise ValueError("Scores must be a one-dimensional array.")
+    return tuple(_fixed_point_score_key(value, quantum_m) for value in values)
 
 
 class SafeCaptureJEPARanker:
@@ -284,6 +390,8 @@ class SafeCaptureJEPARanker:
         cbf_risk_cost = np.full(5, np.inf, dtype=np.float64)
         action_change_cost = np.full(5, np.inf, dtype=np.float64)
         min_clearance = np.full(5, np.nan, dtype=np.float64)
+        raw_min_clearance = np.full(5, np.nan, dtype=np.float64)
+        calibration_offset = np.full(5, np.nan, dtype=np.float64)
         min_ttc = np.full(5, np.nan, dtype=np.float64)
         uncertainty = np.full(5, np.nan, dtype=np.float64)
         visibility = np.full(5, np.nan, dtype=np.float64)
@@ -300,8 +408,18 @@ class SafeCaptureJEPARanker:
                 horizon_index=self.config.horizon_index,
             )
             jepa_latency_ms = (perf_counter_ns() - jepa_started_ns) / 1_000_000.0
-            obstacle = np.asarray(auxiliary["obstacle_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
-            inter_agent = np.asarray(auxiliary["inter_agent_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
+            raw_obstacle = np.asarray(auxiliary["obstacle_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
+            raw_inter_agent = np.asarray(auxiliary["inter_agent_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
+            if not np.isfinite(raw_obstacle).all() or not np.isfinite(raw_inter_agent).all():
+                raise ValueError("JEPA clearance predictions must be finite before calibration.")
+            if self.reliability_ledger is not None:
+                obstacle, inter_agent = self.reliability_ledger.calibrated_clearance_m(
+                    self.config.horizon_index,
+                    raw_obstacle,
+                    raw_inter_agent,
+                )
+            else:
+                obstacle, inter_agent = raw_obstacle, raw_inter_agent
             ttc = np.asarray(auxiliary["pairwise_ttc"], dtype=np.float64)
             visibility_probability = _sigmoid(np.asarray(auxiliary["target_visibility_logit"], dtype=np.float64))
             intervention_probability = _sigmoid(np.asarray(auxiliary["cbf_intervention_logit"], dtype=np.float64))
@@ -312,14 +430,14 @@ class SafeCaptureJEPARanker:
             future_defenders = positions[None, :, :] + chunks[valid_indices, 0].astype(np.float64) * self.config.horizon_seconds
             distances = np.linalg.norm(predicted_target - future_defenders, axis=2)
             raw_target_cost = np.mean(distances, axis=1)
-            separation = np.zeros(valid_indices.size, dtype=np.float64)
-            if valid_indices.size > 1:
-                ordered = np.sort(raw_target_cost)
-                separation[:] = max(float(ordered[1] - ordered[0]), 0.0)
+            separation = _candidate_specific_separation(raw_target_cost)
             for local, candidate_index in enumerate(valid_indices):
                 min_obstacle = float(np.min(obstacle[local]))
                 min_inter = float(np.min(inter_agent[local]))
+                raw_min = float(min(float(np.min(raw_obstacle[local])), float(np.min(raw_inter_agent[local]))))
+                raw_min_clearance[candidate_index] = raw_min
                 min_clearance[candidate_index] = min(min_obstacle, min_inter)
+                calibration_offset[candidate_index] = min_clearance[candidate_index] - raw_min
                 min_ttc[candidate_index] = float(np.min(ttc[local]))
                 uncertainty[candidate_index] = float(np.mean(stds[local]))
                 visibility[candidate_index] = float(np.mean(visibility_probability[local]))
@@ -372,11 +490,29 @@ class SafeCaptureJEPARanker:
             min_clearance >= float(self.config.minimum_predicted_clearance_m)
         )
         eligible &= clearance_gate
+        if self.config.fixed_point_score_comparison:
+            score_keys = _fixed_point_score_keys(
+                scores,
+                self.config.score_comparison_quantum_m,
+            )
+            eligible &= np.asarray([key is not None for key in score_keys], dtype=bool)
+        else:
+            # Keep keys in the trace even for legacy profiles, but do not let
+            # this diagnostic field alter their historical float decisions.
+            score_keys = (
+                _fixed_point_score_keys(scores, self.config.score_comparison_quantum_m)
+                if self.config.score_comparison_quantum_m > 0.0
+                else tuple(None for _ in scores)
+            )
         execution_mode = "trusted"
         fallback_reason: str | None = None
         rank_abstention_reason: str | None = None
         hysteresis_applied = False
         top_two_margin = float("inf")
+        top_two_margin_comparison = float("inf")
+        top_two_abstention_limit = float("inf")
+        candidate_order: tuple[int, ...] = ()
+        nominal_anchor_selected = False
         remaining_hold = max(int(hold_steps_remaining) - 1, 0)
         selected_index = 0
         if not bool(valid[0]):
@@ -390,24 +526,90 @@ class SafeCaptureJEPARanker:
             fallback_reason = nominal_decision.fallback_reason
         else:
             # A non-trusted alternative is never allowed to displace nominal.
-            eligible[0] = True
+            if self.config.fixed_point_score_comparison:
+                eligible[0] = bool(
+                    valid[0]
+                    and nominal_decision.state == "trusted"
+                    and clearance_gate[0]
+                    and score_keys[0] is not None
+                )
+            else:
+                eligible[0] = True
             trusted_indices = np.flatnonzero(eligible)
             if trusted_indices.size:
-                ordered = trusted_indices[np.argsort(scores[trusted_indices], kind="mergesort")]
+                if self.config.fixed_point_score_comparison:
+                    ordered = np.asarray(
+                        sorted(
+                            (int(index) for index in trusted_indices),
+                            key=lambda index: (int(score_keys[index]), index),
+                        ),
+                        dtype=np.int64,
+                    )
+                else:
+                    ordered = trusted_indices[np.argsort(scores[trusted_indices], kind="mergesort")]
+                candidate_order = tuple(int(index) for index in ordered)
                 best_score = float(scores[ordered[0]])
+                best_key = score_keys[int(ordered[0])]
                 if ordered.size > 1:
                     top_two_margin = float(max(scores[ordered[1]] - best_score, 0.0))
-                tied = trusted_indices[
-                    scores[trusted_indices] <= best_score + self.config.score_tie_tolerance_m
-                ]
+                    if self.config.fixed_point_score_comparison:
+                        second_key = score_keys[int(ordered[1])]
+                        top_two_margin_comparison = float(
+                            max(int(second_key) - int(best_key), 0)
+                            * self.config.score_comparison_quantum_m
+                        )
+                    else:
+                        top_two_margin_comparison = _conservative_margin_for_comparison(
+                            top_two_margin,
+                            self.config.score_comparison_quantum_m,
+                        )
+                if self.config.fixed_point_score_comparison:
+                    # The comparison width is pre-registered in metres, then
+                    # rounded upward to integer buckets.  This collapses a
+                    # one-bucket CPU/CUDA boundary drift into a deterministic
+                    # candidate-index tie without changing CBF geometry.
+                    tie_width_m = (
+                        self.config.score_tie_tolerance_m
+                        + self.config.score_comparison_safety_band_m
+                    )
+                    tie_units = int(
+                        np.ceil(
+                            tie_width_m / self.config.score_comparison_quantum_m
+                        )
+                    ) if tie_width_m > 0.0 else 0
+                    tied = np.asarray(
+                        [
+                            int(index)
+                            for index in trusted_indices
+                            if int(score_keys[int(index)]) <= int(best_key) + tie_units
+                        ],
+                        dtype=np.int64,
+                    )
+                else:
+                    tied = trusted_indices[
+                        scores[trusted_indices] <= best_score + self.config.score_tie_tolerance_m
+                    ]
                 # Candidate index is the deterministic secondary key.  This
                 # prevents CPU/CUDA roundoff from changing a near-tied action.
                 best = int(np.min(tied))
-                if best != 0 and scores[0] <= scores[best] + self.config.nominal_anchor_margin_m:
-                    best = 0
+                nominal_anchor_selected = bool(best == 0 and int(ordered[0]) != 0)
+                if best != 0:
+                    if self.config.fixed_point_score_comparison:
+                        best = 0 if int(score_keys[0]) <= int(score_keys[best]) + tie_units else best
+                    elif scores[0] <= scores[best] + self.config.nominal_anchor_margin_m:
+                        best = 0
                 if best != 0 and (
                     self.config.top_two_abstention_margin_m > 0.0
-                    and top_two_margin <= self.config.top_two_abstention_margin_m
+                    # Treat the protocol's score tie tolerance as a
+                    # deterministic numerical band around the abstention
+                    # boundary.  This prevents CPU/CUDA roundoff from
+                    # selecting different actions at nearly identical margins.
+                    and top_two_margin_comparison
+                    <= (
+                        self.config.top_two_abstention_margin_m
+                        + self.config.score_tie_tolerance_m
+                        + self.config.score_comparison_safety_band_m
+                    )
                     and bool(eligible[0])
                 ):
                     best = 0
@@ -418,14 +620,33 @@ class SafeCaptureJEPARanker:
                     previous = int(previous_selected_index)
                     previous_eligible = bool(eligible[previous]) and np.isfinite(scores[previous])
                     if previous_eligible and best != previous:
-                        score_gap = float(scores[previous] - best_score)
                         force_hold = hold_steps_remaining > 0
-                        within_hysteresis = score_gap <= self.config.candidate_hysteresis_margin_m
+                        if self.config.fixed_point_score_comparison:
+                            hysteresis_units = int(
+                                np.ceil(
+                                    self.config.candidate_hysteresis_margin_m
+                                    / self.config.score_comparison_quantum_m
+                                )
+                            ) if self.config.candidate_hysteresis_margin_m > 0.0 else 0
+                            within_hysteresis = (
+                                int(score_keys[previous]) - int(score_keys[best])
+                                <= hysteresis_units
+                            )
+                        else:
+                            score_gap = float(scores[previous] - best_score)
+                            within_hysteresis = score_gap <= self.config.candidate_hysteresis_margin_m
                         if force_hold or within_hysteresis:
                             best = previous
                             hysteresis_applied = True
                             remaining_hold = max(remaining_hold, self.config.minimum_hold_steps - 1)
                 selected_index = best
+                if nominal_anchor_selected and execution_mode == "trusted":
+                    # Nominal was selected by the registered tie/anchor band,
+                    # not because it was the discrete best score.  Expose one
+                    # deterministic fallback state across CPU/CUDA backends.
+                    execution_mode = "fallback_nominal"
+                    rank_abstention_reason = "nominal_anchor_tie"
+                    fallback_reason = rank_abstention_reason
             else:
                 execution_mode = "fallback_nominal"
                 fallback_reason = "no_trusted_candidate"
@@ -444,6 +665,8 @@ class SafeCaptureJEPARanker:
             cbf_risk_cost=tuple(float(value) for value in cbf_risk_cost),
             action_change_cost_mps=tuple(float(value) for value in action_change_cost),
             predicted_min_clearance_m=tuple(float(value) if np.isfinite(value) else float("nan") for value in min_clearance),
+            raw_predicted_min_clearance_m=tuple(float(value) if np.isfinite(value) else float("nan") for value in raw_min_clearance),
+            calibration_offset_m=tuple(float(value) if np.isfinite(value) else float("nan") for value in calibration_offset),
             predicted_min_ttc_s=tuple(float(value) if np.isfinite(value) else float("nan") for value in min_ttc),
             predicted_uncertainty=tuple(float(value) if np.isfinite(value) else float("nan") for value in uncertainty),
             predicted_visibility=tuple(float(value) if np.isfinite(value) else float("nan") for value in visibility),
@@ -460,6 +683,20 @@ class SafeCaptureJEPARanker:
             execution_mode=execution_mode,
             fallback_reason=fallback_reason,
             top_two_margin_m=top_two_margin,
+            top_two_margin_comparison_m=top_two_margin_comparison,
+            top_two_abstention_limit_m=(
+                float(
+                    self.config.top_two_abstention_margin_m
+                    + self.config.score_tie_tolerance_m
+                    + self.config.score_comparison_safety_band_m
+                )
+                if self.config.top_two_abstention_margin_m > 0.0
+                else top_two_abstention_limit
+            ),
+            score_comparison_keys=score_keys,
+            fixed_point_score_comparison=bool(self.config.fixed_point_score_comparison),
+            score_comparison_quantum_m=float(self.config.score_comparison_quantum_m),
+            candidate_order=candidate_order,
             rank_abstention_reason=rank_abstention_reason,
             hysteresis_applied=hysteresis_applied,
             hold_steps_remaining=remaining_hold,

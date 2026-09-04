@@ -271,7 +271,11 @@ def _load_jepa(
     return model.to(device).eval()
 
 
-def _load_ledger(path: Path, checkpoint_path: Path) -> SafeCaptureReliabilityLedger:
+def _load_ledger(
+    path: Path,
+    checkpoint_path: Path,
+    protocol_path: Path | None = None,
+) -> SafeCaptureReliabilityLedger:
     payload = json.loads(path.resolve().read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("Reliability ledger must be a JSON object.")
@@ -281,6 +285,10 @@ def _load_ledger(path: Path, checkpoint_path: Path) -> SafeCaptureReliabilityLed
     checkpoint_hash = _sha256(checkpoint_path.resolve())
     if source.get("checkpoint_sha256") != checkpoint_hash:
         raise ValueError("Reliability ledger checkpoint hash does not match the JEPA checkpoint.")
+    if protocol_path is not None:
+        protocol_hash = _sha256(protocol_path.resolve())
+        if source.get("protocol_sha256") != protocol_hash:
+            raise ValueError("Reliability ledger protocol hash does not match the evaluation protocol.")
     ledger = SafeCaptureReliabilityLedger(payload)
     if payload.get("locked_test_opened") is not False:
         raise ValueError("P6 requires locked_test_opened=false in the ledger.")
@@ -307,19 +315,49 @@ def _ranker_config(
         base = SafeCaptureRankerConfig()
     contract = dict(ranking_contract or {})
     profile = str(contract.pop("profile", "legacy"))
-    if profile not in {"legacy", "p11_conservative_v1"}:
+    if profile not in {
+        "legacy",
+        "p11_conservative_v1",
+        "p12_calibrated_clearance_v1",
+        "p12_deterministic_v2",
+        "p13_fixedpoint_v1",
+        "p14_fixedpoint_robust_v1",
+        "p15_fixedpoint_robust_v1",
+        "p16_fixedpoint_robust_v1",
+        "p17_fixedpoint_robust_v1",
+        "p18_fixedpoint_robust_v1",
+        "p19_cpu_ranker_v1",
+        "p20_cpu_deterministic_v1",
+    }:
         raise ValueError(f"Unknown candidate_ranking profile: {profile}")
     allowed = {
         "score_tie_tolerance_m",
+        "score_comparison_quantum_m",
+        "score_comparison_safety_band_m",
+        "fixed_point_score_comparison",
         "top_two_abstention_margin_m",
         "minimum_predicted_clearance_m",
         "candidate_hysteresis_margin_m",
         "minimum_hold_steps",
+        "ranking_device",
+        "actor_device",
+        # Protocol metadata for the calibrated v12 clearance transform.  The
+        # transform itself is loaded from the checkpoint-bound ledger; these
+        # fields are declaration-only and do not alter ranker weights.
+        "clearance_transform",
+        "clearance_quantile",
+        "cbf_margin_changed",
     }
     unknown = sorted(set(contract).difference(allowed))
     if unknown:
         raise ValueError(f"Unknown candidate_ranking fields: {unknown}")
-    values = {name: contract[name] for name in allowed if name in contract}
+    values = {
+        name: contract[name]
+        for name in allowed
+        if name in contract and name not in {"clearance_transform", "clearance_quantile", "cbf_margin_changed", "ranking_device", "actor_device"}
+    }
+    if profile in {"p12_deterministic_v2", "p13_fixedpoint_v1", "p14_fixedpoint_robust_v1", "p15_fixedpoint_robust_v1", "p16_fixedpoint_robust_v1", "p17_fixedpoint_robust_v1", "p18_fixedpoint_robust_v1", "p19_cpu_ranker_v1", "p20_cpu_deterministic_v1"}:
+        base = replace(base, fixed_point_score_comparison=True)
     return replace(base, **values) if values else base
 
 
@@ -482,6 +520,32 @@ def _actor_action(
     return action, hidden
 
 
+def _canonicalize_action_for_replay(action: np.ndarray, quantum_mps: float) -> np.ndarray:
+    """Quantize actor output before candidate construction for device replay.
+
+    The actor is evaluated on CPU and CUDA, so the last few floating-point
+    bits can differ even when the policy and observation are identical.  A
+    pre-registered action quantum makes the physical request identical before
+    the shared reachability and Joint CBF-QP stages.  The raw actor output is
+    not a safety signal and is intentionally not used after this boundary.
+    """
+
+    value = np.asarray(action, dtype=np.float64)
+    quantum = float(quantum_mps)
+    if not np.isfinite(value).all():
+        raise ValueError("Actor action must be finite before canonicalization.")
+    if not np.isfinite(quantum) or quantum < 0.0:
+        raise ValueError("Action comparison quantum must be finite and non-negative.")
+    if quantum == 0.0:
+        return value.copy()
+    scaled = value / quantum
+    rounded = np.where(scaled >= 0.0, np.floor(scaled + 0.5), np.ceil(scaled - 0.5))
+    canonical = rounded * quantum
+    if not np.isfinite(canonical).all():
+        raise ValueError("Canonical actor action became non-finite.")
+    return canonical.astype(np.float64, copy=False)
+
+
 def _run_episode(
     *,
     manifest_item: dict[str, Any],
@@ -497,6 +561,9 @@ def _run_episode(
     recurrent_reset_interval: int | None,
     ranker_config: SafeCaptureRankerConfig | None,
     output_dir: Path,
+    action_comparison_quantum_mps: float = 0.0,
+    ranking_device: torch.device | None = None,
+    actor_device: torch.device | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     episode_index = int(manifest_item["episode_index"])
     spec = dict(manifest_item["spec"])
@@ -520,7 +587,7 @@ def _run_episode(
         candidate_history = SafeCaptureCandidateHistory(
             jepa,
             defender_count=env.n_defenders,
-            device=device,
+            device=ranking_device or device,
             history_length=history_length,
             action_scale=float(action_scale),
         )
@@ -540,7 +607,8 @@ def _run_episode(
             context_defaults=context_defaults,
         )
     safety_filter = JointCBFQPSafetyFilter(env) if contract["use_cbf"] else None
-    hidden = policy.initial_actor_hidden(env.n_defenders, device=device) if hasattr(policy, "initial_actor_hidden") else None
+    actor_runtime_device = actor_device or device
+    hidden = policy.initial_actor_hidden(env.n_defenders, device=actor_runtime_device) if hasattr(policy, "initial_actor_hidden") else None
     # Candidate validity is defined on the first-step command that is
     # reachable from the last executed velocity.  The frozen actor emits a
     # desired velocity and may legitimately request a large initial change;
@@ -603,9 +671,13 @@ def _run_episode(
             and env.step_count > 0
             and env.step_count % recurrent_reset_interval == 0
         ):
-            hidden = policy.initial_actor_hidden(env.n_defenders, device=device)
+            hidden = policy.initial_actor_hidden(env.n_defenders, device=actor_runtime_device)
         actor_started_ns = time.perf_counter_ns()
-        desired_action, hidden = _actor_action(policy, local_observation, device, action_scale, hidden)
+        desired_action, hidden = _actor_action(policy, local_observation, actor_runtime_device, action_scale, hidden)
+        desired_action = _canonicalize_action_for_replay(
+            desired_action,
+            action_comparison_quantum_mps,
+        )
         actor_latencies.append((time.perf_counter_ns() - actor_started_ns) / 1_000_000.0)
         reachable_nominal_action = env._move_toward_velocity(
             previous_action,
@@ -1143,6 +1215,12 @@ def main() -> None:
     if not isinstance(ranking_contract, Mapping):
         raise ValueError("candidate_ranking protocol section must be a mapping.")
     ranker_config = _ranker_config(str(contract["variant"]), ranking_contract)
+    candidate_contract = protocol.get("candidate_contract", {})
+    if not isinstance(candidate_contract, Mapping):
+        raise ValueError("candidate_contract protocol section must be a mapping.")
+    action_comparison_quantum_mps = float(candidate_contract.get("action_comparison_quantum_mps", 0.0))
+    if not np.isfinite(action_comparison_quantum_mps) or action_comparison_quantum_mps < 0.0:
+        raise ValueError("candidate_contract.action_comparison_quantum_mps must be finite and non-negative.")
     configured_episodes = int(protocol["episodes_per_split"][args.split])
     if args.episodes > configured_episodes:
         raise ValueError(f"Requested {args.episodes} episodes but validation has {configured_episodes}.")
@@ -1170,8 +1248,27 @@ def main() -> None:
         raise FileNotFoundError(f"Reliability ledger does not exist: {ledger_path}")
     if contract["use_ledger"] and not contract["use_jepa"]:
         raise ValueError("A ledger-enabled variant must also enable JEPA.")
-    jepa = _load_jepa(jepa_checkpoint, device) if contract["use_jepa"] and jepa_checkpoint else None
-    ledger = _load_ledger(ledger_path, jepa_checkpoint) if contract["use_ledger"] and ledger_path and jepa_checkpoint else None
+    ranking_contract = protocol.get("candidate_ranking", {})
+    ranking_device_name = str(ranking_contract.get("ranking_device", "execution"))
+    actor_device_name = str(ranking_contract.get("actor_device", "execution"))
+    if ranking_device_name == "cpu":
+        ranking_device = torch.device("cpu")
+    elif ranking_device_name in {"execution", "same_as_execution"}:
+        ranking_device = device
+    else:
+        raise ValueError("candidate_ranking.ranking_device must be 'cpu' or 'execution'.")
+    if actor_device_name == "cpu":
+        actor_device = torch.device("cpu")
+    elif actor_device_name in {"execution", "same_as_execution"}:
+        actor_device = device
+    else:
+        raise ValueError("candidate_ranking.actor_device must be 'cpu' or 'execution'.")
+    jepa = _load_jepa(jepa_checkpoint, ranking_device) if contract["use_jepa"] and jepa_checkpoint else None
+    ledger = (
+        _load_ledger(ledger_path, jepa_checkpoint, protocol_path)
+        if contract["use_ledger"] and ledger_path and jepa_checkpoint
+        else None
+    )
     first_spec = episode_spec(protocol, args.split, 0)
     prototype_config = config_for_spec("f2", first_spec, environment_config)
     prototype = CaptureRadiusPursuit3DEnv(
@@ -1185,7 +1282,7 @@ def main() -> None:
         actor_checkpoint,
         prototype,
         prototype_observation,
-        device,
+        actor_device,
     )
     metadata_reset_interval = actor_metadata.get("recurrent_reset_interval_steps")
     recurrent_reset_interval = (
@@ -1235,6 +1332,9 @@ def main() -> None:
             jepa_perturbation_mps=args.jepa_perturbation_mps,
             recurrent_reset_interval=recurrent_reset_interval,
             ranker_config=ranker_config,
+            action_comparison_quantum_mps=action_comparison_quantum_mps,
+            ranking_device=ranking_device,
+            actor_device=actor_device,
             output_dir=output_dir,
         )
         row["training_seed"] = int(args.training_seed)
@@ -1290,10 +1390,16 @@ def main() -> None:
             "execute_first_step_then_replan": True,
             "project_to_reachable_dynamics": True,
             "score_tie_tolerance_m": 5e-4,
+            "score_comparison_quantum_m": float(ranker_config.score_comparison_quantum_m),
+            "score_comparison_safety_band_m": float(ranker_config.score_comparison_safety_band_m),
             "top_two_abstention_margin_m": float(ranker_config.top_two_abstention_margin_m),
             "minimum_predicted_clearance_m": float(ranker_config.minimum_predicted_clearance_m),
             "candidate_hysteresis_margin_m": float(ranker_config.candidate_hysteresis_margin_m),
             "minimum_hold_steps": int(ranker_config.minimum_hold_steps),
+            "fixed_point_score_comparison": bool(ranker_config.fixed_point_score_comparison),
+            "action_comparison_quantum_mps": action_comparison_quantum_mps,
+            "ranking_device": ranking_device_name,
+            "actor_device": actor_device_name,
         },
         "cbf_contract": cbf_contract,
         "recurrent_reset_interval_steps": recurrent_reset_interval,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
 from encirclement3d.jepa_safe_capture_candidates import (
@@ -12,7 +13,14 @@ from encirclement3d.jepa_safe_capture_candidates import (
     SafeCaptureCandidateHistory,
     make_safe_capture_candidate_chunks,
 )
-from encirclement3d.jepa_safe_capture_ranker import SafeCaptureJEPARanker, SafeCaptureRankerConfig
+from encirclement3d.jepa_safe_capture_ranker import (
+    SafeCaptureJEPARanker,
+    SafeCaptureRankerConfig,
+    _conservative_margin_for_comparison,
+    _candidate_specific_separation,
+    _fixed_point_score_key,
+    _fixed_point_score_keys,
+)
 from encirclement3d.prediction import InteractionAwareActionConditionedSafeCaptureJEPAPredictor
 from encirclement3d.reliability import SafeCaptureReliabilityLedger, make_safe_capture_global_key
 
@@ -146,6 +154,18 @@ def test_history_uses_requested_three_step_horizon_and_is_action_conditioned() -
     assert not np.allclose(mean[0], mean[1])
 
 
+def test_candidate_separation_is_local_to_each_candidate() -> None:
+    costs = np.array([0.0, 0.20, 1.00, 1.30, np.inf], dtype=np.float64)
+    separation = _candidate_specific_separation(costs)
+
+    np.testing.assert_allclose(separation, [0.20, 0.20, 0.30, 0.30, 0.0])
+
+
+def test_candidate_separation_is_zero_for_single_finite_candidate() -> None:
+    separation = _candidate_specific_separation(np.array([np.inf, 2.0, np.inf]))
+    np.testing.assert_array_equal(separation, np.zeros(3, dtype=np.float64))
+
+
 def test_ranker_follows_action_and_executes_only_first_step() -> None:
     history = _FakeHistory()
     ranker = SafeCaptureJEPARanker(history, config=SafeCaptureRankerConfig())
@@ -240,6 +260,153 @@ def test_ranker_abstains_to_nominal_when_top_two_margin_is_small() -> None:
     assert result.trace.rank_abstention_reason == "top_two_margin_abstention"
 
 
+def test_ranker_uses_score_tolerance_around_abstention_boundary() -> None:
+    history = _FakeHistory()
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 0.006
+    # The fake model produces a margin close to the configured abstention
+    # threshold. The tolerance band must make the decision deterministic.
+    result = SafeCaptureJEPARanker(
+        history,
+        config=SafeCaptureRankerConfig(
+            top_two_abstention_margin_m=0.0015,
+            score_tie_tolerance_m=10.0,
+        ),
+    ).rank(_observation(), _batch(actions))
+    assert result.trace.top_two_margin_m == pytest.approx(0.0015, abs=1e-6)
+    assert result.trace.top_two_margin_comparison_m == pytest.approx(0.0015, abs=1e-6)
+    assert result.execution_mode == "fallback_nominal"
+    assert result.fallback_reason == "nominal_anchor_tie"
+    assert result.trace.rank_abstention_reason == "nominal_anchor_tie"
+
+
+def test_conservative_margin_quantization_routes_cpu_cuda_boundary_to_same_path() -> None:
+    quantum = 0.0005
+    # These are the observed CUDA/CPU margins from the failed replay.  The
+    # quantizer is intentionally paired with a separate 0.0005 m safety band;
+    # both values must therefore route to nominal despite opposite rounding.
+    cuda_margin = _conservative_margin_for_comparison(0.0025176494516, quantum)
+    cpu_margin = _conservative_margin_for_comparison(0.0024942341255, quantum)
+    assert cuda_margin == pytest.approx(0.0025, abs=1e-12)
+    assert cpu_margin == pytest.approx(0.0020, abs=1e-12)
+    abstention_limit = 0.0015 + 0.0005 + 0.0005
+    assert cuda_margin <= abstention_limit
+    assert cpu_margin <= abstention_limit
+
+
+def test_ranker_safety_band_covers_observed_margin_drift() -> None:
+    config = SafeCaptureRankerConfig(
+        top_two_abstention_margin_m=0.0015,
+        score_tie_tolerance_m=0.0005,
+        score_comparison_quantum_m=0.0005,
+        score_comparison_safety_band_m=0.001,
+    )
+    limit = (
+        config.top_two_abstention_margin_m
+        + config.score_tie_tolerance_m
+        + config.score_comparison_safety_band_m
+    )
+    assert limit == pytest.approx(0.003, abs=1e-12)
+    assert _conservative_margin_for_comparison(0.0030021580729, config.score_comparison_quantum_m) <= limit
+    assert _conservative_margin_for_comparison(0.0029707248747, config.score_comparison_quantum_m) <= limit
+
+
+def test_ranker_records_raw_and_quantized_abstention_margins() -> None:
+    history = _FakeHistory()
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 0.006
+    result = SafeCaptureJEPARanker(
+        history,
+        config=SafeCaptureRankerConfig(
+            top_two_abstention_margin_m=0.0015,
+            score_tie_tolerance_m=0.0005,
+            score_comparison_quantum_m=0.0005,
+        ),
+    ).rank(_observation(), _batch(actions))
+    trace = result.trace.as_dict()
+    assert "top_two_margin_m" in trace
+    assert "top_two_margin_comparison_m" in trace
+    assert trace["rank_abstention_reason"] == "top_two_margin_abstention"
+
+
+def test_fixed_point_score_key_is_round_half_up_and_nonfinite_is_ineligible() -> None:
+    assert _fixed_point_score_key(1.00024, 0.0005) == 2000
+    assert _fixed_point_score_key(1.00025, 0.0005) == 2001
+    assert _fixed_point_score_key(-1.00025, 0.0005) == -2001
+    assert _fixed_point_score_key(float("inf"), 0.0005) is None
+    assert _fixed_point_score_keys(np.array([1.0, np.nan]), 0.0005) == (2000, None)
+
+
+def test_robust_fixed_point_quantum_collapses_observed_cpu_cuda_score_drift() -> None:
+    cuda_scores = np.array([3.3318943, 3.3052830, 3.3124670, 3.3363080, 3.3086671])
+    cpu_scores = np.array([3.3319224, 3.3053500, 3.3125565, 3.3363672, 3.3087504])
+    cuda_keys = _fixed_point_score_keys(cuda_scores, 0.0015)
+    cpu_keys = _fixed_point_score_keys(cpu_scores, 0.0015)
+    assert cuda_keys == cpu_keys == (2221, 2204, 2208, 2224, 2206)
+    ordered = sorted(range(5), key=lambda index: (cuda_keys[index], index))
+    assert ordered == sorted(range(5), key=lambda index: (cpu_keys[index], index))
+    assert (cuda_keys[4] - cuda_keys[1]) * 0.0015 == pytest.approx(0.003)
+
+
+def test_fixed_point_profile_uses_discrete_candidate_order_and_trace_keys() -> None:
+    history = _FakeHistory()
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 1.0
+    result = SafeCaptureJEPARanker(
+        history,
+        config=SafeCaptureRankerConfig(
+            fixed_point_score_comparison=True,
+            score_comparison_quantum_m=0.0005,
+        ),
+    ).rank(_observation(), _batch(actions))
+
+    trace = result.trace
+    assert trace.fixed_point_score_comparison is True
+    assert len(trace.score_comparison_keys) == 5
+    assert all(key is not None for key in trace.score_comparison_keys)
+    assert trace.candidate_order[0] == result.selected_index
+    assert tuple(
+        sorted(
+            trace.candidate_order,
+            key=lambda index: (trace.score_comparison_keys[index], index),
+        )
+    ) == trace.candidate_order
+
+
+def test_fixed_point_near_tie_uses_nominal_anchor() -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 1.0
+    result = SafeCaptureJEPARanker(
+        _FakeHistory(),
+        config=SafeCaptureRankerConfig(
+            fixed_point_score_comparison=True,
+            score_comparison_quantum_m=1.0,
+            score_tie_tolerance_m=0.5,
+            score_comparison_safety_band_m=0.5,
+        ),
+    ).rank(_observation(), _batch(actions))
+
+    assert result.selected_index == 0
+    assert result.execution_mode == "trusted"
+
+
+def test_fixed_point_nominal_tie_is_reported_as_deterministic_fallback() -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 1.0
+    result = SafeCaptureJEPARanker(
+        _FakeHistory(),
+        config=SafeCaptureRankerConfig(
+            fixed_point_score_comparison=True,
+            score_comparison_quantum_m=0.004,
+            score_tie_tolerance_m=10.0,
+            score_comparison_safety_band_m=0.004,
+        ),
+    ).rank(_observation(), _batch(actions))
+    assert result.selected_index == 0
+    assert result.execution_mode == "fallback_nominal"
+    assert result.fallback_reason == "nominal_anchor_tie"
+
+
 def test_ranker_exposes_hold_and_hysteresis_inputs_without_changing_cbf_boundary() -> None:
     history = _FakeHistory()
     actions = np.zeros((5, 2, 3), dtype=np.float64)
@@ -277,6 +444,32 @@ def test_ranker_exposes_finite_latency_breakdown_without_affecting_selection() -
         assert np.isfinite(float(timing[field]))
         assert float(timing[field]) >= 0.0
     assert float(timing["rank_total_latency_ms"]) >= float(timing["jepa_inference_latency_ms"])
+
+
+def test_v12_calibrated_ranking_profile_accepts_declaration_only_fields() -> None:
+    from scripts.evaluate_jepa_safe_capture_v2_paired import _ranker_config
+
+    config = _ranker_config(
+        "m3",
+        {
+            "profile": "p12_calibrated_clearance_v1",
+            "clearance_transform": "checkpoint_bound_q10_residual_offset_m",
+            "clearance_quantile": 0.10,
+            "cbf_margin_changed": False,
+            "minimum_predicted_clearance_m": 0.15,
+        },
+    )
+    assert config.minimum_predicted_clearance_m == 0.15
+    assert config.score_comparison_quantum_m == 5e-4
+
+    deterministic = _ranker_config(
+        "m3",
+        {
+            "profile": "p12_deterministic_v2",
+            "score_comparison_quantum_m": 5e-4,
+        },
+    )
+    assert deterministic.fixed_point_score_comparison is True
 
 
 def test_projected_candidates_use_the_reachable_first_step_envelope() -> None:

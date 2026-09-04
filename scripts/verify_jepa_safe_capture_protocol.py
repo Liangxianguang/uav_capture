@@ -31,8 +31,17 @@ def _mapping(value: Any, name: str) -> dict[str, Any]:
 def load_protocol(path: Path) -> dict[str, Any]:
     protocol = yaml.safe_load(path.read_text(encoding="utf-8"))
     _mapping(protocol, "protocol")
-    if str(protocol.get("protocol_name", "")).startswith(
-        "central_random_mixed_obstacle_s3_v5_v12_calibrated_clearance_development"
+    protocol_name = str(protocol.get("protocol_name", ""))
+    if (
+        protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v12_calibrated_clearance")
+        or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v13_fixedpoint")
+        or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v14_fixedpoint")
+        or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v15_fixedpoint")
+        or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v16_fixedpoint")
+        or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v17_fixedpoint")
+        or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v18_fixedpoint")
+        or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v19_cpu_ranker")
+        or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v20_cpu_deterministic")
     ):
         _validate_v12_protocol(protocol)
         return protocol
@@ -115,10 +124,11 @@ def _validate_v12_protocol(protocol: dict[str, Any]) -> None:
     while accepting the versioned v12 layout.
     """
 
-    if int(protocol.get("protocol_version", -1)) != 12:
-        raise ValueError("Unexpected v12 safe-capture protocol version.")
+    protocol_version = int(protocol.get("protocol_version", -1))
+    if protocol_version not in {12, 13, 14, 15, 16, 17, 18, 19, 20}:
+        raise ValueError("Unexpected calibrated safe-capture protocol version.")
     if protocol.get("phase") != "development_only" or protocol.get("locked_test_opened") is not False:
-        raise ValueError("v12 protocol must remain closed development-only.")
+        raise ValueError("Calibrated protocol must remain closed development-only.")
 
     model = _mapping(protocol.get("model_contract"), "model_contract")
     if model.get("world_model_role") != "candidate_trajectory_evaluator_only":
@@ -137,14 +147,40 @@ def _validate_v12_protocol(protocol: dict[str, Any]) -> None:
         raise ValueError("v12 candidates must pass finite reachability checks.")
     if candidate.get("nominal_anchor_required") is not True:
         raise ValueError("v12 must retain the nominal candidate anchor.")
+    if protocol_version >= 13:
+        action_quantum = float(candidate.get("action_comparison_quantum_mps", -1.0))
+        if action_quantum <= 0.0 or action_quantum != action_quantum or action_quantum in (float("inf"), float("-inf")):
+            raise ValueError("v13 must declare a positive finite action comparison quantum.")
 
     ranking = _mapping(protocol.get("candidate_ranking"), "candidate_ranking")
     if float(ranking.get("score_comparison_quantum_m", 0.0)) <= 0.0:
         raise ValueError("v12 must declare a positive comparison quantum.")
+    safety_band = float(ranking.get("score_comparison_safety_band_m", 0.0))
+    if safety_band < 0.0 or safety_band != safety_band or safety_band in (float("inf"), float("-inf")):
+        raise ValueError("v12 abstention safety band must be finite and non-negative.")
     if float(ranking.get("top_two_abstention_margin_m", -1.0)) < 0.0:
         raise ValueError("v12 abstention margin must be non-negative.")
     if ranking.get("cbf_margin_changed") is not False:
         raise ValueError("v12 cannot change the CBF margin.")
+    if protocol_version >= 13:
+        expected_profile = {
+            13: "p13_fixedpoint_v1",
+            14: "p14_fixedpoint_robust_v1",
+            15: "p15_fixedpoint_robust_v1",
+            16: "p16_fixedpoint_robust_v1",
+            17: "p17_fixedpoint_robust_v1",
+            18: "p18_fixedpoint_robust_v1",
+            19: "p19_cpu_ranker_v1",
+            20: "p20_cpu_deterministic_v1",
+        }[protocol_version]
+        if ranking.get("profile") != expected_profile:
+            raise ValueError(f"v{protocol_version} must declare the fixed-point ranking profile.")
+        if ranking.get("fixed_point_score_comparison") is not True:
+            raise ValueError("v13 must enable fixed-point score comparison.")
+        if protocol_version >= 19 and ranking.get("ranking_device") != "cpu":
+            raise ValueError("v19 must freeze the candidate ranking backend to CPU.")
+        if protocol_version >= 19 and ranking.get("actor_device") != "cpu":
+            raise ValueError("v19 must freeze the actor backend to CPU for deterministic replay.")
 
     ledger = _mapping(protocol.get("reliability_ledger"), "reliability_ledger")
     if ledger.get("source_split") != "calibration_only" or ledger.get("immutable_after_calibration") is not True:
@@ -157,6 +193,40 @@ def _validate_v12_protocol(protocol: dict[str, Any]) -> None:
         raise ValueError("v12 ledger must bind checkpoint, protocol, and calibration hashes.")
     if set(ledger.get("states", [])) != {"trusted", "fallback_nominal", "safe_hold"}:
         raise ValueError("v12 ledger states are incomplete.")
+    tolerance_payload = ledger.get("bucket_boundary_tolerances")
+    if tolerance_payload is None:
+        # Preserve validation of the original v12 protocol; the deterministic
+        # revision below must declare all tolerances explicitly.
+        if "deterministic" in str(protocol.get("protocol_name", "")):
+            raise ValueError("Deterministic v12 protocol must declare bucket tolerances.")
+        tolerance_payload = {
+            "visibility_fraction": 0.0,
+            "observation_age_steps": 0.0,
+            "clearance_m": 0.0,
+            "ttc_s": 0.0,
+            "uncertainty": 0.0,
+            "cbf_risk": 0.0,
+            "candidate_separation_m": 0.0,
+        }
+    tolerances = _mapping(tolerance_payload, "reliability_ledger.bucket_boundary_tolerances")
+    required_tolerances = {
+        "visibility_fraction",
+        "observation_age_steps",
+        "clearance_m",
+        "ttc_s",
+        "uncertainty",
+        "cbf_risk",
+        "candidate_separation_m",
+    }
+    if set(tolerances) != required_tolerances:
+        raise ValueError("v12 ledger bucket tolerances are incomplete.")
+    if any(
+        float(value) < 0.0
+        or float(value) != float(value)
+        or float(value) in (float("inf"), float("-inf"))
+        for value in tolerances.values()
+    ):
+        raise ValueError("v12 ledger bucket tolerances must be finite and non-negative.")
 
     tensorboard = _mapping(protocol.get("tensorboard"), "tensorboard")
     if tensorboard.get("required") is not True:
@@ -191,10 +261,36 @@ def verify_frozen_inputs(protocol: dict[str, Any], project_root: Path) -> dict[s
 def verify(protocol_path: Path, project_root: Path) -> dict[str, Any]:
     protocol = load_protocol(protocol_path)
     artifacts = verify_frozen_inputs(protocol, project_root)
-    is_v12 = str(protocol.get("protocol_name", "")).startswith(
-        "central_random_mixed_obstacle_s3_v5_v12_calibrated_clearance_development"
+    is_calibrated = (
+        str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v12_calibrated_clearance"
+        )
+        or str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v13_fixedpoint"
+        )
+        or str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v14_fixedpoint"
+        )
+        or str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v15_fixedpoint"
+        )
+        or str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v16_fixedpoint"
+        )
+        or str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v17_fixedpoint"
+        )
+        or str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v18_fixedpoint"
+        )
+        or str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v19_cpu_ranker"
+        )
+        or str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v20_cpu_deterministic"
+        )
     )
-    if is_v12:
+    if is_calibrated:
         primary_endpoint = "safe_capture"
         world_model_role = protocol["model_contract"]["world_model_role"]
         cbf_final_safety_filter = protocol["model_contract"]["cbf_is_final_safety_filter"]
