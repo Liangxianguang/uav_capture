@@ -1,0 +1,83 @@
+protocol_name: jepa_safe_capture_v11_hard_replay_training
+protocol_version: 11
+phase: development_only
+locked_test_opened: false
+not_a_replacement_for_existing_locked_benchmarks: true
+parent_protocol: configs/jepa_safe_capture_v3_next_phase.yaml
+change_note: corrected_frame_train_validation_with_bounded_hard_context_replay
+
+objective:
+  task: 3d_multi_uav_adversarial_encirclement
+  world_model_role: candidate_trajectory_evaluator_only
+  primary_endpoint: safe_capture
+  capture_time_is_rejection_gate: false
+
+information_boundary:
+  online_target_ground_truth: false
+  target_truth_used_only_for_offline_labels: true
+  train_split_only_for_optimizer: true
+  validation_split_held_out: true
+  calibration_split_held_out: true
+  development_and_locked_data_excluded: true
+
+data:
+  train_dataset: results/jepa_safe_capture_v2_p1_corrected_frame_train/counterfactual_safe_capture_v2.npz
+  train_metadata: results/jepa_safe_capture_v2_p1_corrected_frame_train/metadata.json
+  validation_dataset: results/jepa_safe_capture_v2_p1_corrected_frame_validation/counterfactual_safe_capture_v2.npz
+  validation_metadata: results/jepa_safe_capture_v2_p1_corrected_frame_validation/metadata.json
+  calibration_metadata: results/jepa_safe_capture_v2_p1_corrected_frame_calibration/metadata.json
+  target_relative_frame: post_action_defender_position
+  label_frame_correction_version: 1
+
+model:
+  model_type: interaction_aware_action_conditioned_jepa_safe_capture_v2
+  training_variant: hard_context_weighted_v1
+  input_dim: 63
+  action_dim: 3
+  hidden_dim: 128
+  latent_dim: 64
+  num_layers: 1
+  prediction_heads:
+    - target_relative_displacement
+    - target_velocity
+    - target_acceleration
+    - obstacle_clearance_lower_quantile
+    - inter_agent_clearance_lower_quantile
+    - pairwise_ttc
+    - target_visibility
+    - observation_age
+    - cbf_intervention
+    - cbf_correction
+    - cbf_qp_feasibility
+
+hard_example_replay:
+  source_split: train_only
+  do_not_change_validation_or_development_data: true
+  uniform_fraction: 0.50
+  hard_weight_cap: 8.0
+  terms:
+    occlusion: 1.5
+    stale_observation: 1.5
+    obstacle_clearance: 2.0
+    inter_agent_clearance: 2.0
+    pairwise_ttc: 2.0
+    cbf_intervention: 1.0
+
+training:
+  seeds: [20260911, 20260912, 20260913]
+  epochs: 40
+  batch_size: 512
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  quantile: 0.10
+
+tensorboard:
+  required: true
+  root: results/jepa_safe_capture_v11_hard_replay_tensorboard
+
+provenance:
+  require_tensorboard: true
+  require_protocol_hash: true
+  require_dataset_hash: true
+  require_calibration_metadata_hash: true
+  results_are_not_locked_evidence: true
