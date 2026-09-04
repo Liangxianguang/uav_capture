@@ -61,4 +61,3 @@
 ## 7. TensorBoard 与审计
 
 每个 run 记录 configuration、provenance、Safety、CBF、Fallback、Ranking 和 latency scalar；每个 rank audit 记录 paired 结果、gate 状态和 raw-action scalar。M0/M3/A1/A2 的 audit 输出均包含 `all_gates_pass=true`。
-
