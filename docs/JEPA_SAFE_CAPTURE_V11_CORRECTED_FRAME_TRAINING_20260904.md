@@ -3,8 +3,8 @@
 **阶段：** P2 three-seed training
 **日期：** 2026-09-04
 **边界：** `development_only=true`，`locked_test_opened=false`
-**训练器：** `scripts/train_jepa_safe_capture_v3.py`  
-**training variant：** `hard_context_weighted_v1`  
+**训练器：** `scripts/train_jepa_safe_capture_v3.py`
+**training variant：** `hard_context_weighted_v1`
 **label frame variant：** `corrected_post_action_frame_v1`
 
 ## 1. 固定输入
