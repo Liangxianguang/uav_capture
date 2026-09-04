@@ -22,6 +22,8 @@ candidate_contract:
   candidate_labels: [nominal, intercept, lateral_clearance, formation_clearance, visibility_hold]
   score_units: meters_for_distance_terms_and_normalized_risk_terms
   require_finite_reachability_before_jepa: true
+  nominal_anchor_required: true
+  safety_lower_bound_before_task_progress: true
 
 candidate_ranking:
   profile: p11_conservative_v1
@@ -30,8 +32,6 @@ candidate_ranking:
   minimum_predicted_clearance_m: 0.15
   candidate_hysteresis_margin_m: 0.001
   minimum_hold_steps: 2
-  nominal_anchor_required: true
-  safety_lower_bound_before_task_progress: true
 
 seed_blocks:
   train: 648001
