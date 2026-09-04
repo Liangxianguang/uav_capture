@@ -31,6 +31,7 @@ from encirclement3d.prediction import (  # noqa: E402
     InteractionAwareActionConditionedSafeCaptureJEPAPredictor,
     build_action_conditioned_predictor,
 )
+from encirclement3d.jepa_safe_capture_ranker import _candidate_specific_separation  # noqa: E402
 from encirclement3d.reliability import (  # noqa: E402
     SafeCaptureReliabilityLedger,
     _safe_capture_clearance_bucket,
@@ -47,6 +48,10 @@ from encirclement3d.reliability import (  # noqa: E402
 
 
 MODEL_TYPE = "interaction_aware_action_conditioned_jepa_safe_capture_v2"
+SUPPORTED_DATASET_VERSIONS = {
+    "jepa_safe_capture_v2_p1",
+    "jepa_safe_capture_v2_p1_corrected_frame",
+}
 REQUIRED_ARRAYS = {
     "inputs",
     "action_history",
@@ -103,8 +108,26 @@ def _load_metadata(path: Path, dataset: Path) -> dict[str, Any]:
     metadata = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(metadata, dict):
         raise ValueError("Calibration metadata must be a JSON object.")
-    if metadata.get("dataset_version") != "jepa_safe_capture_v2_p1" or metadata.get("split") != "calibration":
-        raise ValueError("P3 requires the independent jepa_safe_capture_v2 calibration split.")
+    dataset_version = metadata.get("dataset_version")
+    if dataset_version not in SUPPORTED_DATASET_VERSIONS or metadata.get("split") != "calibration":
+        raise ValueError(
+            "P3 requires an independent calibration split with dataset_version in "
+            f"{sorted(SUPPORTED_DATASET_VERSIONS)!r}; got "
+            f"dataset_version={dataset_version!r}, split={metadata.get('split')!r}."
+        )
+    if dataset_version == "jepa_safe_capture_v2_p1_corrected_frame":
+        target_frame = metadata.get("target_relative_frame")
+        try:
+            frame_revision = int(metadata.get("label_frame_correction_version", 0))
+        except (TypeError, ValueError):
+            frame_revision = 0
+        if target_frame != "post_action_defender_position" or frame_revision < 1:
+            raise ValueError(
+                "Corrected-frame calibration metadata requires "
+                "target_relative_frame='post_action_defender_position' and "
+                f"label_frame_correction_version>=1; got target_relative_frame={target_frame!r}, "
+                f"label_frame_correction_version={metadata.get('label_frame_correction_version')!r}."
+            )
     boundary = metadata.get("information_boundary", {})
     if boundary.get("target_truth_used_only_for_offline_labels") is not True:
         raise ValueError("Calibration metadata does not prove target truth is offline-only.")
@@ -210,7 +233,7 @@ def _group_ranking(
         ranking_credit[selected] = 1.0 if worst - best <= 1e-9 else float(np.clip(1.0 - regret / (worst - best), 0.0, 1.0))
         ranking_credit[indices[indices != selected]] = ranking_credit[selected]
         ranking_win[indices] = float(regret <= 1e-8)
-        separation[indices] = float(max(predicted_cost[predicted_order[1]] - predicted_cost[predicted_order[0]], 0.0))
+        separation[indices] = _candidate_specific_separation(predicted_cost[indices]).astype(np.float32)
     return ranking_credit, ranking_win, separation
 
 
