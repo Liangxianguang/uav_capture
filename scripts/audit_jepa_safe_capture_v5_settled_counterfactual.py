@@ -428,6 +428,7 @@ def _settle_run(
     protocol_path: Path,
     environment_config_path: Path,
     baseline_dir: Path,
+    eligibility_floor_override_m: float | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     metadata, outcomes = _validate_run(run_dir)
     manifest_path = run_dir / "scene_manifest.jsonl"
@@ -479,12 +480,43 @@ def _settle_run(
                 config=candidate_config,
                 previous_action=previous_action,
             )
-            eligible = np.asarray(ranking.get("eligible_mask", batch.valid_mask.tolist()), dtype=bool)
-            if eligible.shape != (5,):
+            recorded_eligible = np.asarray(ranking.get("eligible_mask", batch.valid_mask.tolist()), dtype=bool)
+            if recorded_eligible.shape != (5,):
                 raise ValueError(f"Malformed eligible_mask in {run_dir} episode {episode_index}")
             scores = np.asarray(ranking.get("scores", [float("inf")] * 5), dtype=np.float64)
-            if scores.shape != (5,) or not np.isfinite(scores[eligible]).all():
+            if scores.shape != (5,) or not np.isfinite(scores[recorded_eligible]).all():
                 raise ValueError(f"Malformed finite scores in {run_dir} episode {episode_index}")
+            if eligibility_floor_override_m is None:
+                eligible = recorded_eligible
+            else:
+                predicted_clearance = np.asarray(
+                    ranking.get("predicted_min_clearance_m", [float("nan")] * 5),
+                    dtype=np.float64,
+                )
+                ledger_states = np.asarray(
+                    ranking.get("ledger_states", ["safe_hold"] * 5),
+                    dtype=object,
+                )
+                valid_mask = np.asarray(
+                    ranking.get("valid_mask", batch.valid_mask.tolist()),
+                    dtype=bool,
+                )
+                if (
+                    predicted_clearance.shape != (5,)
+                    or ledger_states.shape != (5,)
+                    or valid_mask.shape != (5,)
+                    or not np.isfinite(predicted_clearance).all()
+                ):
+                    raise ValueError(f"Malformed ranking safety fields in {run_dir} episode {episode_index}")
+                # Recompute only the prediction-floor part of eligibility. The
+                # finite/reachability and trusted-ledger gates remain fixed;
+                # this is an offline sensitivity audit, not an online bypass.
+                eligible = (
+                    valid_mask
+                    & (ledger_states == "trusted")
+                    & np.isfinite(scores)
+                    & (predicted_clearance >= float(eligibility_floor_override_m))
+                )
             local_outcomes = [
                 _branch_candidate(
                     env,
@@ -659,6 +691,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--environment-config", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
+    parser.add_argument(
+        "--eligibility-floor",
+        type=float,
+        default=None,
+        help="Offline-only predicted clearance floor override; does not change the source replay or CBF margin.",
+    )
     parser.add_argument("--development-only", action="store_true", required=True)
     return parser.parse_args()
 
@@ -688,6 +726,7 @@ def main() -> None:
             protocol_path=args.protocol,
             environment_config_path=args.environment_config,
             baseline_dir=args.baseline_run.resolve(),
+            eligibility_floor_override_m=args.eligibility_floor,
         )
         if manifest_hash is None:
             manifest_hash = metadata["scene_manifest_sha256"]
@@ -733,6 +772,7 @@ def main() -> None:
             "score_softmax_brier_ece": "proxy derived from -score among eligible candidates; not a calibrated capture probability",
             "protocol": str(args.protocol.resolve()),
             "environment_config": str(args.environment_config.resolve()),
+            "eligibility_floor_override_m": args.eligibility_floor,
         },
         "inputs": {
             "baseline_run": str(args.baseline_run.resolve()),
