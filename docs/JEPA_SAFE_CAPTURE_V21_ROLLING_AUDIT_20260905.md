@@ -1,11 +1,17 @@
 # V21 Rolling-Horizon / Joint CBF 审计报告
 
-**日期：** 2026-09-05  
-**阶段：** P1，development-only   
-**设备：** CPU replay（CUDA 可用但本报告不把 CPU 结果称为 CUDA 等价）  
-**protocol：** `configs/central_random_mixed_obstacle_s3_v5_v21_cpu_separation_gate_development_protocol.yaml`  
-**protocol SHA-256：** `278623ceb7185a6c3ce23246e8a28693f025a2977fad95059ae5b0df9a03b014`  
-**审计输出：** `results/jepa_safe_capture_v21_rolling_audit_cpu_seed20260911_v3/`  
+**日期：** 2026-09-05
+
+**阶段：** P1，development-only
+
+**设备：** CPU replay（CUDA 可用但本报告不把 CPU 结果称为 CUDA 等价）
+
+**protocol：** `configs/central_random_mixed_obstacle_s3_v5_v21_cpu_separation_gate_development_protocol.yaml`
+
+**protocol SHA-256：** `278623ceb7185a6c3ce23246e8a28693f025a2977fad95059ae5b0df9a03b014`
+
+**审计输出：** `results/jepa_safe_capture_v21_rolling_audit_cpu_seed20260911_v3/`
+
 **TensorBoard：** `results/jepa_safe_capture_v21_tensorboard/wp4_rolling_audit_cpu_seed20260911_v3/`
 
 ## 1. 运行结果
