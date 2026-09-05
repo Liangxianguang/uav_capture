@@ -40,6 +40,10 @@ ALLOWED_SPLITS = {"train", "validation", "calibration"}
 SUPPORTED_DATASET_VERSIONS = {
     "jepa_safe_capture_v2_p1",
     "jepa_safe_capture_v2_p1_corrected_frame",
+    # Stratified development archives keep an explicit collection version so
+    # their scenario contract can evolve without reusing a historical hash.
+    "jepa_safe_capture_l0_l3_v1",
+    "jepa_safe_capture_l0_l3_v2",
 }
 
 

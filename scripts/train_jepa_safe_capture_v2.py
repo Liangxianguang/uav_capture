@@ -37,6 +37,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 SUPPORTED_DATASET_VERSIONS = {
     "jepa_safe_capture_v2_p1",
     "jepa_safe_capture_v2_p1_corrected_frame",
+    "jepa_safe_capture_l0_l3_v1",
+    "jepa_safe_capture_l0_l3_v2",
 }
 
 from encirclement3d.prediction import (  # noqa: E402
@@ -419,7 +421,11 @@ def main() -> None:
     ttc_clip_seconds = float(train_metadata["ttc_clip_seconds"])
     # The archive contract stores age in integer steps; use the environment's
     # frozen maximum message age rather than infer it from labels.
-    collection = _load_yaml(PROJECT_ROOT / "configs/jepa_safe_capture_v2_collection.yaml")
+    # Use the collection bound to the archive rather than a legacy default.
+    collection_path = Path(train_metadata["collection_config"])
+    if not collection_path.is_absolute():
+        collection_path = PROJECT_ROOT / collection_path
+    collection = _load_yaml(collection_path.resolve())
     maximum_observation_age_steps = float(collection["task"]["pursuit"]["maximum_message_age_steps"])
     model_config: dict[str, Any] = {
         "input_dim": 63,

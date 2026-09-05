@@ -51,6 +51,8 @@ MODEL_TYPE = "interaction_aware_action_conditioned_jepa_safe_capture_v2"
 SUPPORTED_DATASET_VERSIONS = {
     "jepa_safe_capture_v2_p1",
     "jepa_safe_capture_v2_p1_corrected_frame",
+    "jepa_safe_capture_l0_l3_v1",
+    "jepa_safe_capture_l0_l3_v2",
 }
 REQUIRED_ARRAYS = {
     "inputs",
