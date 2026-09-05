@@ -42,6 +42,7 @@ def load_protocol(path: Path) -> dict[str, Any]:
         or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v18_fixedpoint")
         or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v19_cpu_ranker")
         or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v20_cpu_deterministic")
+        or protocol_name.startswith("central_random_mixed_obstacle_s3_v5_v21_cpu_separation_gate")
     ):
         _validate_v12_protocol(protocol)
         return protocol
@@ -125,7 +126,7 @@ def _validate_v12_protocol(protocol: dict[str, Any]) -> None:
     """
 
     protocol_version = int(protocol.get("protocol_version", -1))
-    if protocol_version not in {12, 13, 14, 15, 16, 17, 18, 19, 20}:
+    if protocol_version not in {12, 13, 14, 15, 16, 17, 18, 19, 20, 21}:
         raise ValueError("Unexpected calibrated safe-capture protocol version.")
     if protocol.get("phase") != "development_only" or protocol.get("locked_test_opened") is not False:
         raise ValueError("Calibrated protocol must remain closed development-only.")
@@ -160,6 +161,9 @@ def _validate_v12_protocol(protocol: dict[str, Any]) -> None:
         raise ValueError("v12 abstention safety band must be finite and non-negative.")
     if float(ranking.get("top_two_abstention_margin_m", -1.0)) < 0.0:
         raise ValueError("v12 abstention margin must be non-negative.")
+    minimum_separation = float(ranking.get("minimum_candidate_separation_m", 0.0))
+    if minimum_separation < 0.0 or minimum_separation != minimum_separation or minimum_separation in (float("inf"), float("-inf")):
+        raise ValueError("candidate separation gate must be finite and non-negative.")
     if ranking.get("cbf_margin_changed") is not False:
         raise ValueError("v12 cannot change the CBF margin.")
     if protocol_version >= 13:
@@ -172,6 +176,7 @@ def _validate_v12_protocol(protocol: dict[str, Any]) -> None:
             18: "p18_fixedpoint_robust_v1",
             19: "p19_cpu_ranker_v1",
             20: "p20_cpu_deterministic_v1",
+            21: "p21_cpu_separation_gate_v1",
         }[protocol_version]
         if ranking.get("profile") != expected_profile:
             raise ValueError(f"v{protocol_version} must declare the fixed-point ranking profile.")
@@ -181,6 +186,8 @@ def _validate_v12_protocol(protocol: dict[str, Any]) -> None:
             raise ValueError("v19 must freeze the candidate ranking backend to CPU.")
         if protocol_version >= 19 and ranking.get("actor_device") != "cpu":
             raise ValueError("v19 must freeze the actor backend to CPU for deterministic replay.")
+        if protocol_version >= 21 and minimum_separation <= 0.0:
+            raise ValueError("v21 must enable a positive candidate separation gate.")
 
     ledger = _mapping(protocol.get("reliability_ledger"), "reliability_ledger")
     if ledger.get("source_split") != "calibration_only" or ledger.get("immutable_after_calibration") is not True:
@@ -288,6 +295,9 @@ def verify(protocol_path: Path, project_root: Path) -> dict[str, Any]:
         )
         or str(protocol.get("protocol_name", "")).startswith(
             "central_random_mixed_obstacle_s3_v5_v20_cpu_deterministic"
+        )
+        or str(protocol.get("protocol_name", "")).startswith(
+            "central_random_mixed_obstacle_s3_v5_v21_cpu_separation_gate"
         )
     )
     if is_calibrated:

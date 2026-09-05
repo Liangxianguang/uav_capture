@@ -17,6 +17,7 @@ V17_PROTOCOL_PATH = ROOT / "configs" / "central_random_mixed_obstacle_s3_v5_v17_
 V18_PROTOCOL_PATH = ROOT / "configs" / "central_random_mixed_obstacle_s3_v5_v18_fixedpoint_robust_development_protocol.yaml"
 V19_PROTOCOL_PATH = ROOT / "configs" / "central_random_mixed_obstacle_s3_v5_v19_cpu_ranker_development_protocol.yaml"
 V20_PROTOCOL_PATH = ROOT / "configs" / "central_random_mixed_obstacle_s3_v5_v20_cpu_deterministic_development_protocol.yaml"
+V21_PROTOCOL_PATH = ROOT / "configs" / "central_random_mixed_obstacle_s3_v5_v21_cpu_separation_gate_development_protocol.yaml"
 
 
 def test_safe_capture_protocol_freezes_evaluator_ledger_and_cbf_contract() -> None:
@@ -143,6 +144,18 @@ def test_v20_protocol_freezes_cpu_actor_and_ranking_backend() -> None:
     assert protocol["candidate_ranking"]["profile"] == "p20_cpu_deterministic_v1"
     assert protocol["candidate_ranking"]["ranking_device"] == "cpu"
     assert protocol["candidate_ranking"]["actor_device"] == "cpu"
+    assert protocol["candidate_ranking"]["cbf_margin_changed"] is False
+    artifacts = verify_frozen_inputs(protocol, ROOT)
+    assert artifacts
+    assert all(item["exists"] and item["sha256"] for item in artifacts.values())
+
+
+def test_v21_protocol_freezes_positive_candidate_separation_gate() -> None:
+    protocol = load_protocol(V21_PROTOCOL_PATH)
+    assert protocol["protocol_version"] == 21
+    assert protocol["locked_test_opened"] is False
+    assert protocol["candidate_ranking"]["profile"] == "p21_cpu_separation_gate_v1"
+    assert protocol["candidate_ranking"]["minimum_candidate_separation_m"] == pytest.approx(0.002)
     assert protocol["candidate_ranking"]["cbf_margin_changed"] is False
     artifacts = verify_frozen_inputs(protocol, ROOT)
     assert artifacts

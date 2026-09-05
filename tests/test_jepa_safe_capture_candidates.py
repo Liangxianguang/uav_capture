@@ -385,6 +385,58 @@ def test_ranker_records_raw_and_quantized_abstention_margins() -> None:
     assert trace["rank_abstention_reason"] == "top_two_margin_abstention"
 
 
+def test_ranker_rejects_insufficient_candidate_separation_to_nominal() -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 0.006
+    result = SafeCaptureJEPARanker(
+        _FakeHistory(),
+        config=SafeCaptureRankerConfig(minimum_candidate_separation_m=0.002),
+    ).rank(_observation(), _batch(actions))
+
+    assert result.selected_index == 0
+    assert result.execution_mode == "fallback_nominal"
+    assert result.fallback_reason == "insufficient_candidate_separation"
+    assert result.trace.rank_abstention_reason == "insufficient_candidate_separation"
+    assert result.trace.eligible_mask[0] is True
+    assert result.trace.eligible_mask[1] is False
+    assert result.trace.candidate_separation_m[1] == pytest.approx(0.0018, abs=1e-9)
+    assert "insufficient_candidate_separation" in result.trace.candidate_eligibility_reasons[1]
+    assert result.trace.minimum_candidate_separation_m == pytest.approx(0.002)
+
+
+def test_ranker_allows_separated_candidate_without_changing_cbf_contract() -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 0.02
+    result = SafeCaptureJEPARanker(
+        _FakeHistory(),
+        config=SafeCaptureRankerConfig(minimum_candidate_separation_m=0.002),
+    ).rank(_observation(), _batch(actions))
+
+    assert result.selected_index == 1
+    assert result.execution_mode == "trusted"
+    assert result.trace.eligible_mask[1] is True
+    assert result.trace.candidate_separation_m[1] > 0.002
+
+
+@pytest.mark.parametrize(
+    ("observed_margin", "expected_comparison_margin"),
+    [
+        (0.0019779, 0.0015),
+        (0.0020000, 0.0020),
+        (0.0020076, 0.0020),
+    ],
+)
+def test_fixed_point_abstention_boundary_values_share_conservative_route(
+    observed_margin: float,
+    expected_comparison_margin: float,
+) -> None:
+    comparison_margin = _conservative_margin_for_comparison(observed_margin, 0.0005)
+    assert comparison_margin == pytest.approx(expected_comparison_margin, abs=1e-12)
+    # The v21 abstention limit is 0.0015 + 0.0005; all observed CPU/CUDA
+    # values at this boundary must therefore route to the same nominal path.
+    assert comparison_margin <= 0.002
+
+
 def test_fixed_point_score_key_is_round_half_up_and_nonfinite_is_ineligible() -> None:
     assert _fixed_point_score_key(1.00024, 0.0005) == 2000
     assert _fixed_point_score_key(1.00025, 0.0005) == 2001

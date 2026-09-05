@@ -328,6 +328,7 @@ def _ranker_config(
         "p18_fixedpoint_robust_v1",
         "p19_cpu_ranker_v1",
         "p20_cpu_deterministic_v1",
+        "p21_cpu_separation_gate_v1",
     }:
         raise ValueError(f"Unknown candidate_ranking profile: {profile}")
     allowed = {
@@ -339,6 +340,7 @@ def _ranker_config(
         "minimum_predicted_clearance_m",
         "candidate_hysteresis_margin_m",
         "minimum_hold_steps",
+        "minimum_candidate_separation_m",
         "ranking_device",
         "actor_device",
         # Protocol metadata for the calibrated v12 clearance transform.  The
@@ -356,7 +358,7 @@ def _ranker_config(
         for name in allowed
         if name in contract and name not in {"clearance_transform", "clearance_quantile", "cbf_margin_changed", "ranking_device", "actor_device"}
     }
-    if profile in {"p12_deterministic_v2", "p13_fixedpoint_v1", "p14_fixedpoint_robust_v1", "p15_fixedpoint_robust_v1", "p16_fixedpoint_robust_v1", "p17_fixedpoint_robust_v1", "p18_fixedpoint_robust_v1", "p19_cpu_ranker_v1", "p20_cpu_deterministic_v1"}:
+    if profile in {"p12_deterministic_v2", "p13_fixedpoint_v1", "p14_fixedpoint_robust_v1", "p15_fixedpoint_robust_v1", "p16_fixedpoint_robust_v1", "p17_fixedpoint_robust_v1", "p18_fixedpoint_robust_v1", "p19_cpu_ranker_v1", "p20_cpu_deterministic_v1", "p21_cpu_separation_gate_v1"}:
         base = replace(base, fixed_point_score_comparison=True)
     return replace(base, **values) if values else base
 

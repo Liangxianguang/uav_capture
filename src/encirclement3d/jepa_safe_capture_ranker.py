@@ -60,6 +60,10 @@ class SafeCaptureRankerConfig:
     minimum_predicted_clearance_m: float = float("-inf")
     candidate_hysteresis_margin_m: float = 0.0
     minimum_hold_steps: int = 0
+    # A non-zero value turns the candidate-specific nearest-competitor gap
+    # into an explicit eligibility gate.  Candidate 0 (nominal) remains the
+    # immutable anchor even when alternatives are insufficiently separated.
+    minimum_candidate_separation_m: float = 0.0
 
     def __post_init__(self) -> None:
         if self.horizon_index < 0 or self.horizon_seconds <= 0.0 or self.position_extent_m <= 0.0:
@@ -78,6 +82,11 @@ class SafeCaptureRankerConfig:
             raise ValueError("P11 ranking margins must be non-negative.")
         if self.minimum_hold_steps < 0:
             raise ValueError("minimum_hold_steps must be non-negative.")
+        if (
+            not np.isfinite(self.minimum_candidate_separation_m)
+            or self.minimum_candidate_separation_m < 0.0
+        ):
+            raise ValueError("minimum_candidate_separation_m must be finite and non-negative.")
         weights = (
             self.target_weight,
             self.uncertainty_weight,
@@ -106,6 +115,7 @@ class SafeCaptureRankingTrace:
     visibility_cost: tuple[float, ...]
     cbf_risk_cost: tuple[float, ...]
     action_change_cost_mps: tuple[float, ...]
+    candidate_separation_m: tuple[float, ...]
     predicted_min_clearance_m: tuple[float, ...]
     raw_predicted_min_clearance_m: tuple[float, ...]
     calibration_offset_m: tuple[float, ...]
@@ -118,6 +128,7 @@ class SafeCaptureRankingTrace:
     ledger_keys: tuple[str, ...]
     ledger_fallback_reasons: tuple[str | None, ...]
     candidate_rejection_reasons: tuple[tuple[str, ...], ...]
+    candidate_eligibility_reasons: tuple[tuple[str, ...], ...]
     selected_index: int
     execution_mode: str
     fallback_reason: str | None
@@ -132,6 +143,7 @@ class SafeCaptureRankingTrace:
     rank_abstention_reason: str | None = None
     hysteresis_applied: bool = False
     hold_steps_remaining: int = 0
+    minimum_candidate_separation_m: float = 0.0
     # Runtime diagnostics are intentionally separate from ranking decisions.
     # They are measured at inference time and must never affect selection.
     jepa_inference_latency_ms: float = 0.0
@@ -152,6 +164,7 @@ class SafeCaptureRankingTrace:
             "visibility_cost": _json_float_tuple(self.visibility_cost),
             "cbf_risk_cost": _json_float_tuple(self.cbf_risk_cost),
             "action_change_cost_mps": _json_float_tuple(self.action_change_cost_mps),
+            "candidate_separation_m": _json_float_tuple(self.candidate_separation_m),
             "predicted_min_clearance_m": _json_float_tuple(self.predicted_min_clearance_m),
             "raw_predicted_min_clearance_m": _json_float_tuple(self.raw_predicted_min_clearance_m),
             "calibration_offset_m": _json_float_tuple(self.calibration_offset_m),
@@ -164,6 +177,7 @@ class SafeCaptureRankingTrace:
             "ledger_keys": list(self.ledger_keys),
             "ledger_fallback_reasons": list(self.ledger_fallback_reasons),
             "candidate_rejection_reasons": [list(value) for value in self.candidate_rejection_reasons],
+            "candidate_eligibility_reasons": [list(value) for value in self.candidate_eligibility_reasons],
             "selected_index": int(self.selected_index),
             "execution_mode": self.execution_mode,
             "fallback_reason": self.fallback_reason,
@@ -180,6 +194,7 @@ class SafeCaptureRankingTrace:
             "rank_abstention_reason": self.rank_abstention_reason,
             "hysteresis_applied": bool(self.hysteresis_applied),
             "hold_steps_remaining": int(self.hold_steps_remaining),
+            "minimum_candidate_separation_m": float(self.minimum_candidate_separation_m),
             "jepa_inference_latency_ms": float(self.jepa_inference_latency_ms),
             "ledger_route_latency_ms": float(self.ledger_route_latency_ms),
             "ranker_compute_latency_ms": float(self.ranker_compute_latency_ms),
@@ -410,6 +425,7 @@ class SafeCaptureJEPARanker:
             visibility_cost=inf_values,
             cbf_risk_cost=inf_values,
             action_change_cost_mps=inf_values,
+            candidate_separation_m=nan_values,
             predicted_min_clearance_m=nan_values,
             raw_predicted_min_clearance_m=nan_values,
             calibration_offset_m=nan_values,
@@ -422,6 +438,7 @@ class SafeCaptureJEPARanker:
             ledger_keys=tuple(decision.key for decision in decisions),
             ledger_fallback_reasons=tuple(decision.fallback_reason for decision in decisions),
             candidate_rejection_reasons=rejection_reasons,
+            candidate_eligibility_reasons=((),) * count,
             selected_index=0,
             execution_mode="safe_hold",
             fallback_reason=reason,
@@ -429,6 +446,7 @@ class SafeCaptureJEPARanker:
             score_comparison_keys=score_keys,
             fixed_point_score_comparison=bool(self.config.fixed_point_score_comparison),
             score_comparison_quantum_m=float(self.config.score_comparison_quantum_m),
+            minimum_candidate_separation_m=float(self.config.minimum_candidate_separation_m),
             jepa_inference_latency_ms=float(jepa_latency_ms),
             ledger_route_latency_ms=float(ledger_latency_ms),
             ranker_compute_latency_ms=float(max(elapsed_ms - jepa_latency_ms - ledger_latency_ms, 0.0)),
@@ -509,6 +527,7 @@ class SafeCaptureJEPARanker:
         uncertainty = np.full(5, np.nan, dtype=np.float64)
         visibility = np.full(5, np.nan, dtype=np.float64)
         cbf_risk = np.full(5, np.nan, dtype=np.float64)
+        candidate_separation = np.full(5, np.nan, dtype=np.float64)
         decisions: list[SafeCaptureReliabilityDecision] = [
             SafeCaptureReliabilityDecision("safe_hold", 0.0, 0, "not_evaluated", "invalid_candidate", False, False)
             for _ in range(5)
@@ -589,6 +608,7 @@ class SafeCaptureJEPARanker:
                     )
                 )
                 target_cost[candidate_index] = float(raw_target_cost[local])
+                candidate_separation[candidate_index] = float(separation[local])
                 uncertainty_cost[candidate_index] = uncertainty[candidate_index] * self.config.position_extent_m
                 clearance_cost[candidate_index] = float(
                     max(self.config.obstacle_clearance_margin_m - min_obstacle, 0.0)
@@ -626,6 +646,16 @@ class SafeCaptureJEPARanker:
             min_clearance >= float(self.config.minimum_predicted_clearance_m)
         )
         eligible &= clearance_gate
+        separation_gate = np.isfinite(candidate_separation) & (
+            candidate_separation >= float(self.config.minimum_candidate_separation_m)
+        )
+        # Candidate 0 is the immutable nominal anchor.  Alternatives need a
+        # finite nearest-competitor gap when the protocol enables this gate;
+        # otherwise a nearly identical action can be selected on score noise.
+        eligible &= np.asarray(
+            [bool(separation_gate[index]) if index != 0 else bool(eligible[index]) for index in range(5)],
+            dtype=bool,
+        )
         if self.config.fixed_point_score_comparison:
             score_keys = _fixed_point_score_keys(
                 scores,
@@ -651,6 +681,19 @@ class SafeCaptureJEPARanker:
         nominal_anchor_selected = False
         remaining_hold = max(int(hold_steps_remaining) - 1, 0)
         selected_index = 0
+        eligibility_reasons = tuple(
+            tuple(
+                dict.fromkeys(
+                    ("insufficient_candidate_separation",)
+                )
+            )
+            if index != 0
+            and bool(valid[index])
+            and np.isfinite(candidate_separation[index])
+            and not bool(separation_gate[index])
+            else tuple()
+            for index in range(5)
+        )
         if not bool(valid[0]):
             execution_mode = "safe_hold"
             fallback_reason = "nominal_infeasible"
@@ -776,6 +819,19 @@ class SafeCaptureJEPARanker:
                             hysteresis_applied = True
                             remaining_hold = max(remaining_hold, self.config.minimum_hold_steps - 1)
                 selected_index = best
+                if (
+                    best == 0
+                    and self.config.minimum_candidate_separation_m > 0.0
+                    and any(
+                        bool(valid[index])
+                        and bool(decisions[index].state == "trusted")
+                        and not bool(separation_gate[index])
+                        for index in range(1, 5)
+                    )
+                ):
+                    execution_mode = "fallback_nominal"
+                    rank_abstention_reason = "insufficient_candidate_separation"
+                    fallback_reason = rank_abstention_reason
                 if nominal_anchor_selected and execution_mode == "trusted":
                     # Nominal was selected by the registered tie/anchor band,
                     # not because it was the discrete best score.  Expose one
@@ -815,6 +871,7 @@ class SafeCaptureJEPARanker:
                 tuple(str(reason) for reason in reasons)
                 for reasons in candidate_batch.rejection_reasons
             ),
+            candidate_eligibility_reasons=eligibility_reasons,
             selected_index=selected_index,
             execution_mode=execution_mode,
             fallback_reason=fallback_reason,
@@ -832,10 +889,15 @@ class SafeCaptureJEPARanker:
             score_comparison_keys=score_keys,
             fixed_point_score_comparison=bool(self.config.fixed_point_score_comparison),
             score_comparison_quantum_m=float(self.config.score_comparison_quantum_m),
+            candidate_separation_m=tuple(
+                float(value) if np.isfinite(value) else float("nan")
+                for value in candidate_separation
+            ),
             candidate_order=candidate_order,
             rank_abstention_reason=rank_abstention_reason,
             hysteresis_applied=hysteresis_applied,
             hold_steps_remaining=remaining_hold,
+            minimum_candidate_separation_m=float(self.config.minimum_candidate_separation_m),
             jepa_inference_latency_ms=float(jepa_latency_ms),
             ledger_route_latency_ms=float(ledger_latency_ms),
             ranker_compute_latency_ms=float(
