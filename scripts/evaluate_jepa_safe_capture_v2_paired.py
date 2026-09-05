@@ -287,7 +287,7 @@ def _load_ledger(
         raise ValueError("Reliability ledger checkpoint hash does not match the JEPA checkpoint.")
     if protocol_path is not None:
         protocol_hash = _sha256(protocol_path.resolve())
-        if source.get("protocol_sha256") != protocol_hash:
+        if source.get("evaluation_protocol_sha256", source.get("protocol_sha256")) != protocol_hash:
             raise ValueError("Reliability ledger protocol hash does not match the evaluation protocol.")
     ledger = SafeCaptureReliabilityLedger(payload)
     if payload.get("locked_test_opened") is not False:

@@ -16,7 +16,7 @@ import sys
 from collections import Counter, defaultdict
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import torch
@@ -41,6 +41,7 @@ from encirclement3d.reliability import (  # noqa: E402
     _safe_capture_ttc_bucket,
     _safe_capture_uncertainty_bucket,
     _safe_capture_visibility_bucket,
+    normalize_safe_capture_bucket_tolerances,
     make_safe_capture_coarse_context_key,
     make_safe_capture_context_key,
     make_safe_capture_global_key,
@@ -88,6 +89,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
+    parser.add_argument(
+        "--evaluation-protocol",
+        type=Path,
+        help=(
+            "Optional runtime protocol bound to this ledger. The calibration "
+            "protocol remains recorded separately in source.protocol."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
@@ -311,12 +320,15 @@ def build_payload(
     metadata_path: Path,
     minimum_sample_count: int,
     minimum_credit: float,
+    bucket_boundary_tolerances: Mapping[str, Any] | None = None,
+    evaluation_protocol_path: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     collection = yaml.safe_load(Path(metadata["collection_config"]).read_text(encoding="utf-8"))
     extent = float(collection["world"]["half_extent_xy"])
     maximum_observation_age = float(collection["task"]["pursuit"]["maximum_message_age_steps"])
     action_scale = float(metadata["action_scale"])
     horizon_seconds = [float(value) for value in metadata["horizon_seconds"]]
+    bucket_tolerances = normalize_safe_capture_bucket_tolerances(bucket_boundary_tolerances)
     scenario_lookup = _scenario_lookup(metadata)
     scenario_indices = arrays["scenario_index"].astype(np.int64)
     if not set(np.unique(scenario_indices)).issubset(scenario_lookup):
@@ -383,13 +395,34 @@ def build_payload(
                 "cbf_risk": float(cbf_risk[index]),
                 "candidate_separation_m": float(candidate_separation[index]),
             }
-            visibility_bucket = _safe_capture_visibility_bucket(context["visibility_condition"])
-            age_bucket = _safe_capture_observation_age_bucket(context["observation_age_steps"] / maximum_observation_age)
-            clearance_bucket = _safe_capture_clearance_bucket(context["minimum_clearance_m"])
-            ttc_bucket = _safe_capture_ttc_bucket(context["pairwise_ttc_s"])
-            uncertainty_bucket = _safe_capture_uncertainty_bucket(context["uncertainty"])
-            risk_bucket = _safe_capture_risk_bucket(context["cbf_risk"])
-            separation_bucket = _safe_capture_separation_bucket(context["candidate_separation_m"])
+            visibility_bucket = _safe_capture_visibility_bucket(
+                context["visibility_condition"],
+                boundary_tolerance=bucket_tolerances["visibility_fraction"],
+            )
+            age_bucket = _safe_capture_observation_age_bucket(
+                context["observation_age_steps"] / maximum_observation_age,
+                boundary_tolerance=bucket_tolerances["observation_age_steps"] / max(maximum_observation_age, 1e-9),
+            )
+            clearance_bucket = _safe_capture_clearance_bucket(
+                context["minimum_clearance_m"],
+                boundary_tolerance=bucket_tolerances["clearance_m"],
+            )
+            ttc_bucket = _safe_capture_ttc_bucket(
+                context["pairwise_ttc_s"],
+                boundary_tolerance=bucket_tolerances["ttc_s"],
+            )
+            uncertainty_bucket = _safe_capture_uncertainty_bucket(
+                context["uncertainty"],
+                boundary_tolerance=bucket_tolerances["uncertainty"],
+            )
+            risk_bucket = _safe_capture_risk_bucket(
+                context["cbf_risk"],
+                boundary_tolerance=bucket_tolerances["cbf_risk"],
+            )
+            separation_bucket = _safe_capture_separation_bucket(
+                context["candidate_separation_m"],
+                boundary_tolerance=bucket_tolerances["candidate_separation_m"],
+            )
             full_key = make_safe_capture_context_key(
                 horizon_index,
                 visibility_bucket,
@@ -493,6 +526,10 @@ def build_payload(
             "uncertainty": "low <= 0.10, medium <= 0.25, high otherwise",
             "cbf_risk": "low < 0.25, medium < 0.60, high otherwise",
             "candidate_separation_m": "low < 0.05, medium < 0.25, high otherwise",
+            "canonicalization": (
+                "visibility/age/uncertainty/risk use the higher-risk side of the "
+                "declared tolerance; clearance/TTC/separation use the lower-safety side"
+            ),
         },
         "decision_policy": {
             "states": ["trusted", "fallback_nominal", "safe_hold"],
@@ -501,6 +538,7 @@ def build_payload(
             "maximum_observation_age_steps": 45.0,
             "safe_hold_uncertainty_threshold": 0.40,
             "safe_hold_ttc_seconds": 0.30,
+            "bucket_boundary_tolerances": bucket_tolerances,
             "low_credit_action": "frozen_v5_nominal_then_cbf",
             "ood_action": "safe_hold_then_nominal_cbf",
             "ledger_is_not_a_safety_certificate": True,
@@ -528,6 +566,12 @@ def build_payload(
         ],
         "entries": _finalize_entries(entries),
     }
+    if evaluation_protocol_path is not None:
+        evaluation_protocol_path = evaluation_protocol_path.resolve()
+        if not evaluation_protocol_path.is_file():
+            raise FileNotFoundError(f"Evaluation protocol does not exist: {evaluation_protocol_path}")
+        payload["source"]["evaluation_protocol"] = str(evaluation_protocol_path)
+        payload["source"]["evaluation_protocol_sha256"] = sha256(evaluation_protocol_path)
     diagnostics = {
         "horizon_diagnostics": horizon_diagnostics,
         "entry_count": len(payload["entries"]),
@@ -745,6 +789,8 @@ def main() -> None:
     for value in (args.checkpoint, args.dataset, args.metadata):
         if not value.resolve().is_file():
             raise FileNotFoundError(value)
+    if args.evaluation_protocol is not None and not args.evaluation_protocol.resolve().is_file():
+        raise FileNotFoundError(args.evaluation_protocol)
     if args.batch_size <= 0 or args.minimum_sample_count <= 0 or not 0.0 <= args.minimum_credit <= 1.0:
         raise ValueError("Invalid P3 batch size or ledger policy.")
     if args.output.exists() or args.report.exists():
@@ -762,6 +808,7 @@ def main() -> None:
         args.metadata.resolve(),
         args.minimum_sample_count,
         args.minimum_credit,
+        evaluation_protocol_path=args.evaluation_protocol,
     )
     collection = yaml.safe_load(Path(metadata["collection_config"]).read_text(encoding="utf-8"))
     extent = float(collection["world"]["half_extent_xy"])
