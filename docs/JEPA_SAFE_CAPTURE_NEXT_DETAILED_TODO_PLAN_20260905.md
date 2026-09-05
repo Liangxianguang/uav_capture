@@ -1,7 +1,7 @@
 # 无人机集群对抗围捕安全增强系统
 # V21 之后详细 TODO 与目标计划书
 
-**版本：** 2026-09-05 / v21-continuation-2  
+**版本：** 2026-09-05 / v21-continuation-3
 **执行目录：** `D:\\uav-capture\\uav_capture`  
 **硬件目标：** NVIDIA GeForce RTX 5050  
 **当前运行时：** `D:\\download\\anaconda3\\envs\\traj_pred_prep\\python.exe`，Torch `2.9.1+cu130`  
@@ -14,34 +14,87 @@
 ## 0. 当前执行状态（以此覆盖历史顺序）
 
 - **S1 已完成：** 三 seed settled ranking/candidate-separation 聚合已提交为 `9d8933a`；source/hash gates 通过，但 ranking gate 未通过，当前标签为 `ranking_unresolved`。
-- **S2 正在进行：** `scripts/index_jepa_safe_capture_v21_failures.py` 与针对性测试已加入工作区，下一动作是先完成测试、修正暴露问题，再对 12 个 V21 smoke run 建立只读 failure index。
-- **当前禁止：** 在 S2 归因完成前，不训练新 JEPA、不修改 CBF margin/OOD/stale 阈值、不扩大 40/60 集、不打开 locked test。
+- **S2 已完成：** failure index 与 15 个代表性 episode 的双次 deterministic replay 已生成；安全硬门通过，但 CBF controlled abort 主导失败，ranking 仍 unresolved。详见 `JEPA_SAFE_CAPTURE_V21_FAILURE_INDEX_REPLAY_20260905.md`。
+- **P1 已完成：** CPU rolling-horizon / Joint CBF 审计通过；两次 20-episode replay 均为 1189 cycles、`safe_capture=12/20`、collision/boundary/pairwise/raw-unverified 为零，cycle p95 小于 100 ms。
+- **P2/P3 已完成：** RTX 5050 CUDA M3 replay 与 CPU/CUDA comparator 通过；同一 scene manifest 下 candidate decision、ledger/CBF route、executed action、termination 和 safety settlement 等价。
+- **P4 已完成：** V21 三 seed、M0/M3/A1/A2 paired smoke 的安全硬门通过，但 M3 为 `46.7% +/- 12.6%`，M0 为 `50.0% +/- 0.0%`，只有 `1/3` seed 非负，不能进入 40/60 集扩展。
+- **P5 已完成（诊断结论）：** settled ranking 与 failure index 均已聚合；M3 selected-not-best 为 `41.6%`、Spearman 为 `-0.307`，且 116 个失败 episode 由 CBF controlled abort 主导。当前标签为 `ranking_unresolved` / `useful_safety_fallback_only`。
+- **S3 第一轮已完成：** 116/116 个 CBF abort 已定位最早 failure row；首个负 slack 类别为 obstacle 48、pairwise 42、boundary 26；通信 age 饱和为 240/240，但 target observation stale 为 0。详见 `JEPA_SAFE_CAPTURE_V21_S3_DIVERGENCE_AUDIT_20260905.md`。
+- **S3 排序复核已完成：** 三 seed frozen settled rows 的 abstention counterfactual 显示 multi-eligible decision 中 recorded selected-not-best 为 `72.5%`，仅 score argmin 为 `45.4%`，两者一致率 `51.7%`；这只是 offline upper-bound 诊断。
+- **S3 尚未闭环：** candidate/nominal/safe-hold 三路独立 QP counterfactual、solver 初值回归和在线排序合同仍待完成。
+- **当前禁止：** 在 S3 排序/通信 age/CBF divergence 诊断完成前，不训练新 JEPA、不修改 CBF margin/OOD/stale 阈值、不扩大 40/60 集、不打开 locked test。
 - **主验收原则：** `safe_capture` 是唯一主指标；mean capture time、Transit、预测误差和 CBF correction 只用于解释，不能抵消安全捕获下降。
 
-### S2 的立即命令
+### 当前立即执行（S3）
 
 ```powershell
 $py = 'D:\\download\\anaconda3\\envs\\traj_pred_prep\\python.exe'
 $env:PYTHONPATH = "$PWD\\src;$PWD\\scripts"
-& $py -m pytest -q tests/test_index_jepa_safe_capture_v21_failures.py
+& $py -m pytest -q `
+  tests/test_index_jepa_safe_capture_v21_failures.py `
+  tests/test_replay_jepa_safe_capture_failures.py
 
+# 先重跑冻结的三 seed ranking counterfactual（只读，不改变在线决策）。
 & $py scripts/run_with_tensorboard_compat.py `
-  scripts/index_jepa_safe_capture_v21_failures.py `
-  --input-root results `
-  --settled-root results `
-  --output-dir results/jepa_safe_capture_v21_failure_index `
-  --tensorboard-logdir results/jepa_safe_capture_v21_current_tensorboard/failure_index `
-  --development-only
+  scripts/diagnose_jepa_safe_capture_v21_abstention_counterfactual.py `
+  --decision-rows results/jepa_safe_capture_v21_settled_seed20260911/decision_rows.jsonl `
+  --decision-rows results/jepa_safe_capture_v21_settled_seed20260912/decision_rows.jsonl `
+  --decision-rows results/jepa_safe_capture_v21_settled_seed20260913/decision_rows.jsonl `
+  --output-dir results/jepa_safe_capture_v21_s3_ranking_recheck_v1 `
+  --tensorboard-dir results/jepa_safe_capture_v21_current_tensorboard/s3_ranking_recheck_v1
+
+# S3 divergence auditor 为待新增脚本；实现后必须使用同一 failure index/replay 输入。
+# & $py scripts/run_with_tensorboard_compat.py `
+#   scripts/audit_jepa_safe_capture_v21_s3_divergence.py `
+#   --failure-index results/jepa_safe_capture_v21_failure_index_v4/failure_index.json `
+#   --replay-dir results/jepa_safe_capture_v21_failure_replay_v3 `
+#   --output-dir results/jepa_safe_capture_v21_s3_divergence_audit_v1 `
+#   --tensorboard-dir results/jepa_safe_capture_v21_current_tensorboard/s3_divergence_audit_v1 `
+#   --development-only
 ```
 
-### S2 通过条件
+### S3 的最小出口门
 
-1. 12 个 run、每个 20 个 episode、三 seed 配对和 settled-row coverage 全部通过；
-2. `collision`、`boundary_violation`、`pairwise_violation`、`raw_unverified_executed` 均为零，CBF abort/fallback 有完整 trace；
-3. `failure_index.csv/json`、`report.md`、`provenance.json` 与 TensorBoard 的计数和 hash 一致；
-4. 每个困难 bucket 至少有一个可重放样例；无法证明因果的样例标为 `unresolved`，不凭标签直接训练。
+1. 116 个 CBF controlled-abort episode 均有最早 divergence cycle、约束名称、slack、solver status、候选/nominal anchor 和 fallback 路由；
+2. `communication_age_saturated` 与真正的 `stale_observation` 分开统计，不能把年龄上限饱和当成目标观测 stale；
+3. 对 score direction、horizon、action scale、candidate eligibility 和 CBF 初值/可行性完成回归测试；
+4. 若改变任何在线行为，则生成新的 protocol/calibration/ledger/hash/output 前缀；旧 V21 结果只读保留。
 
-S2 失败时保留产物并修复索引/数据契约；不得用删行、改分母或放宽安全门“通过”。
+S3 未通过时保留全部失败产物，状态写为 `BLOCKED_BY_S3_DIAGNOSTIC`；不得删失败、改分母、降低 CBF margin 或放宽 OOD/stale 门。
+
+### S3 立即工作包
+
+| 优先级 | 工作包 | 核心问题 | 必须产物 | 通过后动作 |
+|---|---|---|---|---|
+| S3-A | 最早 divergence 定位 | abort 是数值/初值问题还是约束真实不可行 | `divergence_cycles.json/csv`, trace hash, Markdown | 进入 S3-B 或 S3-C |
+| S3-B | Joint CBF 可行性回归 | obstacle、boundary、pairwise 哪类约束先失效；safe-hold/nominal 是否也失败 | slack histogram、active-set 表、solver replay、fallback 统计 | 只修实现/候选可行性，建立新 protocol |
+| S3-C | 候选与排序合同 | eligibility、nominal anchor、score direction、horizon、action scale 是否导致错误选择 | candidate decision diff、单调性测试、rank audit | 若合同修复，重建 ledger；否则进入 S4 |
+| S3-D | 通信/观测语义 | age 饱和是否为初始化/无通信路径伪信号 | age state-machine audit、字段 provenance、回归测试 | 修复字段后重新校准，不改变安全阈值 |
+| S3-E | 分支裁决 | 明确是否值得训练新 JEPA | `s3_decision.md/json`、新 protocol hash（如需要） | 仅通过门后进入 S4/S6 |
+
+### S3 逐项执行清单
+
+- [x] 从 `results/jepa_safe_capture_v21_failure_index_v4/failure_index.json` 固定读取 116 个 `cbf_controlled_abort` episode；未重新采样、删行或改变 episode 分母。
+- [x] 将每个失败 episode 与 `failure_replay_v3/replays/*/replay_*.jsonl` 及原始 `step_traces/` 按 `(training_seed, variant, episode_index, cycle_index)` 连接，检查重复/缺失 key。
+- [x] 对每个 abort 找到第一个满足以下任一条件的 cycle：`verified_feasible=false`、solver status 变为 failure、任一 CBF slack 小于 0、requested action 首次变为 non-finite、fallback route 首次改变；记录前后各一个 cycle。
+- [x] 记录首个失效约束类别：`obstacle`、`boundary`、`pairwise`、`target`、`state` 或 `unknown`，并保存约束名、slack、requested/reachable-nominal action 和 active set。
+- [ ] 对每个 abort 分别重放 candidate action、nominal anchor、safe-hold 三条路径，判断是“所有路径均不可行”还是“选中候选导致不可行”；不改变 CBF margin。
+- [ ] 检查 candidate eligibility mask、predicted-clearance floor、score direction、horizon 对候选剔除/选择的影响；对 invalid candidate 不能计算 settled best 或送入 JEPA。
+- [ ] 检查 action chunk 的单位、缩放、裁剪和 first-step 执行语义；用固定输入做零动作、单轴单调性和 horizon 一致性测试。
+- [x] 审计 `message_age_steps`、`target_observation_age_steps` 的分离统计；`communication_age_saturated` 未自动标注 `stale_observation`。
+- [x] 生成 `s3_divergence_audit.json`、`s3_divergence_cycles.csv`、`s3_age_semantics.csv`、Markdown、TensorBoard 和全量输入 hash manifest。
+- [ ] 每个失败必须得到一个根因标签或 `unresolved`；没有证据的标签不进入 hard-replay 训练集。
+
+### S3 分支裁决
+
+| 诊断结果 | 下一步 | 不允许的动作 |
+|---|---|---|
+| CBF 初值/数值实现错误 | 修复实现，新增 protocol，做单元/回归/双设备审计 | 不降低 margin，不把 abort 改成成功 |
+| 所有安全动作均不可行 | 修复候选生成、nominal anchor 或任务可行域描述，新增 protocol | 不删除 controlled abort，不执行 raw action |
+| 只有选中候选不可行 | 修复 eligibility/ranker/hysteresis，重建 ledger（如输入契约改变） | 不把 offline settled oracle 接入在线控制 |
+| age 语义错误 | 修复 age state machine，重新生成 provenance 和 calibration | 不用饱和 age 伪造 stale 数据 |
+| 排序合同正确但安全信号弱 | 进入 S4 多任务 JEPA + train-only hard replay | 不在未校准前扩大 40/60 集 |
+| 根因仍 unresolved | 保留 V21，标签 `ranking_unresolved`，补充最小诊断 | 不训练新模型、不打开 locked test |
 
 ## 1. 最终目标与系统边界
 
@@ -100,15 +153,17 @@ S2 失败时保留产物并修复索引/数据契约；不得用删行、改分�
 
 - 三 seed checkpoint-bound reliability ledger 已生成；checkpoint、protocol、calibration hash binding、tampered provenance rejection、immutable ledger、OOD/stale/non-finite/unknown-horizon/uncertainty/TTC-CBF fault matrix 均通过。
 - V21 ledger 审计的 10 个核心测试已通过；TensorBoard 已写入 30 个 scalar tag 和 5 个 text tag。
-- M3 CPU rolling replay repeat1/repeat2 均为 20 episodes、1189 control cycles、`safe_capture=12/20=60%`，collision/boundary/pairwise 均为 0，CBF infeasible/controlled abort 为 8，raw unverified 为 0；两次 trace、candidate ranking、CBF 和执行结果逐字段一致。
+- M3 CPU rolling replay repeat1/repeat2 均为 20 episodes、1189 control cycles、`safe_capture=12/20=60%`，collision/boundary/pairwise 均为 0，controlled abort 为 8，raw unverified 为 0；两次 trace、candidate ranking、CBF 和执行结果逐字段一致。
+- RTX 5050 CUDA M3 replay 为 20 episodes、1189 cycles、`safe_capture=12/20=60%`，collision/boundary/pairwise/CBF timeout/raw unverified 均为 0；CPU/CUDA comparator 的输入 provenance、candidate decision、ledger/CBF route、executed action、termination 和 safety settlement 均通过。
+- V21 三 seed paired smoke 已完成：M0=`30/60=50.0%`，M3=`28/60=46.7%`，A1=`29/60=48.3%`，A2=`30/60=50.0%`；M3 相对 M0 为 `-3.33 pp`，只有 `1/3` seed 非负。
+- failure index 已覆盖 240 episodes：`safe_capture=117/240=48.8%`，CBF controlled abort 116，timeout 7，collision/boundary/pairwise/raw-unverified 均为 0；15 个代表性失败 episode 双次 replay 的 hash 全部一致。
 - zero-perturbation m0/m3 各 20 episodes，场景 geometry 一致，96 个非 JEPA 物理字段无差异；这是执行合同回归，不是 JEPA 收益证明。
 
 ### 2.3 尚未完成的关键事项
 
-- rolling-horizon audit 尚未正式生成报告；必须确认 `100-cycle` coverage、`500-cycle hard-context` 语义、trace 完整性、fallback 和 latency。
-- 尚未完成真正的 CUDA M3 replay；已有 CPU replay 不能称为 CPU/CUDA 等价验证。
-- 尚未完成实际 CPU/CUDA comparator，对 candidate decision、CBF status、executed action、termination 和 safety settlement 做逐字段/量化后比较。
-- 尚未运行 V21 之后三 seed 的 M0/M3/A1/A2 paired smoke，因此不能把当前单 seed 60% 写成跨 seed 结论。
+- S3 尚未完成：需要定位每个 CBF controlled abort 的最早 divergence cycle，并区分 solver 初值/数值问题、约束真实不可行、候选生成问题和排序失配。
+- 通信 age 字段的 `communication_age_saturated` 目前在所有失败 episode 出现，但 `stale_observation=0`；必须先完成字段状态机审计，不能把它作为目标观测漂移标签。
+- 当前 ranking gate 仍未通过：M3 selected-not-best 为 `41.6%`，Spearman 为 `-0.307`；不能据此直接训练或扩大样本。
 - 尚未获得 safe-capture 的正式提升证据；后续若结果不提升，必须如实归档 `prediction_signal_no_control_gain` 或 `useful_safety_fallback_only`。
 
 ## 3. 总执行顺序与闸门
@@ -120,13 +175,26 @@ P0 证据与环境冻结
   -> P3 CPU/CUDA decision comparator
   -> P4 三 seed x M0/M3/A1/A2 x 20 集 paired smoke
   -> P5 settled ranking / failure index / aggregate
-  -> P6 条件性三 seed x 40/60 集 paired development
-  -> P7 多任务安全头与困难片段 replay（仅在 P6 无控制收益时）
-  -> P8 robustness + SIL/HIL readiness
-  -> P9 locked-test preregistration / 论文证据归档
+  -> S3 CBF divergence / age semantics / ranking-contract diagnosis (当前)
+  -> S4 条件性多任务 JEPA + train-only hard replay
+  -> S5 新 checkpoint 的 reliability ledger 校准
+  -> S6 新 protocol 三 seed x 20 集 paired smoke
+  -> S7 条件性 40/60 集 paired development + robustness
+  -> S8 SIL/HIL readiness + preregistration / locked-test 决策
 ```
 
-上游闸门未通过时，不扩大 episode 数、不训练新模型、不修改 CBF margin、不打开 locked test。
+上游闸门未通过时，不扩大 episode 数、不训练新模型、不修改 CBF margin、不打开 locked test。当前 P1-P5 的审计产物已完成，但 P5 的 ranking gate 失败，因此必须先通过 S3；P6/P7/P8/P9 的旧编号仅作为历史映射，不表示已经获准执行。
+
+### 当前阶段映射
+
+| 计划阶段 | 本轮状态 | 可执行范围 |
+|---|---|---|
+| P0-P5 | 已完成审计；P4 控制收益门和 P5 ranking gate 失败 | 只读复核、报告和回放 |
+| S3 | 当前进行 | CBF/候选/通信 age/排序合同诊断；允许修复实现，但不得放宽安全门 |
+| S4-S5 | 等待 S3 裁决 | 仅可在需要时训练多任务 JEPA，并重新校准 ledger |
+| S6 | 等待新 checkpoint + ledger | 新 protocol 下三 seed x 20 paired smoke |
+| S7 | 条件性 | 只有 S6 安全门和非劣门通过才可做 40/60 集 |
+| S8 | 条件性 | robustness、SIL/HIL、预注册；locked test 仍需单独批准 |
 
 ## 4. P0：证据、环境和协议冻结
 
@@ -151,27 +219,30 @@ P0 证据与环境冻结
 ## 5. P1：rolling-horizon 与 Joint CBF 长序列审计
 
 **目标：** 证明系统每周期只执行第一步、持续重规划，且长序列中没有 raw action 绕过 CBF。
+**状态：** 已完成 execution-contract audit。报告：`JEPA_SAFE_CAPTURE_V21_ROLLING_AUDIT_20260905.md`。
 
 ### TODO
 
-- [ ] 使用 `scripts/audit_jepa_safe_capture_v21_rolling_horizon.py` 审计 CPU repeat1/repeat2。
-- [ ] 设置 `--minimum-cycles 100`、`--hard-context-cycles 500`；单独检查“总 cycles 达到 500”与“hard-context 片段真正覆盖 500”不是同一件事。
-- [ ] 检查每条 trace 是否具备 `candidate_ranking`、`cbf`、`executed_action`、`raw_unverified_executed`、完整 latency 字段。
-- [ ] 检查 `requested_action != executed_action` 的 unverified 情况、CBF failure fallback、controlled abort、timeout 和 non-finite 路由。
-- [ ] 汇总 actor、candidate generation、JEPA、ledger、ranker、CBF、environment 和 cycle-total 的 p50/p95/p99/max latency。
-- [ ] 输出 JSON、Markdown、hash manifest 和独立 TensorBoard；不覆盖已有 WP4 目录。
+- [x] 使用 `scripts/audit_jepa_safe_capture_v21_rolling_horizon.py` 审计 CPU repeat1/repeat2。
+- [x] 确认两次 replay 均超过 100 cycles、总 control cycles 达到 500；明确记录“总 cycles”不等于“hard-context 片段覆盖 500”。
+- [x] 检查每条 trace 是否具备 `candidate_ranking`、`cbf`、`executed_action`、`raw_unverified_executed`、完整 latency 字段。
+- [x] 检查 `requested_action != executed_action` 的 unverified 情况、CBF failure fallback、controlled abort、timeout 和 non-finite 路由。
+- [x] 汇总 actor、candidate generation、JEPA、ledger、ranker、CBF、environment 和 cycle-total 的 p50/p95/p99/max latency。
+- [x] 输出 JSON、Markdown、hash manifest 和独立 TensorBoard；不覆盖已有 WP4 目录。
+- [ ] 若将“500-cycle hard-context coverage”作为论文声明，另建专门 context-window audit；在此之前不得使用该措辞。
 
 ### 出口门
 
-- [ ] 两次 replay 均满足 100-cycle coverage；至少一个 run 满足真实 500-cycle hard-context coverage。
-- [ ] episode/trace/control-cycle 数量一致，first-step-replan contract 全部为真。
-- [ ] collision/boundary/pairwise 为 0，CBF failure 都有明确 fallback，`raw_unverified_executed=0`。
-- [ ] cycle p95 不超过协议上限 100 ms。
-- [ ] 未通过时标记 `BLOCKED_BY_ROLLING_OR_SAFETY_AUDIT`，不能进入 P2 之后的 smoke。
+- [x] 两次 replay 均满足 100-cycle coverage，且总 cycles 超过 500；未把它包装为 500-cycle hard-context 证据。
+- [x] episode/trace/control-cycle 数量一致，first-step-replan contract 全部为真。
+- [x] collision/boundary/pairwise 为 0，CBF failure 都有明确 fallback，`raw_unverified_executed=0`。
+- [x] cycle p95 不超过协议上限 100 ms。
+- [x] P1 execution-contract gate 通过，允许进入 P2/P3。
 
 ## 6. P2：RTX 5050 真 CUDA M3 replay
 
 **目标：** 在与 CPU replay 完全相同的 V21 manifest、checkpoint、ledger 和 protocol 下，获得设备真实结果。
+**状态：** 已完成。CUDA replay 与输入 provenance 已归档于 `JEPA_SAFE_CAPTURE_V21_CUDA_DEVICE_REPLAY_20260905.md`。
 
 ### 固定输入
 
@@ -203,18 +274,19 @@ $env:PYTHONPATH = "$PWD\\src;$PWD\\scripts"
 
 ### TODO
 
-- [ ] 运行前确认 GPU 名称为 RTX 5050、CUDA 可用且 device metadata 为 `cuda`。
-- [ ] 运行后检查 `summary.json`、`provenance.json`、`episodes.csv`、`step_traces/`、TensorBoard 和 input hash manifest。
-- [ ] 不将 CUDA 结果与 CPU 结果直接合并为任务率；先进入 P3 comparator。
+- [x] 运行前确认 GPU 名称为 RTX 5050、CUDA 可用且 device metadata 为 `cuda`。
+- [x] 运行后检查 `summary.json`、`provenance.json`、`episodes.csv`、`step_traces/`、TensorBoard 和 input hash manifest。
+- [x] 未将 CUDA 结果与 CPU 结果直接合并为任务率，先进入 P3 comparator。
 
 ### 出口门
 
-- [ ] CUDA run 的 safety hard gates、fallback 语义、raw-unverified 和 latency 全通过。
-- [ ] 若 CUDA 出现非 finite、solver failure 未 fallback、或 raw action，立即停止该设备实验。
+- [x] CUDA run 的 safety hard gates、fallback 语义、raw-unverified 和 latency 全通过。
+- [x] 未出现非 finite、solver failure 未 fallback 或 raw action；设备审计可继续。
 
 ## 7. P3：CPU/CUDA 决策与安全结算 comparator
 
 **目标：** 区分“数值/设备差异”和“真正策略差异”，禁止仅凭 safe-capture 最终数字宣称设备等价。
+**状态：** 已完成；最终分类为 `cpu_cuda_safety_and_decision_equivalent`。
 
 ### 比较字段
 
@@ -233,13 +305,14 @@ $env:PYTHONPATH = "$PWD\\src;$PWD\\scripts"
 
 ### 出口门
 
-- [ ] candidate decision、ledger route、CBF status、executed action、termination 和 safety settlement 在比较规则下等价。
-- [ ] `raw_unverified_executed=0` 且所有 CBF failure 均有同一 fallback 语义。
-- [ ] 输出 `device_replay_comparison.json`、Markdown、TensorBoard 和 hash manifest。
+- [x] candidate decision、ledger route、CBF status、executed action、termination 和 safety settlement 在比较规则下等价。
+- [x] `raw_unverified_executed=0` 且所有 CBF failure 均有同一 fallback 语义。
+- [x] 输出 `device_replay_comparison.json`、Markdown、TensorBoard 和 hash manifest。
 
 ## 8. P4：三 seed paired smoke
 
 **目标：** 在新 V21 合同下先获得小规模、同场景、同 episode seed 的跨 seed 开发证据。
+**状态：** 已完成；安全硬门通过，但控制收益准入门失败。
 
 ### 实验设计
 
@@ -262,23 +335,24 @@ $env:PYTHONPATH = "$PWD\\src;$PWD\\scripts"
 
 ### 出口门
 
-- [ ] 所有安全保留变体 collision/boundary/pairwise/raw-unverified 为 0。
-- [ ] M3 的 CBF failure 都有 fallback；controlled abort 保留在分母。
-- [ ] 若 M3 aggregate safe-capture 低于 M0，或 3 seed 中仅 0/1 个非负，结论为 `prediction_signal_no_control_gain`，不能扩展样本，转入 P5/P7 诊断。
-- [ ] 若安全门通过且 M3 aggregate 不低于 M0、至少 2/3 seed 非负，才可申请 P6 40/60 集 paired development；这不是 95% 目标。
+- [x] 所有安全保留变体 collision/boundary/pairwise/raw-unverified 为 0。
+- [x] M3 的 CBF failure 都有 fallback；controlled abort 保留在分母。
+- [x] M3 aggregate safe-capture 低于 M0，且仅 `1/3` seed 非负；当前结论为 `useful_safety_fallback_only`，不扩展样本，转入 P5/S3 诊断。
+- [ ] 只有未来新 protocol 同时满足 M3 不低于 M0 且至少 `2/3` seed 非负时，才可申请 P6 40/60 集；95% 不是目标。
 
 ## 9. P5：settled ranking、failure index 与 reliability 诊断
 
 **目标：** 找出 JEPA 预测、ledger 路由和最终安全捕获之间的失配，不通过调低安全阈值掩盖问题。
+**状态：** 已完成第一轮聚合与 failure replay；ranking gate 失败，进入 S3 修复/归因分支。
 
 ### TODO
 
-- [ ] 为每个 decision 保存五候选的 offline settled progress、capture、clearance、visibility、CBF correction、feasibility 和 safety outcome。
-- [ ] 计算 selected-not-best、top-1 safety precision/recall、Spearman/Kendall、candidate separation、abstention 和切换/振荡率。
-- [ ] 按 ledger credit、visibility、observation age、TTC、CBF correction、target turn/acceleration 和 obstacle density 分桶。
-- [ ] 单独列出 high-credit failure、low-credit failure、fallback、stale/OOD、timeout、controlled abort 和 rank mismatch。
-- [ ] 做双次 deterministic replay；每个失败片段保留原始 trace 和 hash，不直接回灌旧训练 archive。
-- [ ] 若修改 score、margin、hysteresis、minimum hold 或 candidate separation，必须创建新 protocol、calibration manifest、ledger 和结果目录。
+- [x] 为每个 decision 保存五候选的 offline settled progress、capture、clearance、visibility、CBF correction、feasibility 和 safety outcome。
+- [x] 计算 selected-not-best、top-1 safety precision/recall、Spearman/Kendall、candidate separation、abstention 和切换/振荡率。
+- [x] 按 ledger credit、visibility、observation age、TTC、CBF correction、target turn/acceleration 和 obstacle density 分桶。
+- [x] 单独列出 high-credit failure、low-credit failure、fallback、stale/OOD、timeout、controlled abort 和 rank mismatch。
+- [x] 做双次 deterministic replay；15 个代表性失败片段 hash 全一致，原始 trace 未修改。
+- [x] 已固定规则：若修改 score、margin、hysteresis、minimum hold 或 candidate separation，必须创建新 protocol、calibration manifest、ledger 和结果目录。
 
 ### 诊断决策
 
@@ -293,6 +367,7 @@ $env:PYTHONPATH = "$PWD\\src;$PWD\\scripts"
 ## 10. P6：条件性 40/60 集 paired development
 
 **前置条件：** P1-P5 的安全、证据和决策门全部通过。
+**当前状态：** 阻塞。V21 M3 未满足 safe-capture 非劣门，S3 和新 protocol 的 S6 smoke 通过前不得执行。
 
 ### TODO
 
@@ -315,6 +390,7 @@ $env:PYTHONPATH = "$PWD\\src;$PWD\\scripts"
 ## 11. P7：多任务安全头与困难片段 replay（条件分支）
 
 **触发条件：** P4/P6 安全合同通过，但 M3 没有稳定 safe-capture 控制收益，或 P5 显示预测安全信号不足。
+**当前映射：** S4。只有 S3 已排除实现/数据契约错误后，才允许进入训练设计。
 
 ### 11.1 输入和表示
 
@@ -345,7 +421,7 @@ predictive uncertainty / candidate disagreement
 - [ ] 固定 hard-context 权重上限、采样比例、去重策略和 split 隔离；三 seed 独立训练，不共享 optimizer state。
 - [ ] 记录每个预测头的 loss、MAE/Brier/ECE/AUROC、finite rate、coverage 和 uncertainty calibration。
 - [ ] 先通过 prediction/calibration gate，再生成 checkpoint-bound ledger；不得跳过校准直接进入闭环。
-- [ ] 对新 checkpoint 重复 P2-P6；旧 checkpoint 只读，旧结果保留为对照。
+- [ ] 对新 checkpoint 重复 P2/P3 设备与安全审计，并进入 S6 三 seed paired smoke；旧 checkpoint 只读，旧结果保留为对照。
 
 ### 预测 gate
 
@@ -356,7 +432,8 @@ predictive uncertainty / candidate disagreement
 
 ## 12. P8：鲁棒性、SIL/HIL 和部署准备
 
-**前置条件：** P6 或 P7 得到可复现的安全非劣/提升候选。
+**前置条件：** S6 得到可复现的安全非劣/提升候选，或 S4/S5 明确修复后需要做鲁棒性验证。
+**当前映射：** S7/S8 条件分支；当前不得执行。
 
 ### Stress matrix
 
@@ -374,6 +451,8 @@ predictive uncertainty / candidate disagreement
 - [ ] 形成 failure injection matrix 和恢复时间报告。
 
 ## 13. P9：发布、论文和 locked-test 决策
+
+**当前映射：** S8；`locked_test_opened=false` 保持不变。
 
 ### 只有以下条件全部满足，才允许考虑 locked test
 
@@ -446,4 +525,4 @@ test(jepa): audit v21 robustness and sil hil contracts
 - [ ] 所有 collision、boundary、pairwise、CBF failure、controlled abort、fallback、raw-unverified 和 latency 均公开。
 - [ ] 结果带完整 code/environment/input hash；locked test 在证据充分前保持关闭。
 
-**下一次实际动作：** 先完成上方 S2 failure-index 测试和真实索引；随后对 `candidate_capture_regression`、`high_credit_failure`、`cbf_controlled_abort`、`stale_observation`、`candidate_oscillation` 和 `clearance_prediction_gap` 进行双次 deterministic hard replay。只有 S2 归因报告完成后，才按 P1-P9 的条件闸门决定是否修复排序、训练新安全头或进入 paired smoke；在此之前不扩大样本、不降低安全阈值、不打开 locked test。
+**下一次实际动作：** 执行 S3-A 至 S3-E：分析 116 个 CBF abort 的最早 divergence cycle，核对 candidate separation/eligibility、nominal-anchor 与通信 age 语义，完成 score direction、horizon、action scale 和 CBF 可行性回归测试；只有 S3 出口门通过，才创建新 protocol、训练安全头、重建 ledger 并进入 S6 paired smoke。
