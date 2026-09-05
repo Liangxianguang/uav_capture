@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +16,7 @@ from encirclement3d.jepa_safe_capture_candidates import (
 )
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv, CylinderObstacle
 from scripts.evaluate_jepa_safe_capture_v2_paired import (
+    _load_ledger,
     _raw_unverified_executed,
     _variant_contract,
 )
@@ -124,6 +127,39 @@ def test_unverified_unknown_cbf_path_is_counted_as_raw_execution() -> None:
 
 def test_no_cbf_path_is_always_raw_execution() -> None:
     assert _raw_unverified_executed(safety_filter_enabled=False, diagnostics=None)
+
+
+def test_ledger_loader_rejects_protocol_hash_mismatch(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint.pt"
+    protocol = tmp_path / "protocol.yaml"
+    ledger_path = tmp_path / "ledger.json"
+    checkpoint.write_bytes(b"checkpoint")
+    protocol.write_text("protocol: v10\n", encoding="utf-8")
+    payload = {
+        "ledger_type": "jepa_safe_capture_v2_checkpoint_bound_reliability",
+        "ledger_version": 2,
+        "not_a_locked_test": True,
+        "locked_test_opened": False,
+        "immutable_after_calibration": True,
+        "source": {
+            "checkpoint_sha256": hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
+            "protocol_sha256": "0" * 64,
+            "calibration_dataset_sha256": "b" * 64,
+        },
+        "entries": {},
+        "decision_policy": {
+            "states": ["trusted", "fallback_nominal", "safe_hold"],
+            "minimum_sample_count": 128,
+            "minimum_credit": 0.65,
+            "maximum_observation_age_steps": 45.0,
+            "safe_hold_uncertainty_threshold": 0.40,
+            "safe_hold_ttc_seconds": 0.30,
+        },
+    }
+    ledger_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="protocol hash"):
+        _load_ledger(ledger_path, checkpoint, protocol)
 
 
 def test_safe_capture_requires_verified_cbf_and_no_collision() -> None:

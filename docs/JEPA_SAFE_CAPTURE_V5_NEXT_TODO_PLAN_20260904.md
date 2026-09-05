@@ -1,7 +1,7 @@
 # V5 下一阶段目标与 TODO 计划书
 
 **系统名称：** Interaction-aware Action-conditioned JEPA + Reliability Ledger + Joint CBF-QP + Rolling Horizon
-**版本：** v1.1（2026-09-04，v9 三 seed smoke 之后）
+**版本：** v1.2（2026-09-04，补充 v9 三 seed smoke 后的立即执行队列）
 **执行目录：** `D:\\uav-capture\\uav_capture`
 **设备：** NVIDIA RTX 5050，CUDA 12.8，PyTorch 2.7.1+cu128
 **Conda 环境：** `uav-encirclement-gpu`
@@ -10,6 +10,76 @@
 **诊断指标：** collision、boundary、pairwise separation、CBF abort/timeout/fallback、最小净空、延迟、路径代价、`mean_capture_time`
 
 > 本文件是当前执行入口，承接 P1 latency 和 P2 settled-ranking 证据。它不是历史 V4 locked-test 结果，也不把单 seed 的 95% 观察值当作目标。所有新运行都必须写入新的 output root，不覆盖已有 results、checkpoint、TensorBoard 或 tmp 数据。
+
+## 0. 当前状态与下一步立即执行清单
+
+### 0.1 当前状态（v9 三 seed paired smoke）
+
+| 项目 | 当前证据 | 当前判定 |
+|---|---|---|
+| 完整链路 | JEPA 评价器 -> ledger -> ranker -> Joint CBF-QP -> rolling horizon 可运行 | `PASS_WITH_LIMITATION` |
+| 安全边界 | collision、defender boundary、pairwise separation、CBF timeout、raw-unverified 均为 0 | `PASS` |
+| 可信度审计 | OOD、stale、non-finite、unknown horizon、hash mismatch 均确定性 fallback | `PASS` |
+| 实时性 | cycle p95 约 11--22 ms，CBF p95 约 2.7--3.8 ms，低于 100 ms contract | `PASS` |
+| 任务收益 | M0 `30/60=50.0%`，M3 `25/60=41.7%`，A1 `25/60=41.7%`，A2 `27/60=45.0%` | `NO_CONTROL_GAIN` |
+| 主要故障信号 | M3/A2 settled ranking 存在大量 selected-not-settled-best；M3 相对 M0 的三 seed delta 为 `-10/-10/-5 pp` | 排序/拒答修复优先 |
+
+因此，当前不是“继续扩大样本量”阶段，而是“修复排序信号并重新通过 smoke gate”阶段。禁止直接运行 40 集 validation，禁止打开 locked test，禁止用 `mean_capture_time` 抵消 safe-capture 下降。
+
+### 0.2 按顺序执行的下一步
+
+以下清单是本计划的实际执行顺序；每一项都必须留下独立产物和可重建 hash。
+
+1. **仓库与环境收口**
+   - 重试推送本地 `e4787a4`，但不提交用户已有的 README、E1、V5 或 `tmp` 改动。
+   - 运行 RTX 5050/CUDA/PyTorch/Conda、Git revision、`PYTHONPATH`、protocol schema 和 targeted tests 预检。
+   - 产物：`preflight.json`、命令日志、测试输出；出口条件：`development_only=true` 且 `locked_test_opened=false`。
+
+2. **冻结 v9 负向证据并做离线因果诊断**
+   - 对所有 M3/A2 `step_traces` 与 settled rows 逐 `(seed, episode, step, candidate)` 对齐。
+   - 检查 candidate-specific separation、predicted target cost 的候选间不敏感、clearance lower-quantile 是否区分候选、CBF risk 是否被放大、top-two margin/hysteresis/hold 是否造成过度 abstention。
+   - 产物：diagnostic CSV/JSON、相关性和分桶图、问题分类报告；出口条件：每个主要失败模式都有证据，不允许通过开发结果反向调参。
+
+3. **建立 v10 排序修复分支**
+   - 修正 candidate-specific separation 计算，保持 `K=5`、chunk=3、只执行第一步和同一 Joint CBF-QP。
+   - 将 score 明确拆成 task progress、clearance lower-quantile、pairwise TTC、visibility、CBF intervention risk、uncertainty、action-change cost 和 nominal anchor。
+   - 保留 tie tolerance、top-two margin、hysteresis、minimum hold 的审计字段；所有修改写入新的 v10 protocol，不能覆盖 v9。
+   - 出口条件：单元测试、zero-perturbation regression、settled-ranking audit 通过；否则停止进入闭环实验。
+
+4. **增强安全辅助预测与困难片段 replay**
+   - 保留目标位移预测，同时训练/校准 obstacle clearance、inter-agent clearance、visibility、observation age、pairwise TTC、CBF intervention probability、QP feasibility 和 correction magnitude heads。
+   - 困难片段覆盖急转、速度突变、持续逃逸、S-curve、遮挡、通信延迟/丢包、狭窄通道和拥挤队形；只使用独立 archive 或失败上下文摘要，不能原样回灌 validation episode。
+   - 产物：新 dataset/archive manifest、三 seed checkpoint、独立 calibration archive、校准报告；出口条件：finite 输出、无系统性净空高估，至少一个主要 horizon 优于 constant-velocity baseline。
+
+5. **重新生成 ledger 并完成安全审计**
+   - 每个 checkpoint 生成与 v10 protocol、calibration archive 和 checkpoint SHA-256 绑定的新 ledger revision。
+   - 重新运行 OOD/stale/non-finite/unknown-horizon/hash-mismatch、ledger alignment、temporal ledger、CBF fault injection 和 latency audit。
+   - 出口条件：所有拒答状态确定性进入 `safe-hold -> verified nominal -> controlled-abort`，`raw_unverified_executed=0`，任何 CBF infeasible/timeout 均显式保留。
+
+6. **运行新的三 seed paired 20 集 smoke**
+   - seed 固定为 `20260911/20260912/20260913`；每个 seed 先运行 M0 生成 manifest，再让 M3/A1/A2 复用同一 manifest。
+   - 输出必须包含 episodes、step traces、manifest、provenance、SHA-256、TensorBoard、latency、ledger、CBF/fallback 和失败索引。
+   - 出口条件：G-Safety、G-Reliability、G-Realtime、G-Provenance 全部通过；safe-capture 相对 M0 至少非劣才可继续。
+
+7. **通过 smoke 后再运行 40 集 paired validation**
+   - 新建 40 episode protocol 和全新三 seed manifests；不得把 20 集 manifest 拼接复用。
+   - 以完整 episode 为统计单位，报告 safe-capture、paired delta、bootstrap CI、McNemar、所有安全计数、fallback/abort、净空、延迟和困难分桶。
+   - 任何一个安全硬门失败，立即停止扩大规模并回到第 2--5 步。
+
+8. **最后才做 robustness/SIL/HIL readiness 与 locked-test 申请**
+   - 覆盖观测丢失、通信延迟、布局 shift、狭窄通道、单机失效、多约束 CBF、QP timeout、进程重启和 watchdog。
+   - 只有三 seed validation 的安全、非劣、实时和 provenance 门全部通过，才提交 locked-test 开启申请；否则保留 `locked_test_opened=false`，如实报告 `no_control_gain` 或 `insufficient_evidence`。
+
+### 0.3 研究结论的最低证据要求
+
+任何“JEPA 带来提升”的表述必须同时满足：
+
+- 三个独立 training seed；
+- 同一 seed 内 M0/M3/A1/A2 使用相同 paired scenes；
+- `safe_capture` 为完整 episode 指标，不能用 cycle、candidate 或预测 MAE 代替；
+- collision、boundary、pairwise、CBF timeout/infeasible、raw-unverified 和 controlled-abort 均单独报告；
+- ledger、CBF、rolling horizon、latency、provenance 审计全部通过；
+- 三 seed paired delta 非负且不确定性区间清楚；不设必须达到 `95%` 的绝对门槛。
 
 ## 1. 目标、边界和最终系统
 

@@ -59,6 +59,8 @@ The V4 locked-test report is the current formal benchmark result:
 - [JEPA safe-capture 当前下一步执行 TODO 计划（V21 smoke 之后）](docs/JEPA_SAFE_CAPTURE_CURRENT_NEXT_TODO_PLAN_20260905.md)
 - [JEPA safe-capture V21 之后详细 TODO 与目标计划书（当前执行入口）](docs/JEPA_SAFE_CAPTURE_NEXT_DETAILED_TODO_PLAN_20260905.md)
 - [JEPA safe-capture V21 三 seed settled ranking aggregate](docs/JEPA_SAFE_CAPTURE_V21_SETTLED_RANKING_AGGREGATE_20260905.md)
+- [JEPA safe-capture V21 失败索引与确定性重放报告](docs/JEPA_SAFE_CAPTURE_V21_FAILURE_INDEX_REPLAY_20260905.md)
+- [JEPA safe-capture L0-L3 数据集阶段报告](docs/JEPA_SAFE_CAPTURE_DATASET_STAGE_REPORT_20260905.md)
 - [JEPA safe-capture V5 当前下一阶段详细 TODO 计划（P2 之后）](docs/JEPA_SAFE_CAPTURE_V5_NEXT_TODO_PLAN_20260904.md)
 - [JEPA safe-capture V5 P2 v9 三 seed paired smoke 报告](docs/JEPA_SAFE_CAPTURE_V5_P2_V9_SMOKE_20260904.md)
 - [JEPA safe-capture P11 之后下一步详细 TODO 与目标计划书](docs/JEPA_SAFE_CAPTURE_NEXT_DETAILED_TODO_20260904.md)

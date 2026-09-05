@@ -149,7 +149,10 @@ def _observation_queue_age_steps(observation: Mapping[str, Any]) -> float:
     """Return the oldest online observation age used by the current belief."""
 
     ages: list[float] = []
-    for key in ("message_age_steps", "target_observation_age_steps"):
+    for key, state_key, received_key in (
+        ("message_age_steps", "message_age_state", "message_received"),
+        ("target_observation_age_steps", "target_observation_age_state", "target_observation_received"),
+    ):
         value = observation.get(key)
         if value is None:
             continue
@@ -157,6 +160,16 @@ def _observation_queue_age_steps(observation: Mapping[str, Any]) -> float:
         if array.size and not np.isfinite(array).all():
             raise ValueError(f"{key} contains non-finite values.")
         if array.size:
+            states = observation.get(state_key)
+            if isinstance(states, (list, tuple)) and len(states) == array.size:
+                known = np.asarray([str(state) != "never_received" for state in states], dtype=bool)
+                array = array[known]
+            elif received_key in observation:
+                received = np.asarray(observation[received_key], dtype=bool).reshape(-1)
+                if received.shape == array.shape:
+                    array = array[received]
+            if not array.size:
+                continue
             ages.append(float(np.max(array)))
     return float(max(ages, default=0.0))
 
@@ -632,6 +645,11 @@ def _run_episode(
     visible_fractions: list[float] = []
     message_ages: list[float] = []
     observation_ages: list[float] = []
+    message_received_fractions: list[float] = []
+    message_never_received_fractions: list[float] = []
+    message_age_saturated_fractions: list[float] = []
+    observation_received_fractions: list[float] = []
+    observation_never_received_fractions: list[float] = []
     path_lengths = np.zeros(env.n_defenders, dtype=np.float64)
     previous_positions = env.defender_positions.copy()
     step_records: list[dict[str, Any]] = []
@@ -692,7 +710,11 @@ def _run_episode(
         input_observation = {
             "target_visible": observation.get("target_visible"),
             "target_observation_age_steps": observation.get("target_observation_age_steps"),
+            "target_observation_received": observation.get("target_observation_received"),
+            "target_observation_age_state": observation.get("target_observation_age_state"),
             "message_age_steps": observation.get("message_age_steps"),
+            "message_received": observation.get("message_received"),
+            "message_age_state": observation.get("message_age_state"),
             "queue_age_steps": queue_age_steps,
         }
         queue_ages.append(queue_age_steps)
@@ -788,6 +810,13 @@ def _run_episode(
         visible_fractions.append(float(final_info["target_visible_fraction"]))
         message_ages.append(float(final_info["mean_message_age_steps"]))
         observation_ages.append(float(final_info["mean_observation_age_steps"]))
+        message_received_fractions.append(float(final_info.get("message_received_fraction", 0.0)))
+        message_never_received_fractions.append(float(final_info.get("message_never_received_fraction", 0.0)))
+        message_age_saturated_fractions.append(float(final_info.get("message_age_saturated_fraction", 0.0)))
+        observation_received_fractions.append(float(final_info.get("target_observation_received_fraction", 0.0)))
+        observation_never_received_fractions.append(
+            float(final_info.get("target_observation_never_received_fraction", 0.0))
+        )
         safety_values = _safety_observables(env)
         minimum_obstacle = min(minimum_obstacle, safety_values["minimum_obstacle_clearance_m"])
         minimum_pairwise = min(minimum_pairwise, safety_values["minimum_pairwise_clearance_m"])
@@ -811,7 +840,11 @@ def _run_episode(
                 "observation": {
                     "target_visible": observation.get("target_visible"),
                     "target_observation_age_steps": observation.get("target_observation_age_steps"),
+                    "target_observation_received": observation.get("target_observation_received"),
+                    "target_observation_age_state": observation.get("target_observation_age_state"),
                     "message_age_steps": observation.get("message_age_steps"),
+                    "message_received": observation.get("message_received"),
+                    "message_age_state": observation.get("message_age_state"),
                 },
                 "latency_ms": {
                     "actor": actor_latencies[-1],
@@ -860,6 +893,11 @@ def _run_episode(
             "target_visible_fraction": 0.0,
             "mean_message_age_steps": 0.0,
             "mean_observation_age_steps": 0.0,
+            "message_received_fraction": 0.0,
+            "message_never_received_fraction": 1.0,
+            "message_age_saturated_fraction": 0.0,
+            "target_observation_received_fraction": 0.0,
+            "target_observation_never_received_fraction": 1.0,
         }
     if forced_termination_reason is not None:
         final_info = dict(final_info)
@@ -913,6 +951,19 @@ def _run_episode(
         "mean_visible_fraction": float(np.mean(visible_fractions)) if visible_fractions else 0.0,
         "mean_message_age_steps": float(np.mean(message_ages)) if message_ages else 0.0,
         "mean_observation_age_steps": float(np.mean(observation_ages)) if observation_ages else 0.0,
+        "mean_message_received_fraction": float(np.mean(message_received_fractions)) if message_received_fractions else 0.0,
+        "mean_message_never_received_fraction": float(
+            np.mean(message_never_received_fractions) if message_never_received_fractions else 1.0
+        ),
+        "mean_message_age_saturated_fraction": float(
+            np.mean(message_age_saturated_fractions) if message_age_saturated_fractions else 0.0
+        ),
+        "mean_target_observation_received_fraction": float(
+            np.mean(observation_received_fractions) if observation_received_fractions else 0.0
+        ),
+        "mean_target_observation_never_received_fraction": float(
+            np.mean(observation_never_received_fractions) if observation_never_received_fractions else 1.0
+        ),
         "defender_path_length_m": path_lengths.tolist(),
         "mean_defender_path_length_m": float(np.mean(path_lengths)),
         "total_defender_path_length_m": float(np.sum(path_lengths)),
@@ -1135,6 +1186,31 @@ def _write_tensorboard(
             writer.add_scalar("Queue/mean_age_steps", float(row.get("mean_queue_age_steps", 0.0)), index)
             writer.add_scalar("Queue/p95_age_steps", float(row.get("p95_queue_age_steps", 0.0)), index)
             writer.add_scalar("Queue/max_age_steps", float(row.get("max_queue_age_steps", 0.0)), index)
+            writer.add_scalar(
+                "Age/message_received_fraction",
+                float(row.get("mean_message_received_fraction", 0.0)),
+                index,
+            )
+            writer.add_scalar(
+                "Age/message_never_received_fraction",
+                float(row.get("mean_message_never_received_fraction", 1.0)),
+                index,
+            )
+            writer.add_scalar(
+                "Age/message_age_saturated_fraction",
+                float(row.get("mean_message_age_saturated_fraction", 0.0)),
+                index,
+            )
+            writer.add_scalar(
+                "Age/target_observation_received_fraction",
+                float(row.get("mean_target_observation_received_fraction", 0.0)),
+                index,
+            )
+            writer.add_scalar(
+                "Age/target_observation_never_received_fraction",
+                float(row.get("mean_target_observation_never_received_fraction", 1.0)),
+                index,
+            )
             for stage, values in row.get("latency_breakdown", {}).items():
                 for quantile in ("mean_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms"):
                     if quantile in values:
@@ -1154,6 +1230,31 @@ def _write_tensorboard(
         writer.add_scalar("Aggregate/control_cycles", float(summary.get("control_cycles", 0)), 0)
         writer.add_scalar("Aggregate/mean_queue_age_steps", float(summary.get("mean_queue_age_steps", 0.0)), 0)
         writer.add_scalar("Aggregate/max_queue_age_steps", float(summary.get("max_queue_age_steps", 0.0)), 0)
+        writer.add_scalar(
+            "Aggregate/Age/message_received_fraction",
+            float(summary.get("mean_message_received_fraction", 0.0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Age/message_never_received_fraction",
+            float(summary.get("mean_message_never_received_fraction", 1.0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Age/message_age_saturated_fraction",
+            float(summary.get("mean_message_age_saturated_fraction", 0.0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Age/target_observation_received_fraction",
+            float(summary.get("mean_target_observation_received_fraction", 0.0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Age/target_observation_never_received_fraction",
+            float(summary.get("mean_target_observation_never_received_fraction", 1.0)),
+            0,
+        )
         for stage, values in summary.get("latency_breakdown", {}).items():
             writer.add_scalar(f"Aggregate/Latency/{stage}/mean_episode_p95_ms", float(values["mean_episode_p95_ms"]), 0)
             writer.add_scalar(f"Aggregate/Latency/{stage}/max_episode_p95_ms", float(values["max_episode_p95_ms"]), 0)

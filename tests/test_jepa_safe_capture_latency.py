@@ -30,3 +30,19 @@ def test_observation_queue_age_uses_oldest_online_signal() -> None:
 
     with pytest.raises(ValueError, match="non-finite"):
         _observation_queue_age_steps({"message_age_steps": [np.inf]})
+
+
+def test_observation_queue_age_ignores_never_received_saturation() -> None:
+    observation = {
+        "message_age_steps": np.array([60.0, 4.0]),
+        "message_age_state": ["never_received", "delayed"],
+        "target_observation_age_steps": np.array([60.0, 2.0]),
+        "target_observation_age_state": ["never_received", "fresh"],
+    }
+    assert _observation_queue_age_steps(observation) == pytest.approx(4.0)
+    assert _observation_queue_age_steps(
+        {
+            "message_age_steps": [60.0],
+            "message_age_state": ["never_received"],
+        }
+    ) == 0.0

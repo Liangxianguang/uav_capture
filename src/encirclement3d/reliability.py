@@ -5,6 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+import numpy as np
+
+from .clearance_calibration import apply_head_offsets, offsets_for_horizon
+
+
+_OBSERVATION_AGE_STATES = {"known", "never_received", "fresh", "delayed", "saturated"}
+
 
 @dataclass(frozen=True)
 class ReliabilityDecision:
@@ -117,12 +124,47 @@ class ReliabilityLedger:
         return ReliabilityDecision(credit, sample_count, used_global_fallback, fallback, key)
 
 
-def _safe_capture_visibility_bucket(value: float) -> str:
-    return "visible" if float(value) >= 0.5 else "occluded"
+SAFE_CAPTURE_BUCKET_TOLERANCE_KEYS = (
+    "visibility_fraction",
+    "observation_age_steps",
+    "clearance_m",
+    "ttc_s",
+    "uncertainty",
+    "cbf_risk",
+    "candidate_separation_m",
+)
 
 
-def _safe_capture_observation_age_bucket(value: float) -> str:
-    age = float(value)
+def normalize_safe_capture_bucket_tolerances(
+    tolerances: Mapping[str, Any] | None = None,
+) -> dict[str, float]:
+    """Return non-negative, JSON-stable boundary tolerances for ledger keys.
+
+    A zero default preserves legacy v2/v3 ledgers.  New protocols bind their
+    non-zero tolerances into the immutable ledger so calibration and runtime
+    use the same conservative bucket semantics.
+    """
+
+    raw = dict(tolerances or {})
+    unknown = sorted(set(raw).difference(SAFE_CAPTURE_BUCKET_TOLERANCE_KEYS))
+    if unknown:
+        raise ValueError(f"Unknown safe-capture bucket tolerance fields: {unknown}")
+    normalized = {key: 0.0 for key in SAFE_CAPTURE_BUCKET_TOLERANCE_KEYS}
+    for key, value in raw.items():
+        tolerance = float(value)
+        if not np.isfinite(tolerance) or tolerance < 0.0:
+            raise ValueError(f"Safe-capture bucket tolerance {key} must be finite and non-negative.")
+        normalized[key] = tolerance
+    return normalized
+
+
+def _safe_capture_visibility_bucket(value: float, *, boundary_tolerance: float = 0.0) -> str:
+    tolerance = float(boundary_tolerance)
+    return "visible" if float(value) - tolerance >= 0.5 else "occluded"
+
+
+def _safe_capture_observation_age_bucket(value: float, *, boundary_tolerance: float = 0.0) -> str:
+    age = float(value) + float(boundary_tolerance)
     if age <= 0.10:
         return "fresh"
     if age <= 0.35:
@@ -130,8 +172,8 @@ def _safe_capture_observation_age_bucket(value: float) -> str:
     return "stale"
 
 
-def _safe_capture_clearance_bucket(value_m: float) -> str:
-    clearance = float(value_m)
+def _safe_capture_clearance_bucket(value_m: float, *, boundary_tolerance: float = 0.0) -> str:
+    clearance = float(value_m) - float(boundary_tolerance)
     if clearance < 0.35:
         return "critical"
     if clearance < 0.75:
@@ -139,8 +181,8 @@ def _safe_capture_clearance_bucket(value_m: float) -> str:
     return "clear"
 
 
-def _safe_capture_ttc_bucket(value_s: float) -> str:
-    ttc = float(value_s)
+def _safe_capture_ttc_bucket(value_s: float, *, boundary_tolerance: float = 0.0) -> str:
+    ttc = float(value_s) - float(boundary_tolerance)
     if ttc < 0.50:
         return "imminent"
     if ttc < 1.50:
@@ -148,8 +190,8 @@ def _safe_capture_ttc_bucket(value_s: float) -> str:
     return "distant"
 
 
-def _safe_capture_uncertainty_bucket(value: float) -> str:
-    uncertainty = float(value)
+def _safe_capture_uncertainty_bucket(value: float, *, boundary_tolerance: float = 0.0) -> str:
+    uncertainty = float(value) + float(boundary_tolerance)
     if uncertainty <= 0.10:
         return "low"
     if uncertainty <= 0.25:
@@ -157,8 +199,8 @@ def _safe_capture_uncertainty_bucket(value: float) -> str:
     return "high"
 
 
-def _safe_capture_risk_bucket(value: float) -> str:
-    risk = float(value)
+def _safe_capture_risk_bucket(value: float, *, boundary_tolerance: float = 0.0) -> str:
+    risk = float(value) + float(boundary_tolerance)
     if risk < 0.25:
         return "low"
     if risk < 0.60:
@@ -166,8 +208,8 @@ def _safe_capture_risk_bucket(value: float) -> str:
     return "high"
 
 
-def _safe_capture_separation_bucket(value_m: float) -> str:
-    separation = float(value_m)
+def _safe_capture_separation_bucket(value_m: float, *, boundary_tolerance: float = 0.0) -> str:
+    separation = float(value_m) - float(boundary_tolerance)
     if separation < 0.05:
         return "low"
     if separation < 0.25:
@@ -259,7 +301,8 @@ class SafeCaptureReliabilityLedger:
 
     LEDGER_TYPE = "jepa_safe_capture_v2_checkpoint_bound_reliability"
     LEDGER_TYPE_V3 = "jepa_safe_capture_v3_checkpoint_bound_reliability"
-    SUPPORTED_LEDGER_TYPES = {LEDGER_TYPE, LEDGER_TYPE_V3}
+    LEDGER_TYPE_V3_CALIBRATED = "jepa_safe_capture_v3_checkpoint_bound_reliability_calibrated"
+    SUPPORTED_LEDGER_TYPES = {LEDGER_TYPE, LEDGER_TYPE_V3, LEDGER_TYPE_V3_CALIBRATED}
     SUPPORTED_LEDGER_VERSIONS = {2, 3}
     REQUIRED_STATES = {"trusted", "fallback_nominal", "safe_hold"}
 
@@ -282,15 +325,58 @@ class SafeCaptureReliabilityLedger:
             raise ValueError(f"Safe-capture v2 ledger states must be {sorted(self.REQUIRED_STATES)}.")
         if source.get("checkpoint_sha256") is None or source.get("calibration_dataset_sha256") is None:
             raise ValueError("Safe-capture v2 ledger must bind checkpoint and calibration hashes.")
+        if payload.get("ledger_type") == self.LEDGER_TYPE_V3_CALIBRATED:
+            transform_hash = payload.get("clearance_calibration_sha256")
+            if not isinstance(transform_hash, str) or len(transform_hash) != 64:
+                raise ValueError("Calibrated safe-capture ledger must bind a calibration transform hash.")
+            if source.get("clearance_calibration_sha256") != transform_hash:
+                raise ValueError("Calibrated safe-capture ledger transform hash is not source-bound.")
         self.entries = dict(entries)
         self.policy = dict(policy)
+        self.payload = dict(payload)
+        self.clearance_calibration = payload.get("clearance_calibration")
+        if payload.get("ledger_type") == self.LEDGER_TYPE_V3_CALIBRATED:
+            if not isinstance(self.clearance_calibration, Mapping):
+                raise ValueError("Calibrated safe-capture ledger requires clearance_calibration metadata.")
+            # Validate every horizon at load time.  A malformed transform is a
+            # provenance fault, not a reason to silently use raw predictions.
+            rows = self.clearance_calibration.get("by_horizon")
+            if not isinstance(rows, list) or not rows:
+                raise ValueError("Calibrated safe-capture ledger has no horizon transforms.")
+            for index in range(len(rows)):
+                offsets_for_horizon(self.clearance_calibration, index)
         self.minimum_sample_count = int(policy["minimum_sample_count"])
         self.minimum_credit = float(policy["minimum_credit"])
         self.maximum_observation_age_steps = float(policy["maximum_observation_age_steps"])
         self.safe_hold_uncertainty_threshold = float(policy["safe_hold_uncertainty_threshold"])
         self.safe_hold_ttc_seconds = float(policy["safe_hold_ttc_seconds"])
+        self.bucket_boundary_tolerances = normalize_safe_capture_bucket_tolerances(
+            policy.get("bucket_boundary_tolerances")
+        )
         if self.minimum_sample_count <= 0 or not 0.0 <= self.minimum_credit <= 1.0:
             raise ValueError("Invalid safe-capture v2 decision policy.")
+
+    def calibrated_clearance_m(
+        self,
+        horizon_index: int,
+        raw_obstacle_m: Any,
+        raw_inter_agent_m: Any,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Apply the immutable checkpoint-bound transform, if present.
+
+        Legacy v2/v3 ledgers return the raw metre values for backwards
+        compatibility.  A calibrated ledger refuses malformed horizons rather
+        than falling back to an uncalibrated safety gate.
+        """
+
+        obstacle = np.asarray(raw_obstacle_m, dtype=np.float64)
+        inter_agent = np.asarray(raw_inter_agent_m, dtype=np.float64)
+        if not np.isfinite(obstacle).all() or not np.isfinite(inter_agent).all():
+            raise ValueError("Raw clearance predictions must be finite.")
+        if self.clearance_calibration is None:
+            return obstacle, inter_agent
+        offsets = offsets_for_horizon(self.clearance_calibration, int(horizon_index))
+        return apply_head_offsets(obstacle, inter_agent, offsets)
 
     @staticmethod
     def _context_values(context: Mapping[str, Any]) -> dict[str, Any]:
@@ -316,19 +402,49 @@ class SafeCaptureReliabilityLedger:
                 raise ValueError(f"Safe-capture ledger context field {name} is non-finite.")
             values[name] = value
         values["obstacle_count"] = int(values["obstacle_count"])
+        values["observation_age_state"] = str(values.get("observation_age_state", "known"))
+        if values["observation_age_state"] not in _OBSERVATION_AGE_STATES:
+            raise ValueError(
+                "Safe-capture ledger context field observation_age_state is invalid: "
+                f"{values['observation_age_state']}"
+            )
         return values
 
     def _keys(self, horizon_index: int, context: Mapping[str, Any]) -> tuple[str, str, str]:
         values = self._context_values(context)
-        visibility = _safe_capture_visibility_bucket(float(values["visibility_condition"])) if isinstance(values["visibility_condition"], (float, int)) else str(values["visibility_condition"])
-        age = _safe_capture_observation_age_bucket(
-            float(values["observation_age_steps"]) / max(self.maximum_observation_age_steps, 1e-9)
+        tolerances = self.bucket_boundary_tolerances
+        visibility = (
+            _safe_capture_visibility_bucket(
+                float(values["visibility_condition"]),
+                boundary_tolerance=tolerances["visibility_fraction"],
+            )
+            if isinstance(values["visibility_condition"], (float, int))
+            else str(values["visibility_condition"])
         )
-        clearance = _safe_capture_clearance_bucket(float(values["minimum_clearance_m"]))
-        ttc = _safe_capture_ttc_bucket(float(values["pairwise_ttc_s"]))
-        uncertainty = _safe_capture_uncertainty_bucket(float(values["uncertainty"]))
-        risk = _safe_capture_risk_bucket(float(values["cbf_risk"]))
-        separation = _safe_capture_separation_bucket(float(values["candidate_separation_m"]))
+        age = _safe_capture_observation_age_bucket(
+            float(values["observation_age_steps"]) / max(self.maximum_observation_age_steps, 1e-9),
+            boundary_tolerance=tolerances["observation_age_steps"] / max(self.maximum_observation_age_steps, 1e-9),
+        )
+        clearance = _safe_capture_clearance_bucket(
+            float(values["minimum_clearance_m"]),
+            boundary_tolerance=tolerances["clearance_m"],
+        )
+        ttc = _safe_capture_ttc_bucket(
+            float(values["pairwise_ttc_s"]),
+            boundary_tolerance=tolerances["ttc_s"],
+        )
+        uncertainty = _safe_capture_uncertainty_bucket(
+            float(values["uncertainty"]),
+            boundary_tolerance=tolerances["uncertainty"],
+        )
+        risk = _safe_capture_risk_bucket(
+            float(values["cbf_risk"]),
+            boundary_tolerance=tolerances["cbf_risk"],
+        )
+        separation = _safe_capture_separation_bucket(
+            float(values["candidate_separation_m"]),
+            boundary_tolerance=tolerances["candidate_separation_m"],
+        )
         full = make_safe_capture_context_key(
             horizon_index,
             visibility,
@@ -366,11 +482,18 @@ class SafeCaptureReliabilityLedger:
         full_key, coarse_key, global_key = self._keys(horizon_index, values)
         if bool(values.get("ood", False)):
             return SafeCaptureReliabilityDecision("safe_hold", 0.0, 0, full_key, "ood", False, False)
-        if float(values["observation_age_steps"]) > self.maximum_observation_age_steps:
+        if values["observation_age_state"] == "never_received":
+            return SafeCaptureReliabilityDecision(
+                "safe_hold", 0.0, 0, full_key, "observation_never_received", False, False
+            )
+        age_tolerance_steps = self.bucket_boundary_tolerances["observation_age_steps"]
+        if float(values["observation_age_steps"]) + age_tolerance_steps > self.maximum_observation_age_steps:
             return SafeCaptureReliabilityDecision("safe_hold", 0.0, 0, full_key, "stale_observation", False, False)
-        if float(values["uncertainty"]) > self.safe_hold_uncertainty_threshold:
+        if float(values["uncertainty"]) + self.bucket_boundary_tolerances["uncertainty"] > self.safe_hold_uncertainty_threshold:
             return SafeCaptureReliabilityDecision("safe_hold", 0.0, 0, full_key, "uncertainty_high", False, False)
-        if float(values["pairwise_ttc_s"]) < self.safe_hold_ttc_seconds and float(values["cbf_risk"]) >= 0.60:
+        canonical_ttc = float(values["pairwise_ttc_s"]) - self.bucket_boundary_tolerances["ttc_s"]
+        canonical_risk = float(values["cbf_risk"]) + self.bucket_boundary_tolerances["cbf_risk"]
+        if canonical_ttc < self.safe_hold_ttc_seconds and canonical_risk >= 0.60:
             return SafeCaptureReliabilityDecision("safe_hold", 0.0, 0, full_key, "joint_ttc_cbf_risk", False, False)
         entry = self.entries.get(full_key)
         used_coarse = False

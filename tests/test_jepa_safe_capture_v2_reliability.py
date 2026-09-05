@@ -4,6 +4,13 @@ import pytest
 
 from encirclement3d.reliability import (
     SafeCaptureReliabilityLedger,
+    _safe_capture_clearance_bucket,
+    _safe_capture_observation_age_bucket,
+    _safe_capture_risk_bucket,
+    _safe_capture_separation_bucket,
+    _safe_capture_ttc_bucket,
+    _safe_capture_uncertainty_bucket,
+    _safe_capture_visibility_bucket,
     make_safe_capture_coarse_context_key,
     make_safe_capture_context_key,
     make_safe_capture_global_key,
@@ -123,3 +130,53 @@ def test_v2_ledger_rejects_missing_context() -> None:
     ledger = SafeCaptureReliabilityLedger(_payload())
     with pytest.raises(ValueError, match="missing fields"):
         ledger.decision(3, {"visibility_condition": 1.0})
+
+
+def test_ledger_routes_never_received_observation_to_explicit_safe_hold() -> None:
+    ledger = SafeCaptureReliabilityLedger(_payload())
+    context = _context()
+    context["observation_age_state"] = "never_received"
+    decision = ledger.decision(3, context)
+    assert decision.state == "safe_hold"
+    assert decision.fallback_reason == "observation_never_received"
+
+
+def test_ledger_rejects_unknown_observation_age_state() -> None:
+    ledger = SafeCaptureReliabilityLedger(_payload())
+    context = _context()
+    context["observation_age_state"] = "impossible"
+    with pytest.raises(ValueError, match="observation_age_state is invalid"):
+        ledger.decision(3, context)
+
+
+def test_conservative_bucket_canonicalization_uses_the_less_safe_side() -> None:
+    tolerance = 0.002
+    assert _safe_capture_visibility_bucket(0.5009, boundary_tolerance=tolerance) == "occluded"
+    assert _safe_capture_observation_age_bucket(0.0999, boundary_tolerance=tolerance) == "delayed"
+    assert _safe_capture_clearance_bucket(0.3509, boundary_tolerance=tolerance) == "critical"
+    assert _safe_capture_clearance_bucket(0.7509, boundary_tolerance=tolerance) == "near"
+    assert _safe_capture_ttc_bucket(0.5009, boundary_tolerance=tolerance) == "imminent"
+    assert _safe_capture_uncertainty_bucket(0.0999, boundary_tolerance=tolerance) == "medium"
+    assert _safe_capture_risk_bucket(0.5998, boundary_tolerance=tolerance) == "high"
+    assert _safe_capture_risk_bucket(0.6009, boundary_tolerance=tolerance) == "high"
+    assert _safe_capture_separation_bucket(0.0509, boundary_tolerance=tolerance) == "low"
+
+
+def test_ledger_canonicalization_routes_joint_risk_boundary_to_safe_hold() -> None:
+    payload = _payload()
+    payload["decision_policy"]["bucket_boundary_tolerances"] = {
+        "visibility_fraction": 0.002,
+        "observation_age_steps": 0.05,
+        "clearance_m": 0.002,
+        "ttc_s": 0.002,
+        "uncertainty": 0.002,
+        "cbf_risk": 0.002,
+        "candidate_separation_m": 0.002,
+    }
+    ledger = SafeCaptureReliabilityLedger(payload)
+    context = _context()
+    context["pairwise_ttc_s"] = 0.3009
+    context["cbf_risk"] = 0.5998
+    decision = ledger.decision(3, context)
+    assert decision.state == "safe_hold"
+    assert decision.fallback_reason == "joint_ttc_cbf_risk"

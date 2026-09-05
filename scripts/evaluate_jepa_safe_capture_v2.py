@@ -181,6 +181,7 @@ def main() -> None:
         "locked_test_opened": False,
         "checkpoint": str(args.checkpoint.resolve()),
         "checkpoint_sha256": sha256(args.checkpoint.resolve()),
+        "training_seed": int(checkpoint.get("seed", -1)),
         "dataset": str(args.dataset.resolve()),
         "dataset_sha256": sha256(args.dataset.resolve()),
         "metadata_sha256": sha256(args.metadata.resolve()),

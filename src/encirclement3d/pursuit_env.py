@@ -110,6 +110,26 @@ _PURSUIT_DEFAULTS: dict[str, Any] = {
 _TARGET_MOTION_MODES = {"flee_persistence", "random_turn", "s_curve", "burst", "boundary_escape"}
 _OBSTACLE_PROFILES = {"cylinders", "boxes", "walls", "narrow_channels", "mixed"}
 _BELIEF_UPDATE_MODES = {"legacy", "zero_velocity", "constant_velocity", "time_aligned"}
+_MESSAGE_AGE_STATES = {"never_received", "fresh", "delayed", "saturated"}
+
+
+def _age_state(age_steps: int, received: bool, maximum_age_steps: int) -> str:
+    """Classify an age without conflating an unknown stream with a stale one.
+
+    ``message_age_steps`` remains a bounded numeric feature for frozen actors.
+    The explicit state is the authoritative semantic field for diagnostics and
+    reliability routing: an uninitialized stream is not evidence of a stale
+    packet, even though its legacy numeric feature is at the saturation value.
+    """
+
+    if not bool(received):
+        return "never_received"
+    age = int(age_steps)
+    if age <= 0:
+        return "fresh"
+    if age >= int(maximum_age_steps):
+        return "saturated"
+    return "delayed"
 
 
 def pursuit_settings(task: dict[str, Any]) -> dict[str, Any]:
@@ -276,6 +296,10 @@ class CaptureRadiusPursuit3DEnv:
         self.target_observation_timestamps = np.full(self.n_defenders, -1, dtype=np.int64)
         self.target_observation_covariance = np.zeros((self.n_defenders, 3, 3), dtype=np.float64)
         self.detection_loss_burst_remaining = np.zeros(self.n_defenders, dtype=np.int64)
+        # Keep the legacy bounded age feature for frozen actors, but track
+        # whether a packet has ever been accepted so saturation is not treated
+        # as stale evidence.
+        self.message_received = np.zeros(self.n_defenders, dtype=bool)
         self.message_age_steps = np.full(self.n_defenders, int(self.pursuit["maximum_message_age_steps"]), dtype=np.int64)
         self._message_queue: list[_BeliefPacket] = []
 
@@ -335,6 +359,7 @@ class CaptureRadiusPursuit3DEnv:
 
         self.target_belief_positions[:] = 0.0
         self.target_belief_velocities[:] = 0.0
+        self.message_received[:] = False
         self.message_age_steps[:] = int(self.pursuit["maximum_message_age_steps"])
         self.target_observation_confidence.fill(0.0)
         self.target_observation_timestamps.fill(-1)
@@ -350,6 +375,20 @@ class CaptureRadiusPursuit3DEnv:
     def observe(self) -> dict[str, Any]:
         """Return policy-safe partial observations without target ground truth."""
         predicted_positions, predicted_uncertainties = self._predict_target_beliefs()
+        maximum_age = int(self.pursuit["maximum_message_age_steps"])
+        target_observation_received = self.target_observation_timestamps >= 0
+        target_observation_age = np.maximum(
+            self.step_count - self.target_observation_timestamps,
+            0,
+        ).astype(np.int64)
+        target_observation_states = tuple(
+            _age_state(int(age), bool(received), maximum_age)
+            for age, received in zip(target_observation_age, target_observation_received)
+        )
+        message_age_states = tuple(
+            _age_state(int(age), bool(received), maximum_age)
+            for age, received in zip(self.message_age_steps, self.message_received)
+        )
         return {
             "defender_positions": self.defender_positions.copy(),
             "defender_velocities": self.defender_velocities.copy(),
@@ -373,11 +412,12 @@ class CaptureRadiusPursuit3DEnv:
             "target_observation_confidence": self.target_observation_confidence.copy(),
             "target_observation_timestamps": self.target_observation_timestamps.copy(),
             "target_observation_covariance": self.target_observation_covariance.copy(),
-            "target_observation_age_steps": np.maximum(
-                self.step_count - self.target_observation_timestamps,
-                0,
-            ).astype(np.int64),
+            "target_observation_age_steps": target_observation_age,
+            "target_observation_received": target_observation_received.copy(),
+            "target_observation_age_state": target_observation_states,
             "message_age_steps": self.message_age_steps.copy(),
+            "message_received": self.message_received.copy(),
+            "message_age_state": message_age_states,
             "target_prediction_positions": predicted_positions,
             "target_prediction_uncertainties": predicted_uncertainties,
             "step": int(self.step_count),
@@ -610,9 +650,18 @@ class CaptureRadiusPursuit3DEnv:
             "reward_components": reward_components,
             "target_visible_fraction": float(np.mean(self.target_visible)),
             "mean_message_age_steps": float(np.mean(self.message_age_steps)),
+            "message_received_fraction": float(np.mean(self.message_received)),
+            "message_never_received_fraction": float(np.mean(~self.message_received)),
+            "message_age_saturated_fraction": float(
+                np.mean(self.message_received & (self.message_age_steps >= int(self.pursuit["maximum_message_age_steps"])))
+            ),
             "mean_observation_confidence": float(np.mean(self.target_observation_confidence)),
             "mean_observation_age_steps": float(
                 np.mean(np.maximum(self.step_count - self.target_observation_timestamps, 0))
+            ),
+            "target_observation_received_fraction": float(np.mean(self.target_observation_timestamps >= 0)),
+            "target_observation_never_received_fraction": float(
+                np.mean(self.target_observation_timestamps < 0)
             ),
             "mean_observation_covariance_trace": float(
                 np.mean(np.trace(self.target_observation_covariance, axis1=1, axis2=2))
@@ -776,22 +825,31 @@ class CaptureRadiusPursuit3DEnv:
                             via_message=True,
                         )
                     )
-            elif not (
-                str(self.pursuit["belief_update_mode"]) in {"zero_velocity", "constant_velocity", "time_aligned"}
-                and delivered_this_step[index]
-            ):
+            # A visible target can still have a delayed local packet.  Until
+            # that packet is delivered, propagate the last accepted belief
+            # and advance its age exactly as in a hidden-target step.  This
+            # keeps age tied to packet delivery rather than visibility.
+            belief_mode = str(self.pursuit["belief_update_mode"])
+            if not delivered_this_step[index] or belief_mode == "legacy":
                 belief_age = max(self.step_count - int(self.target_observation_timestamps[index]), 0)
                 if (
-                    str(self.pursuit["belief_update_mode"]) == "time_aligned"
+                    belief_mode == "time_aligned"
                     and int(self.target_observation_timestamps[index]) >= 0
                     and belief_age >= int(self.pursuit["belief_velocity_decay_start_age_steps"])
                 ):
                     self.target_belief_velocities[index] *= float(self.pursuit["belief_stale_velocity_decay"])
                 self.target_belief_positions[index] += self.target_belief_velocities[index] * self.dt
-                self.message_age_steps[index] = min(
-                    self.message_age_steps[index] + 1,
-                    int(self.pursuit["maximum_message_age_steps"]),
-                )
+                if not delivered_this_step[index]:
+                    if self.message_received[index]:
+                        self.message_age_steps[index] = min(
+                            self.message_age_steps[index] + 1,
+                            int(self.pursuit["maximum_message_age_steps"]),
+                        )
+                    else:
+                        # Preserve the frozen actor's bounded input while
+                        # making the semantic state explicit as
+                        # ``never_received``.
+                        self.message_age_steps[index] = int(self.pursuit["maximum_message_age_steps"])
                 self.target_observation_confidence[index] *= float(self.pursuit["observation_confidence_decay"])
                 self.target_observation_covariance[index] += np.eye(3, dtype=np.float64) * float(
                     self.pursuit["observation_covariance_growth"]
@@ -899,6 +957,7 @@ class CaptureRadiusPursuit3DEnv:
             self.target_observation_confidence[receiver] = float(packet.confidence)
             self.target_observation_covariance[receiver] = packet.covariance.copy()
         self.target_observation_timestamps[receiver] = int(packet.timestamp_step)
+        self.message_received[receiver] = True
         self.message_age_steps[receiver] = min(
             age_steps,
             int(self.pursuit["maximum_message_age_steps"]),

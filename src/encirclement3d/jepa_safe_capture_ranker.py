@@ -330,11 +330,34 @@ class SafeCaptureJEPARanker:
         )
         if visible.shape != (self.history.defender_count,) or ages.shape != (self.history.defender_count,):
             raise ValueError("target_visible and observation/message age must match defender count.")
+        age_states = observation.get("target_observation_age_state")
+        if age_states is None:
+            received = observation.get("target_observation_received")
+            if received is not None:
+                received_array = np.asarray(received, dtype=bool)
+                if received_array.shape != (self.history.defender_count,):
+                    raise ValueError("target_observation_received must match defender count.")
+                age_state = "never_received" if not bool(np.all(received_array)) else "known"
+            else:
+                # Legacy traces predate the explicit state field.  Keep their
+                # numeric-age behavior unchanged and mark the state unknown.
+                age_state = "known"
+        else:
+            if not isinstance(age_states, (list, tuple)) or len(age_states) != self.history.defender_count:
+                raise ValueError("target_observation_age_state must match defender count.")
+            normalized_states = {str(value) for value in age_states}
+            if "never_received" in normalized_states:
+                age_state = "never_received"
+            elif "saturated" in normalized_states:
+                age_state = "saturated"
+            else:
+                age_state = "known"
         supplied_layout = "layout_signature" in self.context_defaults
         supplied_motion = "target_motion_mode" in self.context_defaults
         values = {
             "visibility_condition": float(np.mean(visible)),
             "observation_age_steps": float(np.mean(ages)),
+            "observation_age_state": age_state,
             "obstacle_count": int(len(observation.get("obstacles", []))),
             "layout_signature": "unknown_layout",
             "target_motion_mode": "unknown_motion",

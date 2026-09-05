@@ -313,6 +313,111 @@ class InteractionAwareActionConditionedMultitaskJEPAPredictor(InteractionAwareAc
         return mean, log_variance, latent, self.auxiliary_predictions(latent)
 
 
+class InteractionAwareActionConditionedSafeCaptureJEPAPredictor(
+    InteractionAwareActionConditionedMultitaskJEPAPredictor
+):
+    """P2 JEPA evaluator with safety-oriented future-state heads.
+
+    This is a distinct model type so released V3 checkpoints keep their exact
+    state-dict contract.  All heads decode from the same action-conditioned
+    latent and are evaluation features only; no head emits a final control
+    action.  The runtime reranker may consume the inherited heads, while P2
+    audits the additional outputs before enabling them in ranking.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        horizon_count: int,
+        action_dim: int = 3,
+        hidden_dim: int = 128,
+        latent_dim: int = 64,
+        num_layers: int = 1,
+        interaction_group_slices: tuple[tuple[int, int], ...] | list[list[int]] | None = None,
+        ttc_clip_seconds: float = 10.0,
+        maximum_observation_age_steps: float = 60.0,
+    ) -> None:
+        super().__init__(
+            input_dim=input_dim,
+            horizon_count=horizon_count,
+            action_dim=action_dim,
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            num_layers=num_layers,
+            interaction_group_slices=interaction_group_slices,
+        )
+        if ttc_clip_seconds <= 0.0 or maximum_observation_age_steps <= 0.0:
+            raise ValueError("TTC and observation-age clip values must be positive.")
+        self.ttc_clip_seconds = float(ttc_clip_seconds)
+        self.maximum_observation_age_steps = float(maximum_observation_age_steps)
+        self.target_velocity_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 3),
+        )
+        self.target_acceleration_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 3),
+        )
+        self.conservative_clearance_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 2),
+        )
+        self.pairwise_ttc_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.observation_age_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.cbf_qp_feasibility_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.action_consistency_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, self.action_dim),
+        )
+
+    def safe_capture_auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+        if latent.ndim != 3 or latent.shape[1:] != (self.horizon_count, self.latent_dim):
+            raise ValueError(
+                "Expected predicted latent shaped "
+                f"[batch, {self.horizon_count}, {self.latent_dim}], got {tuple(latent.shape)}."
+            )
+        clearance = self.conservative_clearance_decoder(latent)
+        return {
+            "target_velocity": self.target_velocity_decoder(latent),
+            "target_acceleration": self.target_acceleration_decoder(latent),
+            "obstacle_clearance_lower_quantile": clearance[..., 0],
+            "inter_agent_clearance_lower_quantile": clearance[..., 1],
+            "pairwise_ttc": self.ttc_clip_seconds * torch.sigmoid(self.pairwise_ttc_decoder(latent).squeeze(-1)),
+            "observation_age": self.maximum_observation_age_steps
+            * torch.sigmoid(self.observation_age_decoder(latent).squeeze(-1)),
+            "cbf_qp_feasibility_logit": self.cbf_qp_feasibility_decoder(latent).squeeze(-1),
+            "action_consistency": self.action_consistency_decoder(latent[:, -1]),
+        }
+
+    def auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+        values = super().auxiliary_predictions(latent)
+        values.update(self.safe_capture_auxiliary_predictions(latent))
+        return values
+
+
 def build_action_conditioned_predictor(
     model_type: str,
     model_config: dict[str, Any],
@@ -325,6 +430,8 @@ def build_action_conditioned_predictor(
         predictor_class = InteractionAwareActionConditionedJEPAPredictor
     elif normalized == "interaction_aware_action_conditioned_jepa_multitask":
         predictor_class = InteractionAwareActionConditionedMultitaskJEPAPredictor
+    elif normalized == "interaction_aware_action_conditioned_jepa_safe_capture_v2":
+        predictor_class = InteractionAwareActionConditionedSafeCaptureJEPAPredictor
     else:
         raise ValueError(f"Unsupported action-conditioned predictor model_type: {normalized!r}.")
     return predictor_class(**model_config)

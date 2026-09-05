@@ -247,6 +247,89 @@ def test_delayed_observation_updates_belief_only_at_configured_timestamp() -> No
     assert np.all(observation["target_observation_age_steps"] == 3)
 
 
+def test_message_age_state_machine_distinguishes_unknown_from_saturated() -> None:
+    config = load_config()
+    config["task"]["pursuit"].update(
+        {
+            "maximum_message_age_steps": 2,
+            "detection_loss_burst_duration_steps": 20,
+        }
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+    observation = env.reset(seed=520121)
+    env._message_queue = []
+    env.message_received[:] = False
+    env.target_observation_timestamps[:] = -1
+    env.detection_loss_burst_remaining[:] = 20
+    observation, *_ = env.step(np.zeros((4, 3)))
+
+    assert np.all(observation["message_age_steps"] == 2)
+    assert np.all(observation["message_received"] == 0)
+    assert all(state == "never_received" for state in observation["message_age_state"])
+    assert observation["message_age_state"] != ("saturated",) * 4
+
+    packet = _BeliefPacket(
+        delivery_step=env.step_count,
+        receiver=0,
+        source=0,
+        timestamp_step=env.step_count,
+        position=env.target_position.copy(),
+        velocity=env.target_velocity.copy(),
+        confidence=1.0,
+        covariance=np.eye(3),
+        via_message=False,
+    )
+    assert env._deliver_belief_packet(packet)
+    observation = env.observe()
+    assert observation["message_age_state"][0] == "fresh"
+    assert observation["target_observation_age_state"][0] == "fresh"
+
+    env._message_queue = []
+    env.detection_loss_burst_remaining[:] = 20
+    observation, *_ = env.step(np.zeros((4, 3)))
+    assert observation["message_age_steps"][0] == 1
+    assert observation["message_age_state"][0] == "delayed"
+    env.detection_loss_burst_remaining[:] = 20
+    observation, *_ = env.step(np.zeros((4, 3)))
+    assert observation["message_age_steps"][0] == 2
+    assert observation["message_age_state"][0] == "saturated"
+
+
+def test_delayed_visible_packets_advance_message_age_until_delivery() -> None:
+    config = load_config()
+    config["task"]["pursuit"].update(
+        {
+            "maximum_message_age_steps": 10,
+            "observation_delay_steps": 4,
+            "belief_update_mode": "time_aligned",
+            "detection_dropout_probability": 0.0,
+            "message_dropout_probability": 1.0 - 1e-9,
+            "communication_link_dropout_probability": 1.0 - 1e-9,
+        }
+    )
+    env = CaptureRadiusPursuit3DEnv(config, obstacle_count=0, target_speed_scale=0.1)
+    observation = env.reset(seed=520122)
+    env._message_queue = [packet for packet in env._message_queue if packet.timestamp_step == 0 and not packet.via_message]
+    for _ in range(3):
+        observation, *_ = env.step(np.zeros((4, 3)))
+        assert np.all(observation["target_visible"])
+        assert np.all(observation["message_age_steps"] == 10)
+        assert all(state == "never_received" for state in observation["message_age_state"])
+
+    observation, *_ = env.step(np.zeros((4, 3)))
+    assert observation["message_received"][0]
+    assert observation["message_age_steps"][0] == 4
+    assert observation["message_age_state"][0] == "delayed"
+
+    # Remove newly queued packets so the next visible step tests age itself,
+    # rather than another delivery event.
+    env._message_queue = []
+    observation, *_ = env.step(np.zeros((4, 3)))
+    assert observation["target_visible"][0]
+    assert observation["message_age_steps"][0] == 5
+    assert observation["message_age_state"][0] == "delayed"
+
+
 def test_time_aligned_delayed_belief_propagates_packet_to_current_step_once() -> None:
     config = load_config()
     config["task"]["pursuit"].update(

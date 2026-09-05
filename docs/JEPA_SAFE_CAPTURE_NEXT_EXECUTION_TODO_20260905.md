@@ -2,7 +2,7 @@
 # Interaction-Aware Action-Conditioned JEPA + Reliability Ledger + Joint CBF-QP + Rolling Horizon
 # 下一步执行版 TODO 计划书
 
-**版本：** 2026-09-05 execution plan 1.4
+**版本：** 2026-09-05 execution plan 1.6
 **执行目录：** `D:\\uav-capture\\uav_capture`
 **硬件：** NVIDIA GeForce RTX 5050；已验证运行时为 `D:\\download\\anaconda3\\envs\\traj_pred_prep`（Torch `2.9.1+cu130`，CUDA 可用）。目标环境 `uav-encirclement-gpu` 尚未安装，`environment.yml` 的 Conda/pip 下载目前受镜像/网络阻塞。
 **当前阶段：** `v12 calibrated-clearance development；排序收益与 CPU/CUDA 决定性修复中`
@@ -61,7 +61,7 @@
 | H. 鲁棒性与部署 | 条件执行 | dropout/noise/delay/target turn/拥挤/障碍密度和 SIL/HIL readiness | stress matrix、长序列 replay、接口审计 | I |
 | I. 发布/锁定决策 | 条件执行 | 归档正负结果；只有 H 通过才考虑新的 locked preregistration | release manifest、论文表格、locked 决策记录 | 结束 |
 
-**当前唯一优先事项：** 先补齐 P0 的 `preflight.json`/hash 快照，再完成 D 中的 CPU/CUDA 浮点边界修复并重跑双设备 replay；随后才处理排序目标。当前 v12 smoke 的 `safe_capture` 尚未证明 M3 有控制收益，不能直接扩大到 40/60 集，也不能用降低 CBF margin、删掉 `controlled_abort` 或调低安全阈值换取通过。
+**当前唯一优先事项：** P0 证据冻结已经完成；现在先完成 D 中的 CPU/CUDA 浮点边界修复并重跑双设备 replay，再处理 settled ranking、候选分离和 controlled-abort 推进。当前 v12 smoke 的 `safe_capture` 尚未证明 M3 有控制收益，不能直接扩大到 40/60 集，也不能用降低 CBF margin、删掉 `controlled_abort` 或调低安全阈值换取通过。
 
 ### 0.5 每阶段统一产物命名
 
@@ -200,7 +200,7 @@ P0 证据/环境冻结
 - [ ] 保存当前 protocol、train/validation/calibration archive、scene manifest、checkpoint 和 ledger 的 SHA-256。
 - [ ] 为每个新 run 建立空的独立 `results/` 和 TensorBoard 目录；工具必须拒绝覆盖非空目录。
 - [ ] 运行 `git diff --check`、协议 schema test、核心安全测试和 CUDA 可用性检查。
-- [ ] 写入 `preflight.json`，包含命令、环境、输入 hash、`development_only=true` 和 `locked_test_opened=false`。
+- [x] 写入 `preflight.json`，包含命令、环境、输入 hash、`development_only=true` 和 `locked_test_opened=false`；当前文件为 `results/jepa_safe_capture_v12_r3_preflight/preflight.json`。
 
 ### P0 出口门
 
@@ -324,7 +324,7 @@ calibrated_lower_bound_m = raw_prediction_m + offset_q10
 - [ ] 为修复建立新的 `v12_r3` 结果/TensorBoard 前缀，禁止覆盖已有 `_r2` smoke 及其报告。
 - [ ] 将 abstention 比较改为跨设备确定性规则：优先使用固定小数/整数化比较；若仍使用浮点，显式加入安全 band，并把 band 写入 protocol/hash。
 - [ ] 新增 margin 在 `0.002 m` 附近的边界单测，覆盖 `0.0019779`、`0.0020000`、`0.0020076` 等值，确保 CPU/CUDA 走同一路由。
-- [ ] 完成 seed `20260911` 的 CPU/CUDA replay；通过后再按相同输入重跑 `20260912/20260913`。
+- [ ] 完成 seed `20260911` 的 CPU/CUDA replay；当前 safety band 已从 `0.0005 m` 扩至 `0.001 m` 以覆盖第二个已观测 margin drift，需重新生成证据后再按相同输入重跑 `20260912/20260913`。
 - [ ] 当前已知复现点：同一 step 的 CUDA margin 约 `0.0020076045`、CPU margin 约 `0.0019779083`，现有阈值 `0.0015 + 0.0005 = 0.002` 导致一端选 candidate、另一端 abstain；修复必须消除该分叉而不是调低 CBF margin。
 - [ ] 按 `observation_condition`、`target_motion_mode`、obstacle count、clearance bucket、ledger state 和 candidate separation 分桶，定位负 Spearman 与 `selected_not_best` 的来源。
 - [ ] 对每个候选同时计算 task progress、conservative clearance lower bound、pairwise TTC、visibility/age risk、CBF correction cost、action-change cost 和 ledger credit；保存未归一化值与单位。

@@ -6,6 +6,7 @@ import numpy as np
 
 from scripts.aggregate_jepa_safe_capture_v2_paired import (
     _bootstrap_delta,
+    _run_metric,
     canonical_scene_manifest_sha256,
     paired_comparison,
 )
@@ -65,3 +66,31 @@ def test_canonical_manifest_hash_excludes_only_training_provenance(tmp_path) -> 
     )
 
     assert canonical_scene_manifest_sha256(first) == canonical_scene_manifest_sha256(second)
+
+
+def test_verified_fallback_counts_are_distinguished_from_unverified_abort() -> None:
+    run = {
+        "variant": "m2",
+        "seed": 20260911,
+        "episodes": {0: {"episode_seed": 646001, "safe_capture": True}},
+        "overall": {
+            "safe_capture_count": 1,
+            "safe_capture_rate": 1.0,
+            "collision_count": 0,
+            "boundary_violation_count": 0,
+            "pairwise_violation_count": 0,
+            "cbf_infeasible_steps": 3,
+            "cbf_timeout_steps": 0,
+            "cbf_unverified_steps": 2,
+            "cbf_fallback_steps": 3,
+            "cbf_controlled_abort_steps": 2,
+            "transit_success_rate": 1.0,
+            "mean_capture_time_seconds": 1.0,
+            "mean_cbf_p95_solve_latency_ms": 1.0,
+        },
+        "stage": "full",
+    }
+    metrics = _run_metric(run)
+    assert metrics["cbf_fallback_steps"] == 3
+    assert metrics["cbf_controlled_abort_steps"] == metrics["cbf_unverified_steps"]
+    assert metrics["cbf_fallback_steps"] >= metrics["cbf_infeasible_steps"]
