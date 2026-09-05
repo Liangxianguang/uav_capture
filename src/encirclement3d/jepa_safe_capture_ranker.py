@@ -12,6 +12,15 @@ from .jepa_safe_capture_candidates import SafeCaptureCandidateBatch, SafeCapture
 from .reliability import SafeCaptureReliabilityDecision, SafeCaptureReliabilityLedger
 
 
+def _json_float(value: float) -> float | None:
+    numeric = float(value)
+    return numeric if np.isfinite(numeric) else None
+
+
+def _json_float_tuple(values: tuple[float, ...]) -> list[float | None]:
+    return [_json_float(value) for value in values]
+
+
 @dataclass(frozen=True)
 class SafeCaptureRankerConfig:
     """Scoring constants frozen before development evaluation."""
@@ -112,6 +121,7 @@ class SafeCaptureRankingTrace:
     selected_index: int
     execution_mode: str
     fallback_reason: str | None
+    prediction_fault_fields: tuple[str, ...] = ()
     top_two_margin_m: float = float("inf")
     top_two_margin_comparison_m: float = float("inf")
     top_two_abstention_limit_m: float = float("inf")
@@ -134,21 +144,21 @@ class SafeCaptureRankingTrace:
             "candidate_labels": list(self.candidate_labels),
             "valid_mask": list(self.valid_mask),
             "eligible_mask": list(self.eligible_mask),
-            "scores": list(self.scores),
-            "target_cost_m": list(self.target_cost_m),
-            "uncertainty_cost_m": list(self.uncertainty_cost_m),
-            "clearance_cost_m": list(self.clearance_cost_m),
-            "ttc_cost": list(self.ttc_cost),
-            "visibility_cost": list(self.visibility_cost),
-            "cbf_risk_cost": list(self.cbf_risk_cost),
-            "action_change_cost_mps": list(self.action_change_cost_mps),
-            "predicted_min_clearance_m": list(self.predicted_min_clearance_m),
-            "raw_predicted_min_clearance_m": list(self.raw_predicted_min_clearance_m),
-            "calibration_offset_m": list(self.calibration_offset_m),
-            "predicted_min_ttc_s": list(self.predicted_min_ttc_s),
-            "predicted_uncertainty": list(self.predicted_uncertainty),
-            "predicted_visibility": list(self.predicted_visibility),
-            "predicted_cbf_risk": list(self.predicted_cbf_risk),
+            "scores": _json_float_tuple(self.scores),
+            "target_cost_m": _json_float_tuple(self.target_cost_m),
+            "uncertainty_cost_m": _json_float_tuple(self.uncertainty_cost_m),
+            "clearance_cost_m": _json_float_tuple(self.clearance_cost_m),
+            "ttc_cost": _json_float_tuple(self.ttc_cost),
+            "visibility_cost": _json_float_tuple(self.visibility_cost),
+            "cbf_risk_cost": _json_float_tuple(self.cbf_risk_cost),
+            "action_change_cost_mps": _json_float_tuple(self.action_change_cost_mps),
+            "predicted_min_clearance_m": _json_float_tuple(self.predicted_min_clearance_m),
+            "raw_predicted_min_clearance_m": _json_float_tuple(self.raw_predicted_min_clearance_m),
+            "calibration_offset_m": _json_float_tuple(self.calibration_offset_m),
+            "predicted_min_ttc_s": _json_float_tuple(self.predicted_min_ttc_s),
+            "predicted_uncertainty": _json_float_tuple(self.predicted_uncertainty),
+            "predicted_visibility": _json_float_tuple(self.predicted_visibility),
+            "predicted_cbf_risk": _json_float_tuple(self.predicted_cbf_risk),
             "ledger_states": list(self.ledger_states),
             "ledger_credits": list(self.ledger_credits),
             "ledger_keys": list(self.ledger_keys),
@@ -157,9 +167,10 @@ class SafeCaptureRankingTrace:
             "selected_index": int(self.selected_index),
             "execution_mode": self.execution_mode,
             "fallback_reason": self.fallback_reason,
-            "top_two_margin_m": float(self.top_two_margin_m),
-            "top_two_margin_comparison_m": float(self.top_two_margin_comparison_m),
-            "top_two_abstention_limit_m": float(self.top_two_abstention_limit_m),
+            "prediction_fault_fields": list(self.prediction_fault_fields),
+            "top_two_margin_m": _json_float(self.top_two_margin_m),
+            "top_two_margin_comparison_m": _json_float(self.top_two_margin_comparison_m),
+            "top_two_abstention_limit_m": _json_float(self.top_two_abstention_limit_m),
             "score_comparison_keys": [
                 None if value is None else int(value) for value in self.score_comparison_keys
             ],
@@ -347,6 +358,108 @@ class SafeCaptureJEPARanker:
         )
         return self.reliability_ledger.decision(self.config.horizon_index, context)
 
+    def _prediction_fault_result(
+        self,
+        candidate_batch: SafeCaptureCandidateBatch,
+        chunks: np.ndarray,
+        valid: np.ndarray,
+        *,
+        fault_fields: tuple[str, ...],
+        jepa_latency_ms: float,
+        ledger_latency_ms: float,
+        rank_started_ns: int,
+    ) -> SafeCaptureRankingResult:
+        """Route a non-finite JEPA output to the explicit safe-hold path.
+
+        This method intentionally does not invent replacement predictions or
+        scores.  All candidates remain ineligible, trace values become JSON
+        ``null`` through the evaluator's finite-value serializer, and the
+        downstream evaluator sends the nominal-shaped hold request through the
+        same Joint CBF-QP used by every other execution mode.
+        """
+
+        count = int(chunks.shape[0])
+        reason = "non_finite_prediction"
+        decision = SafeCaptureReliabilityDecision(
+            "safe_hold",
+            0.0,
+            0,
+            "invalid|non_finite_prediction",
+            reason,
+            False,
+            False,
+        )
+        decisions = (decision,) * count
+        rejection_reasons = tuple(
+            tuple(dict.fromkeys((*candidate_batch.rejection_reasons[index], reason)))
+            for index in range(count)
+        )
+        inf_values = (float("inf"),) * count
+        nan_values = (float("nan"),) * count
+        score_keys = (None,) * count
+        elapsed_ms = (perf_counter_ns() - rank_started_ns) / 1_000_000.0
+        trace = SafeCaptureRankingTrace(
+            candidate_labels=tuple(candidate_batch.labels),
+            valid_mask=tuple(bool(value) for value in valid),
+            eligible_mask=(False,) * count,
+            scores=inf_values,
+            target_cost_m=inf_values,
+            uncertainty_cost_m=inf_values,
+            clearance_cost_m=inf_values,
+            ttc_cost=inf_values,
+            visibility_cost=inf_values,
+            cbf_risk_cost=inf_values,
+            action_change_cost_mps=inf_values,
+            predicted_min_clearance_m=nan_values,
+            raw_predicted_min_clearance_m=nan_values,
+            calibration_offset_m=nan_values,
+            predicted_min_ttc_s=nan_values,
+            predicted_uncertainty=nan_values,
+            predicted_visibility=nan_values,
+            predicted_cbf_risk=nan_values,
+            ledger_states=tuple(decision.state for decision in decisions),
+            ledger_credits=tuple(float(decision.credit) for decision in decisions),
+            ledger_keys=tuple(decision.key for decision in decisions),
+            ledger_fallback_reasons=tuple(decision.fallback_reason for decision in decisions),
+            candidate_rejection_reasons=rejection_reasons,
+            selected_index=0,
+            execution_mode="safe_hold",
+            fallback_reason=reason,
+            prediction_fault_fields=tuple(fault_fields),
+            score_comparison_keys=score_keys,
+            fixed_point_score_comparison=bool(self.config.fixed_point_score_comparison),
+            score_comparison_quantum_m=float(self.config.score_comparison_quantum_m),
+            jepa_inference_latency_ms=float(jepa_latency_ms),
+            ledger_route_latency_ms=float(ledger_latency_ms),
+            ranker_compute_latency_ms=float(max(elapsed_ms - jepa_latency_ms - ledger_latency_ms, 0.0)),
+            rank_total_latency_ms=float(elapsed_ms),
+        )
+        return SafeCaptureRankingResult(
+            selected_index=0,
+            selected_action=chunks[0, 0].copy(),
+            selected_chunk=chunks[0].copy(),
+            execution_mode="safe_hold",
+            fallback_reason=reason,
+            trace=trace,
+        )
+
+    @staticmethod
+    def _prediction_fault_fields(
+        means: Any,
+        stds: Any,
+        auxiliary: Mapping[str, Any],
+    ) -> tuple[str, ...]:
+        """Return stable names for non-finite prediction heads."""
+
+        fields: list[str] = []
+        for name, value in (("target_displacement", means), ("target_uncertainty", stds)):
+            if not np.isfinite(np.asarray(value)).all():
+                fields.append(name)
+        for name in sorted(auxiliary):
+            if not np.isfinite(np.asarray(auxiliary[name])).all():
+                fields.append(str(name))
+        return tuple(fields)
+
     def rank(
         self,
         observation: Mapping[str, Any],
@@ -403,15 +516,38 @@ class SafeCaptureJEPARanker:
         valid_indices = np.flatnonzero(valid)
         if valid_indices.size:
             jepa_started_ns = perf_counter_ns()
-            means, stds, auxiliary = self.history.predict_candidates_multitask(
-                chunks[valid_indices, 0],
-                horizon_index=self.config.horizon_index,
-            )
+            try:
+                means, stds, auxiliary = self.history.predict_candidates_multitask(
+                    chunks[valid_indices, 0],
+                    horizon_index=self.config.horizon_index,
+                )
+            except RuntimeError as error:
+                if "non-finite" not in str(error).lower():
+                    raise
+                jepa_latency_ms = (perf_counter_ns() - jepa_started_ns) / 1_000_000.0
+                return self._prediction_fault_result(
+                    candidate_batch,
+                    chunks,
+                    valid,
+                    fault_fields=("prediction_output",),
+                    jepa_latency_ms=jepa_latency_ms,
+                    ledger_latency_ms=ledger_latency_ms,
+                    rank_started_ns=rank_started_ns,
+                )
             jepa_latency_ms = (perf_counter_ns() - jepa_started_ns) / 1_000_000.0
+            fault_fields = self._prediction_fault_fields(means, stds, auxiliary)
+            if fault_fields:
+                return self._prediction_fault_result(
+                    candidate_batch,
+                    chunks,
+                    valid,
+                    fault_fields=fault_fields,
+                    jepa_latency_ms=jepa_latency_ms,
+                    ledger_latency_ms=ledger_latency_ms,
+                    rank_started_ns=rank_started_ns,
+                )
             raw_obstacle = np.asarray(auxiliary["obstacle_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
             raw_inter_agent = np.asarray(auxiliary["inter_agent_clearance_lower_quantile"], dtype=np.float64) * self.config.position_extent_m
-            if not np.isfinite(raw_obstacle).all() or not np.isfinite(raw_inter_agent).all():
-                raise ValueError("JEPA clearance predictions must be finite before calibration.")
             if self.reliability_ledger is not None:
                 obstacle, inter_agent = self.reliability_ledger.calibrated_clearance_m(
                     self.config.horizon_index,

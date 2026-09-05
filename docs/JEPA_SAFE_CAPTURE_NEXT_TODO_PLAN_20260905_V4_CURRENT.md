@@ -96,8 +96,8 @@ insufficient_evidence_do_not_open_locked_test
 | WP | 工作包 | 当前状态 | 进入条件 | 通过后进入 |
 |---|---|---|---|---|
 | 0 | 证据/环境/版本冻结 | 部分完成 | 当前 v21 结果和 dirty worktree 可追溯 | WP1 |
-| 1 | non-finite JEPA 显式 safe-hold | 下一步第一优先级 | 保留现有 CBF 合同 | WP2 |
-| 2 | ranker 固定点、候选分离和 replay 修复 | 阻断中 | WP1 fault gate 通过 | WP3 |
+| 1 | non-finite JEPA 显式 safe-hold | 已完成 | 四类 fault、同一 CBF-QP、TensorBoard gate 全通过 | WP2 |
+| 2 | ranker 固定点、候选分离和 replay 修复 | 下一步第一优先级 | WP1 fault gate 已通过 | WP3 |
 | 3 | 三 seed ledger/provenance/fault regression | 已有基础，需按新 protocol 重验 | WP2 protocol hash 固定 | WP4 |
 | 4 | 100/500-cycle rolling-horizon 回归 | 待开始 | WP1-WP3 全部通过 | WP5 |
 | 5 | 三 seed x M0/M3/A1/A2 x 20 smoke | 禁止提前扩大 | WP4 全部安全门通过 | WP6 |
@@ -131,34 +131,34 @@ tensorboard/jepa_safe_capture_v21_current/preflight/
 
 任何 split、hash、protocol、环境或 locked 标记不一致，均标记 `INSUFFICIENT_EVIDENCE` 并停止，不进入后续实验。
 
-## 6. WP1：non-finite JEPA -> safe-hold（下一步立即执行）
+## 6. WP1：non-finite JEPA -> safe-hold（已完成）
 
 ### 6.1 代码改动
 
-- [ ] 在 `src/encirclement3d/jepa_safe_capture_ranker.py` 中将 clearance、uncertainty、visibility、TTC、CBF-risk 和 auxiliary head 的 NaN/Inf 统一路由为：
+- [x] 在 `src/encirclement3d/jepa_safe_capture_ranker.py` 中将 clearance、uncertainty、visibility、TTC、CBF-risk 和 auxiliary head 的 NaN/Inf 统一路由为：
   - `execution_mode="safe_hold"`；
   - `fallback_reason="non_finite_prediction"`；
   - 所有候选 `eligible=false`；
   - 不执行 raw/unverified desired action。
-- [ ] 保留原始 trace 字段，但 JSON 中非 finite prediction 序列化为 `null`；同时记录 head 名称、候选索引、horizon、ledger state、reason code 和输入 provenance hash。
-- [ ] 确认 evaluator 对 `execution_mode="safe_hold"` 复用同一个 Joint CBF-QP separation-preserving hold 路径；不能建立绕过 CBF 的特殊分支。
-- [ ] safe-hold 或 nominal 无法被 CBF 验证时，只能 `controlled_abort`，并保留失败记录。
+- [x] 保留原始 trace 字段，但 JSON 中非 finite prediction 序列化为 `null`；同时记录 head 名称、候选索引、horizon、ledger state、reason code 和输入 provenance hash。
+- [x] 确认 evaluator 对 `execution_mode="safe_hold"` 复用同一个 Joint CBF-QP separation-preserving hold 路径；不能建立绕过 CBF 的特殊分支。
+- [x] safe-hold 或 nominal 无法被 CBF 验证时，只能 `controlled_abort`，并保留失败记录。
 
 ### 6.2 fault-injection 测试
 
-- [ ] 注入 NaN clearance prediction。
-- [ ] 注入 Inf uncertainty。
-- [ ] 注入 NaN visibility/TTC/CBF auxiliary head。
-- [ ] 检查 `fallback_reason`、`execution_mode`、`eligible_mask`、`selected_index` 和 `raw_unverified_executed`。
-- [ ] 检查 CBF status、active constraints、slack、correction norm、latency 和终止原因均可追溯。
-- [ ] 添加单测：non-finite prediction 不能抛出未处理异常，不能返回可执行 raw action。
+- [x] 注入 NaN clearance prediction。
+- [x] 注入 Inf uncertainty。
+- [x] 注入 NaN visibility/TTC/CBF auxiliary head。
+- [x] 检查 `fallback_reason`、`execution_mode`、`eligible_mask`、`selected_index` 和 `raw_unverified_executed`。
+- [x] 检查 CBF status、active constraints、slack、correction norm、latency 和终止原因均可追溯。
+- [x] 添加单测：non-finite prediction 不能抛出未处理异常，不能返回可执行 raw action。
 
 ### 6.3 WP1 出口门
 
-- [ ] NaN/Inf fault 全部进入 safe-hold 或后续 controlled abort。
-- [ ] `raw_unverified_executed_count == 0`。
-- [ ] 所有实际动作的 `verified=true` 来自同一 Joint CBF-QP。
-- [ ] fault audit 结果和 TensorBoard event 可读取，`development_only=true`。
+- [x] NaN/Inf fault 全部进入 safe-hold 或后续 controlled abort。
+- [x] `raw_unverified_executed_count == 0`。
+- [x] 所有实际动作的 `verified=true` 来自同一 Joint CBF-QP。
+- [x] fault audit 结果和 TensorBoard event 可读取，`development_only=true`。
 
 推荐产物：
 
@@ -388,4 +388,4 @@ push 失败时保留本地 commit 和错误日志，稍后重试；不能为了�
 7. 代码、环境、协议、checkpoint、ledger、calibration、manifest、命令和结果都有 hash/provenance，并同步写入 TensorBoard。
 8. 未经明确授权，`locked_test_opened=false` 始终不变。
 
-**当前执行结论：** 先做 WP1 的 non-finite -> safe-hold 修复，再做 WP2 的固定点/候选分离和 settled replay；在这些门通过前，不训练更大的模型、不扩大 episode 数、不打开 locked test。当前证据支持“安全执行基础设施已成立”，尚不支持“JEPA 已改善 safe-capture”。
+**当前执行结论：** WP1 的 non-finite -> safe-hold 修复和 fault gate 已通过；下一步做 WP2 的固定点/候选分离和 settled replay。在 WP2-WP5 门通过前，不训练更大的模型、不扩大 episode 数、不打开 locked test。当前证据支持“安全执行基础设施已成立”，尚不支持“JEPA 已改善 safe-capture”。

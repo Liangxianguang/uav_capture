@@ -76,6 +76,25 @@ class _FakeHistory:
         return means, std, auxiliary
 
 
+class _NonFiniteFakeHistory(_FakeHistory):
+    def __init__(self, fault: str) -> None:
+        self.fault = fault
+
+    def predict_candidates_multitask(self, actions: np.ndarray, *, horizon_index: int):
+        means, std, auxiliary = super().predict_candidates_multitask(actions, horizon_index=horizon_index)
+        if self.fault == "clearance":
+            auxiliary["obstacle_clearance_lower_quantile"][0, 0] = np.nan
+        elif self.fault == "uncertainty":
+            std[0, 0, 0] = np.inf
+        elif self.fault == "auxiliary":
+            auxiliary["target_visibility_logit"][0, 0] = np.nan
+        elif self.fault == "raising":
+            raise RuntimeError("Safe-capture v2 candidate prediction emitted non-finite values.")
+        else:  # pragma: no cover - test guard
+            raise AssertionError(f"unknown fault: {self.fault}")
+        return means, std, auxiliary
+
+
 def _batch(actions: np.ndarray, valid: np.ndarray | None = None) -> SafeCaptureCandidateBatch:
     chunks = np.repeat(actions[:, None, :, :], 3, axis=1)
     return SafeCaptureCandidateBatch(
@@ -179,6 +198,43 @@ def test_ranker_follows_action_and_executes_only_first_step() -> None:
     assert result.trace.predicted_visibility[1] > 0.99
     assert result.trace.scores[1] < result.trace.scores[0]
     assert result.trace.candidate_rejection_reasons == ((), (), (), (), ())
+
+
+@pytest.mark.parametrize(
+    ("fault", "expected_field"),
+    (
+        ("clearance", "obstacle_clearance_lower_quantile"),
+        ("uncertainty", "target_uncertainty"),
+        ("auxiliary", "target_visibility_logit"),
+        ("raising", "prediction_output"),
+    ),
+)
+def test_ranker_routes_nonfinite_jepa_predictions_to_explicit_safe_hold(
+    fault: str,
+    expected_field: str,
+) -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 1.0
+    result = SafeCaptureJEPARanker(_NonFiniteFakeHistory(fault)).rank(
+        _observation(),
+        _batch(actions),
+    )
+
+    assert result.execution_mode == "safe_hold"
+    assert result.fallback_reason == "non_finite_prediction"
+    assert result.selected_index == 0
+    np.testing.assert_array_equal(result.selected_action, actions[0])
+    assert result.trace.prediction_fault_fields == (expected_field,)
+    assert result.trace.eligible_mask == (False, False, False, False, False)
+    assert result.trace.ledger_states == ("safe_hold",) * 5
+    assert result.trace.ledger_fallback_reasons == ("non_finite_prediction",) * 5
+    assert all("non_finite_prediction" in reasons for reasons in result.trace.candidate_rejection_reasons)
+
+    serialized = result.trace.as_dict()
+    assert serialized["prediction_fault_fields"] == [expected_field]
+    assert serialized["scores"] == [None] * 5
+    assert serialized["predicted_uncertainty"] == [None] * 5
+    assert serialized["predicted_min_clearance_m"] == [None] * 5
 
 
 def test_ranker_nominal_fallback_and_safe_hold_never_use_untrusted_candidate() -> None:
