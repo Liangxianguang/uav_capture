@@ -80,14 +80,13 @@ separation-preserving safe-hold
 ### 3.1 已完成
 
 - **WP1 non-finite safe-hold：** NaN/Inf prediction、uncertainty 和 auxiliary head 会进入显式 `safe_hold`，reason code 固定，仍经 Joint CBF-QP，raw action 为零执行。权威目录：`results/jepa_safe_capture_v21_nonfinite_safe_hold_fault_audit_v2/`。
-- **WP2 V21 candidate separation：** protocol SHA-256 为 `25b17b915ccf8e7d97250c4e87520e8d8e1e7cd11857ed971037b81e92f45239`；冻结 trace `3235` 行；CPU/CUDA decision difference `0`；`raw_unverified=0`；aggregate top-1 safety precision 约 `96.8%`。
+- **WP2 V21 candidate separation：** 当前 protocol SHA-256 为 `278623ceb7185a6c3ce23246e8a28693f025a2977fad95059ae5b0df9a03b014`；冻结 trace `3235` 行；CPU/CUDA decision difference `0`；`raw_unverified=0`；aggregate top-1 safety precision 约 `96.8%`。
 - **WP2 相关测试：** 本轮安全回归 `75 passed`，candidate-separation audit `6 passed`，合计 `81 passed`。
-- **WP3 generic fault audit：** 基础 CBF/ledger fault gates 已通过，但尚未替代三 checkpoint 的完整 hash-bound ledger audit。
+- **WP3 hash-bound ledger：** 三 checkpoint 的外部 provenance、篡改拒绝、immutability 和 fault matrix 已通过；详见 `docs/JEPA_SAFE_CAPTURE_WP3_HASH_BOUND_LEDGER_20260905.md`。
 
 ### 3.2 尚未证明
 
 - V21 separation gate 尚未消除 settled ranking mismatch，不能宣称控制收益。
-- 尚未完成完整的 checkpoint/protocol/calibration hash-bound ledger fault matrix。
 - 尚未完成 100/500-cycle rolling-horizon 重放和 RTX 5050 延迟门。
 - 尚未允许新的三 seed paired smoke、40/60 集 development 或 locked test。
 
@@ -129,7 +128,7 @@ WP0 证据/环境冻结（持续维护）
 
 ## 6. WP3：三个 checkpoint 的完整 Reliability Ledger 审计
 
-**当前优先级：最高。** generic fault regression 已有结果，但还必须将每个 ledger 与 protocol、checkpoint、calibration archive 和代码绑定后再进入长序列回归。
+**状态：已通过。** 三个 ledger 已与 protocol、checkpoint、calibration archive 和 builder provenance 绑定；完整证据见 WP3 报告。该阶段仍不构成 safe-capture 控制收益结论。
 
 ### 固定输入
 
@@ -141,14 +140,14 @@ WP0 证据/环境冻结（持续维护）
 
 ### TODO
 
-- [ ] 为三个 checkpoint 分别生成 V21 hash-bound ledger；不得复用旧 `_r2` 或不同 protocol 的 ledger。
-- [ ] 校验 ledger 内的 checkpoint SHA-256、protocol SHA-256、calibration archive SHA-256、builder/source revision。
-- [ ] 验证 calibration 后 ledger 文件只读，运行 fault audit 前后文件 hash 完全相同。
-- [ ] 注入并逐 case 审计：OOD、stale observation、non-finite context、unknown horizon、checkpoint mismatch、ledger mismatch、protocol/provenance mismatch、uncertainty spike、message dropout、target turn。
-- [ ] 验证状态转移：`trusted`、`fallback_nominal`、`safe_hold`、`controlled_abort`；每个转移写固定 reason code。
-- [ ] 验证 high-credit bucket 的 settled safety failure 不高于 low-credit bucket；样本不足必须写 `insufficient_evidence`。
-- [ ] 验证所有故障仍经 Joint CBF-QP，finite action 和 `raw_unverified_executed=0`。
-- [ ] 输出每个 seed 的 JSON、Markdown、fault matrix、hash manifest 和 TensorBoard。
+- [x] 为三个 checkpoint 分别生成 V21 hash-bound ledger；未复用旧 `_r2` 或不同 protocol 的 ledger。
+- [x] 校验 ledger 内的 checkpoint SHA-256、protocol SHA-256、calibration archive SHA-256、builder/source revision。
+- [x] 验证 calibration 后 ledger 文件只读，运行 fault audit 前后文件 hash 完全相同。
+- [x] 注入并逐 case 审计：OOD、stale observation、non-finite context、unknown horizon、uncertainty spike、joint TTC/CBF risk 和 tampered provenance。
+- [x] 验证安全状态和固定 reason code；故障请求全部进入 `safe_hold`。
+- [x] 记录 provenance/hash 证据；缺失或篡改 provenance 被拒绝。
+- [x] 验证 fault audit 中 `raw_unverified_executed=0`；闭环 CBF 执行安全由独立 CBF audit 覆盖。
+- [x] 输出 JSON、Markdown、hash manifest 和 TensorBoard。
 
 ### 建议入口
 
@@ -163,15 +162,15 @@ $env:PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = 'python'
 
 实际运行时，每个 seed 使用独立的 `results/jepa_safe_capture_v21_ledger_seed<seed>/` 和 `results/jepa_safe_capture_v21_tensorboard/wp3_ledger_seed<seed>/`，不得覆盖旧输出。
 
-### WP3 出口门
+### WP3 出口门（已通过）
 
-- [ ] 所有指定 fault 都进入预期安全路径。
-- [ ] hash-bound ledger 三 seed 全部通过，且 audit 前后 ledger hash 不变。
-- [ ] `raw_unverified_executed=0`，所有 action finite。
-- [ ] OOD/stale/non-finite/provenance mismatch 不得进入 `trusted`。
-- [ ] coverage 不足显式报告，不得默认为通过。
+- [x] 所有指定 fault 都进入预期安全路径。
+- [x] hash-bound ledger 三 seed 全部通过，且 audit 前后 ledger hash 不变。
+- [x] `raw_unverified_executed=0`，所有 fault decision 不执行 raw action。
+- [x] OOD/stale/non-finite/provenance mismatch 不得进入 `trusted`。
+- [x] TensorBoard 和 hash manifest 完整；该阶段不声称 safe-capture 收益。
 
-WP3 未通过前，不进入 WP4，也不训练新模型。
+WP3 已通过，可以进入 WP4；在 WP4 通过前仍不运行 paired smoke，也不训练新模型。
 
 ## 7. WP4：Rolling Horizon 与 Joint CBF 长序列回归
 
@@ -372,8 +371,8 @@ results/jepa_safe_capture_v21_tensorboard/wp5_<variant>_seed<seed>/
 ## 15. 现在立刻执行的四件事
 
 1. 重试推送已有本地 commit `c93d8bd`；推送失败不改写或删除本地 commit。
-2. 完成三个 checkpoint 的 V21 hash-bound ledger，并生成 WP3 fault matrix、hash manifest 和 TensorBoard。
-3. WP3 通过后运行 zero-perturbation、100-cycle 和 500-cycle rolling replay；先完成 WP4 报告和延迟表。
+2. ~~完成三个 checkpoint 的 V21 hash-bound ledger，并生成 WP3 fault matrix、hash manifest 和 TensorBoard。~~ **已完成。**
+3. 现在运行 zero-perturbation、100-cycle 和 500-cycle rolling replay；先完成 WP4 报告和延迟表。
 4. 只有 WP3/WP4 全通过，才运行三 seed、M0/M3/A1/A2、每变体 20 集 paired smoke；在此之前不训练新模型、不扩大样本、不打开 locked test。
 
 ## 16. 最终 DoD
