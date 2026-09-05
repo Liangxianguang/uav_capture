@@ -512,19 +512,27 @@ def main() -> None:
             )
         writer.flush()
     elapsed_seconds = time.perf_counter() - started
-    writer.add_hparams(
-        {
-            "seed": args.seed,
-            "epochs": args.epochs,
-            "batch_size": args.batch_size,
-            "learning_rate": args.learning_rate,
-            "hidden_dim": args.hidden_dim,
-            "latent_dim": args.latent_dim,
-            "quantile": args.quantile,
-            **{f"weight_{name}": value for name, value in weights.items()},
-        },
-        {"hparam/best_validation_loss": best_validation_loss},
-    )
+    hparams = {
+        "seed": args.seed,
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "learning_rate": args.learning_rate,
+        "hidden_dim": args.hidden_dim,
+        "latent_dim": args.latent_dim,
+        "quantile": args.quantile,
+        **{f"weight_{name}": value for name, value in weights.items()},
+    }
+    hparam_metrics = {"hparam/best_validation_loss": best_validation_loss}
+    try:
+        writer.add_hparams(hparams, hparam_metrics)
+    except (TypeError, ValueError, RuntimeError):
+        # TensorBoard 2.4 with protobuf 4+ can reject the legacy hparams proto
+        # at shutdown. Config text and scalar tags remain the authoritative
+        # parameter record, so keep a compatible fallback instead of losing a
+        # completed training run at the final flush.
+        writer.add_text("Config/hparams_fallback", json.dumps(hparams, sort_keys=True), 0)
+        for name, value in hparam_metrics.items():
+            writer.add_scalar(name, float(value), 0)
     writer.close()
     (args.output / "history.json").write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")
     run_metadata = {
