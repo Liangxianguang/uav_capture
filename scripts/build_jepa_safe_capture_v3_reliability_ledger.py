@@ -45,6 +45,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--protocol", type=Path, default=PROJECT_ROOT / "configs/jepa_safe_capture_v3_next_phase.yaml")
+    parser.add_argument(
+        "--evaluation-protocol",
+        type=Path,
+        help="Optional closed-loop evaluation protocol to bind separately from the training/calibration protocol.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
@@ -144,6 +149,8 @@ def main() -> None:
     for path in (args.checkpoint, args.dataset, args.metadata, args.protocol):
         if not path.resolve().is_file():
             raise FileNotFoundError(path)
+    if args.evaluation_protocol is not None and not args.evaluation_protocol.resolve().is_file():
+        raise FileNotFoundError(args.evaluation_protocol)
     if args.batch_size <= 0 or args.minimum_sample_count <= 0 or not 0.0 <= args.minimum_credit <= 1.0:
         raise ValueError("Invalid v3 ledger policy or batch size.")
     if args.output.exists() or args.report.exists():
@@ -169,6 +176,7 @@ def main() -> None:
         args.metadata.resolve(),
         args.minimum_sample_count,
         args.minimum_credit,
+        evaluation_protocol_path=args.evaluation_protocol,
     )
     payload["ledger_type"] = SafeCaptureReliabilityLedger.LEDGER_TYPE_V3
     payload["ledger_version"] = 3
