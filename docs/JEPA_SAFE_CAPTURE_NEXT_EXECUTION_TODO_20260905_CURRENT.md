@@ -174,6 +174,8 @@ WP3 已通过，可以进入 WP4；在 WP4 通过前仍不运行 paired smoke，
 
 ## 7. WP4：Rolling Horizon 与 Joint CBF 长序列回归
 
+**状态：已通过（age-fix revision `bca003a`）。** CPU 与 RTX 5050 CUDA 各完成两次 20 集 replay；每次 1746 control cycles，逐字段 replay difference 为 0，cycle p95 分别为 14.52 ms 和 23.84 ms。详细证据见 `docs/JEPA_SAFE_CAPTURE_WP4_AGEFIX_ROLLING_AUDIT_20260906.md`。
+
 **目标：** 证明候选评价器不会因长 rollout 漂移而绕过安全执行合同。
 
 ### 回归层级
@@ -185,20 +187,20 @@ WP3 已通过，可以进入 WP4；在 WP4 通过前仍不运行 paired smoke，
 
 ### TODO
 
-- [ ] 确认每个周期只执行第一个 action step；不得执行完整三步 chunk。
-- [ ] 验证 JEPA 只能改变候选排序，不能改变 CBF constraints、margin 或执行器入口。
-- [ ] 保存 canonical trace hash、episode trace、failure index 和 fault matrix。
-- [ ] 统计候选 switch rate、oscillation length、abstention、fallback、CBF correction norm、timeout/infeasible。
-- [ ] 在 RTX 5050 上测量 JEPA、ledger、ranker、CBF 和总控制周期的 p50/p95/p99 latency。
-- [ ] 对每个 solver failure 验证 `safe-hold -> verified nominal -> controlled_abort` 顺序。
+- [x] 确认每个周期只执行第一个 action step；不得执行完整三步 chunk。
+- [x] 验证 JEPA 只能改变候选排序，不能改变 CBF constraints、margin 或执行器入口。
+- [x] 保存 canonical trace hash、episode trace、failure index 和 fault matrix。
+- [x] 统计候选 switch rate、oscillation length、abstention、fallback、CBF correction norm、timeout/infeasible。
+- [x] 在 RTX 5050 上测量 JEPA、ledger、ranker、CBF 和总控制周期的 p50/p95/p99 latency。
+- [x] 对每个 solver failure 验证 `safe-hold -> verified nominal -> controlled_abort` 顺序。
 
 ### WP4 出口门
 
-- [ ] 双次 replay canonical trace hash 一致。
-- [ ] collision、boundary、pairwise、`raw_unverified` 均为 `0`。
-- [ ] timeout/infeasible/non-finite 均有显式 verified fallback 或 controlled abort。
-- [ ] 所有长序列 trace 完整，episode 统计与 JSON/CSV/TensorBoard 一致。
-- [ ] p95 延迟在预注册控制周期预算内；不得通过删除安全检查降低延迟。
+- [x] 双次 replay canonical trace hash 一致。
+- [x] collision、boundary、pairwise、`raw_unverified` 均为 `0`。
+- [x] timeout/infeasible/non-finite 均有显式 verified fallback 或 controlled abort。
+- [x] 所有长序列 trace 完整，episode 统计与 JSON/CSV/TensorBoard 一致。
+- [x] p95 延迟在预注册控制周期预算内；不得通过删除安全检查降低延迟。
 
 ## 8. WP5：三 seed paired smoke（每变体 20 集）
 
