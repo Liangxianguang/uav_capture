@@ -30,7 +30,7 @@ import numpy as np
 import torch
 import yaml
 from torch.nn import functional as F
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Sampler, TensorDataset
 from torch.utils.tensorboard import SummaryWriter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +98,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--inter-agent-clearance-weight", type=float, default=2.0)
     parser.add_argument("--ttc-weight", type=float, default=2.0)
     parser.add_argument("--cbf-intervention-weight", type=float, default=1.0)
+    parser.add_argument("--train-replay-weights", type=Path)
+    parser.add_argument("--train-replay-manifest", type=Path)
+    parser.add_argument(
+        "--replay-uniform-fraction",
+        type=float,
+        help="Must match the train-only replay manifest and remain at least 0.50.",
+    )
     parser.add_argument("--histogram-interval", type=int, default=5)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     return parser.parse_args()
@@ -280,9 +287,85 @@ def run_epoch(
     return {name: value / count for name, value in totals.items()} | {"hard_weight_total": weight_total, "samples": float(count)}
 
 
-def _loader(tensors: dict[str, torch.Tensor], batch_size: int, shuffle: bool, seed: int, pin_memory: bool) -> DataLoader[Any]:
+class MixedReplaySampler(Sampler[int]):
+    """Keep a uniform half while replaying train-defined hard samples."""
+
+    def __init__(self, weights: torch.Tensor, uniform_fraction: float, seed: int) -> None:
+        if weights.ndim != 1 or weights.numel() == 0 or not torch.isfinite(weights).all() or torch.any(weights <= 0.0):
+            raise ValueError("Replay sampler requires positive finite weights.")
+        if not 0.50 <= uniform_fraction <= 1.0:
+            raise ValueError("Replay uniform_fraction must preserve at least 50% uniform draws.")
+        self.weights = weights.detach().cpu().to(torch.float64)
+        self.uniform_fraction = float(uniform_fraction)
+        self.seed = int(seed)
+        self.epoch = 0
+
+    def __iter__(self):
+        generator = torch.Generator().manual_seed(self.seed + self.epoch)
+        self.epoch += 1
+        count = int(self.weights.numel())
+        uniform_count = int(np.ceil(count * self.uniform_fraction))
+        replay_count = count - uniform_count
+        uniform = torch.randperm(count, generator=generator)[:uniform_count]
+        replay = torch.multinomial(self.weights, replay_count, replacement=True, generator=generator) if replay_count else torch.empty(0, dtype=torch.int64)
+        indices = torch.cat((uniform, replay))
+        order = torch.randperm(indices.numel(), generator=generator)
+        return iter(indices[order].tolist())
+
+    def __len__(self) -> int:
+        return int(self.weights.numel())
+
+
+def _loader(
+    tensors: dict[str, torch.Tensor],
+    batch_size: int,
+    shuffle: bool,
+    seed: int,
+    pin_memory: bool,
+    replay_weights: torch.Tensor | None = None,
+    replay_uniform_fraction: float = 0.50,
+) -> DataLoader[Any]:
     ordered = tuple(tensors[name] for name in REQUIRED_ARRAYS)
-    return DataLoader(TensorDataset(*ordered), batch_size=batch_size, shuffle=shuffle, generator=torch.Generator().manual_seed(seed), num_workers=0, pin_memory=pin_memory)
+    sampler = None
+    if replay_weights is not None:
+        if not shuffle or replay_weights.shape != (ordered[0].shape[0],):
+            raise ValueError("Replay weights must match the shuffled training dataset.")
+        sampler = MixedReplaySampler(replay_weights, replay_uniform_fraction, seed)
+    return DataLoader(
+        TensorDataset(*ordered),
+        batch_size=batch_size,
+        shuffle=shuffle and sampler is None,
+        sampler=sampler,
+        generator=torch.Generator().manual_seed(seed),
+        num_workers=0,
+        pin_memory=pin_memory,
+    )
+
+
+def _load_replay_weights(
+    weights_path: Path,
+    manifest_path: Path,
+    train_dataset_path: Path,
+    train_metadata_path: Path,
+    sample_count: int,
+    requested_uniform_fraction: float | None,
+) -> tuple[torch.Tensor, dict[str, Any], float]:
+    manifest = _load_json(manifest_path.resolve())
+    if manifest.get("replay_type") != "jepa_v3_train_only_hard_example_weights" or manifest.get("source_split") != "train":
+        raise ValueError("Replay manifest is not a train-only hard-example artifact.")
+    if manifest.get("source_dataset_sha256") != _sha256(train_dataset_path.resolve()) or manifest.get("source_metadata_sha256") != _sha256(train_metadata_path.resolve()):
+        raise ValueError("Replay manifest source hash does not match the training input.")
+    manifest_fraction = float(manifest["uniform_fraction"])
+    uniform_fraction = manifest_fraction if requested_uniform_fraction is None else float(requested_uniform_fraction)
+    if not np.isclose(uniform_fraction, manifest_fraction, rtol=0.0, atol=1e-9) or not 0.50 <= uniform_fraction <= 1.0:
+        raise ValueError("Replay uniform fraction must match the manifest and preserve at least 50% uniform draws.")
+    with np.load(weights_path.resolve()) as archive:
+        if "sample_weights" not in archive.files:
+            raise ValueError("Replay archive is missing sample_weights.")
+        weights = torch.from_numpy(np.asarray(archive["sample_weights"], dtype=np.float32))
+    if weights.shape != (sample_count,) or manifest.get("weights_sha256") != _sha256(weights_path.resolve()):
+        raise ValueError("Replay weights do not match the training samples or manifest.")
+    return weights, manifest, uniform_fraction
 
 
 def _git_revision() -> str:
@@ -356,6 +439,20 @@ def main() -> None:
         raise ValueError("Train/calibration episode seeds overlap.")
     if set(validation_metadata["episode_seeds"]).intersection(calibration_metadata["episode_seeds"]):
         raise ValueError("Validation/calibration episode seeds overlap.")
+    if (args.train_replay_weights is None) != (args.train_replay_manifest is None):
+        raise ValueError("train-replay-weights and train-replay-manifest must be supplied together.")
+    replay_weights: torch.Tensor | None = None
+    replay_manifest: dict[str, Any] | None = None
+    replay_uniform_fraction = 0.50
+    if args.train_replay_weights is not None and args.train_replay_manifest is not None:
+        replay_weights, replay_manifest, replay_uniform_fraction = _load_replay_weights(
+            args.train_replay_weights,
+            args.train_replay_manifest,
+            args.train_dataset,
+            args.train_metadata,
+            int(train_tensors["inputs"].shape[0]),
+            args.replay_uniform_fraction,
+        )
     collection = _load_yaml(PROJECT_ROOT / "configs/jepa_safe_capture_v2_collection.yaml")
     ttc_clip_seconds = float(train_metadata["ttc_clip_seconds"])
     maximum_observation_age_steps = float(collection["task"]["pursuit"]["maximum_message_age_steps"])
@@ -409,11 +506,25 @@ def main() -> None:
     writer.add_text("Dataset/train_metadata", json.dumps(train_metadata, indent=2), 0)
     writer.add_text("Dataset/validation_metadata", json.dumps(validation_metadata, indent=2), 0)
     writer.add_text("Dataset/calibration_metadata", json.dumps(calibration_metadata, indent=2), 0)
+    if replay_manifest is not None:
+        writer.add_text("Config/replay_manifest", json.dumps(replay_manifest, indent=2), 0)
     writer.add_text("Provenance/source_hashes", json.dumps(hashes, indent=2), 0)
     writer.add_scalar("Data/train_samples", int(train_tensors["inputs"].shape[0]), 0)
     writer.add_scalar("Data/validation_samples", int(validation_tensors["inputs"].shape[0]), 0)
     writer.add_scalar("Data/calibration_episodes", int(calibration_metadata["episode_seed_count"]), 0)
-    train_loader = _loader(train_tensors, args.batch_size, True, args.seed, device.type == "cuda")
+    if replay_manifest is not None:
+        writer.add_scalar("Replay/uniform_draw_fraction", replay_uniform_fraction, 0)
+        writer.add_scalar("Replay/hard_draw_fraction", 1.0 - replay_uniform_fraction, 0)
+        writer.add_scalar("Replay/hard_sample_fraction", float(replay_manifest["diagnostics"]["hard_fraction"]), 0)
+    train_loader = _loader(
+        train_tensors,
+        args.batch_size,
+        True,
+        args.seed,
+        device.type == "cuda",
+        replay_weights,
+        replay_uniform_fraction,
+    )
     validation_loader = _loader(validation_tensors, args.batch_size, False, args.seed, device.type == "cuda")
     history: list[dict[str, float | int]] = []
     best_validation_loss = float("inf")
@@ -442,6 +553,9 @@ def main() -> None:
             writer.add_scalar(f"CBF/{prefix}_intervention_brier", metrics["cbf_intervention_brier"], epoch)
         learning_rate = float(optimizer.param_groups[0]["lr"])
         writer.add_scalar("Optimization/learning_rate", learning_rate, epoch)
+        if replay_manifest is not None:
+            writer.add_scalar("Replay/uniform_draw_fraction", replay_uniform_fraction, epoch)
+            writer.add_scalar("Replay/hard_draw_fraction", 1.0 - replay_uniform_fraction, epoch)
         record["learning_rate"] = learning_rate
         history.append(record)
         if validation_metrics["loss"] < best_validation_loss:
@@ -460,6 +574,12 @@ def main() -> None:
                 "task_weights": task_weights,
                 "hard_weight_kwargs": hard_weight_kwargs,
                 "quantile": args.quantile,
+                "replay": {
+                    "enabled": replay_manifest is not None,
+                    "weights": str(args.train_replay_weights.resolve()) if args.train_replay_weights is not None else None,
+                    "manifest": str(args.train_replay_manifest.resolve()) if args.train_replay_manifest is not None else None,
+                    "uniform_fraction": replay_uniform_fraction if replay_manifest is not None else None,
+                },
                 "source_hashes": hashes,
             }, args.output / "checkpoint.pt")
         writer.flush()
@@ -469,7 +589,22 @@ def main() -> None:
                 if parameter.grad is not None:
                     writer.add_histogram(f"Gradients/{name}", parameter.grad.detach(), epoch)
     elapsed_seconds = time.perf_counter() - started
-    writer.add_hparams({"seed": args.seed, "epochs": args.epochs, "batch_size": args.batch_size, "learning_rate": args.learning_rate, "hard_weight_cap": args.hard_weight_cap}, {"hparam/best_validation_loss": best_validation_loss})
+    # TensorBoard 2.4.1's add_hparams path is incompatible with the modern
+    # protobuf runtime used by the frozen RTX 5050 environment.  Keep the
+    # provenance in the event stream even when that optional summary helper
+    # cannot construct its legacy plugin record.
+    hparams = {
+        "seed": args.seed,
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "learning_rate": args.learning_rate,
+        "hard_weight_cap": args.hard_weight_cap,
+    }
+    try:
+        writer.add_hparams(hparams, {"hparam/best_validation_loss": best_validation_loss})
+    except (AttributeError, KeyError, TypeError, ValueError):
+        writer.add_text("Config/hparams", json.dumps({**hparams, "best_validation_loss": best_validation_loss}, indent=2), args.epochs)
+        writer.add_scalar("HParams/best_validation_loss", best_validation_loss, args.epochs)
     writer.close()
     (args.output / "history.json").write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")
     run_metadata = {
@@ -501,6 +636,13 @@ def main() -> None:
         "training_config": str(args.training_config.resolve()),
         "training_config_sha256": _sha256(args.training_config.resolve()),
         "source_hashes": hashes,
+        "replay": {
+            "enabled": replay_manifest is not None,
+            "weights": str(args.train_replay_weights.resolve()) if args.train_replay_weights is not None else None,
+            "manifest": str(args.train_replay_manifest.resolve()) if args.train_replay_manifest is not None else None,
+            "uniform_fraction": replay_uniform_fraction if replay_manifest is not None else None,
+            "diagnostics": replay_manifest.get("diagnostics") if replay_manifest is not None else None,
+        },
         "git_revision": _git_revision(),
         "locked_test_opened": False,
     }

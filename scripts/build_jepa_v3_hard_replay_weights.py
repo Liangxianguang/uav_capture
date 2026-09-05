@@ -83,7 +83,13 @@ def main() -> None:
     if metadata.get("split") != "train":
         raise ValueError("Hard-example replay weights may only be built from the train split.")
     boundary = metadata.get("information_boundary", {})
-    if boundary.get("development_s3_or_locked_data_used_for_training") is not False:
+    # Older safe-capture archives use the shorter field name; both spellings
+    # must explicitly prove that development/locked outcomes were excluded.
+    exclusion_proven = (
+        boundary.get("development_s3_or_locked_data_used_for_training") is False
+        or boundary.get("development_or_locked_data_used_for_training") is False
+    )
+    if not exclusion_proven:
         raise ValueError("Train metadata does not prove S3/locked exclusion.")
     protocol = yaml.safe_load(args.protocol.resolve().read_text(encoding="utf-8"))
     policy = protocol.get("hard_example_replay", {})
@@ -110,6 +116,7 @@ def main() -> None:
         "protocol_sha256": sha256(args.protocol.resolve()),
         "uniform_fraction": uniform_fraction,
         "policy": policy,
+        "information_boundary": boundary,
         "diagnostics": diagnostics,
         "weights_sha256": sha256(args.output),
     }
