@@ -97,6 +97,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-stride", type=int, default=8)
     parser.add_argument("--history-length", type=int, default=8)
     parser.add_argument("--chunk-length-steps", type=int, default=3)
+    parser.add_argument(
+        "--actor-checkpoint",
+        type=Path,
+        help=(
+            "Optional frozen actor checkpoint. When supplied, archive states "
+            "follow the same actor used by runtime evaluation instead of the "
+            "rule controller."
+        ),
+    )
+    parser.add_argument("--actor-device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
     parser.add_argument("--development-only", action="store_true", required=True)
@@ -118,6 +128,31 @@ def _git_revision() -> str:
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+
+
+def _actor_action(
+    policy: Any,
+    local_observation: np.ndarray,
+    device: Any,
+    action_scale: float,
+    hidden: Any,
+) -> tuple[np.ndarray, Any]:
+    """Evaluate the frozen runtime actor without sampling its distribution."""
+
+    if torch is None:
+        raise RuntimeError("--actor-checkpoint requires the PyTorch environment.")
+    local = torch.as_tensor(local_observation, device=device)
+    with torch.no_grad():
+        if hidden is not None:
+            distribution, hidden = policy.distribution_step(local, hidden)
+        else:
+            distribution = policy.distribution(local)
+        action = torch.tanh(distribution.mean).cpu().numpy() * float(action_scale)
+    value = np.asarray(action, dtype=np.float64)
+    expected = (local_observation.shape[0], 3)
+    if value.shape != expected or not np.isfinite(value).all():
+        raise RuntimeError(f"Frozen actor emitted an invalid action: {value.shape}")
+    return value, hidden
 
 
 def _jsonable(value: Any) -> Any:
@@ -592,6 +627,13 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     contract = archive_config.get("data_contract", {})
     if contract.get("dataset_version") != DATASET_VERSION or contract.get("candidate_profile") != "obstacle_route_v1":
         raise ValueError("archive config does not match the route-identity collector")
+    state_distribution = archive_config.get("state_distribution", {})
+    if not isinstance(state_distribution, dict):
+        raise ValueError("archive config state_distribution must be a mapping")
+    if bool(state_distribution.get("actor_checkpoint_required", False)) and args.actor_checkpoint is None:
+        raise ValueError("This archive contract requires --actor-checkpoint")
+    if str(state_distribution.get("mode", "")).strip() == "frozen_runtime_actor" and args.actor_checkpoint is None:
+        raise ValueError("frozen_runtime_actor archives require --actor-checkpoint")
     configured_source = str(archive_config.get("source_protocol", ""))
     if configured_source and Path(configured_source).name != args.protocol.resolve().name:
         raise ValueError("archive config source_protocol does not match --protocol")
@@ -609,6 +651,20 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     cbf_feasible = 0
     cbf_total = 0
     branch_failures = 0
+    actor_policy = None
+    actor_device = None
+    actor_action_scale = 5.0
+    actor_metadata: dict[str, Any] = {}
+    actor_checkpoint: Path | None = None
+    if args.actor_checkpoint is not None:
+        actor_checkpoint = args.actor_checkpoint.resolve()
+        if not actor_checkpoint.is_file():
+            raise FileNotFoundError(f"actor checkpoint does not exist: {actor_checkpoint}")
+        if torch is None:
+            raise RuntimeError("--actor-checkpoint requires torch")
+        from evaluate_capture_radius_mappo import load_policy, select_device  # noqa: E402
+
+        actor_device = select_device(args.actor_device)
     for scenario_index in range(args.episodes):
         spec = episode_spec(protocol, args.split, scenario_index)
         config = config_for_spec("f2", spec, env_config_path)
@@ -636,15 +692,52 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         )
         observation = prepare_showcase_episode(env, scenario, seed=int(spec["episode_seed"]), record_history=False)
         controller = DynamicEncirclementController(env)
+        if actor_checkpoint is not None and actor_policy is None:
+            # Loading against the first constructed environment validates the
+            # checkpoint observation/action contract before any samples are
+            # written.  All subsequent episodes reuse the same frozen actor.
+            actor_policy, actor_action_scale, actor_metadata = load_policy(
+                actor_checkpoint,
+                env,
+                observation,
+                actor_device,
+            )
         safety_filter = JointCBFQPSafetyFilter(env)
         route_config = _route_config(env, safety_filter)
         extent = float(config["world"]["half_extent_xy"])
         observation_history = [policy_observations(env, observation).copy()]
         executed_actions: list[np.ndarray] = []
         previous_action = np.asarray(env.defender_velocities, dtype=np.float64).copy()
+        hidden = (
+            actor_policy.initial_actor_hidden(env.n_defenders, device=actor_device)
+            if actor_policy is not None and hasattr(actor_policy, "initial_actor_hidden")
+            else None
+        )
+        recurrent_reset_interval = (
+            int(actor_metadata["recurrent_reset_interval_steps"])
+            if actor_policy is not None and actor_metadata.get("recurrent_reset_interval_steps") is not None
+            else None
+        )
         sampled_states = 0
         for time_index in range(int(env.max_steps)):
-            desired = np.asarray(controller.act(observation), dtype=np.float64)
+            if (
+                actor_policy is not None
+                and hidden is not None
+                and recurrent_reset_interval is not None
+                and time_index > 0
+                and time_index % recurrent_reset_interval == 0
+            ):
+                hidden = actor_policy.initial_actor_hidden(env.n_defenders, device=actor_device)
+            if actor_policy is not None:
+                desired, hidden = _actor_action(
+                    actor_policy,
+                    policy_observations(env, observation),
+                    actor_device,
+                    actor_action_scale,
+                    hidden,
+                )
+            else:
+                desired = np.asarray(controller.act(observation), dtype=np.float64)
             reachable_nominal = env._move_toward_velocity(
                 previous_action,
                 env._clip_rows(desired, float(env.agents["defender_max_speed"])),
@@ -750,6 +843,18 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         "candidate_semantics": "geometry_conditioned_route_chunk_execute_first_step_then_replan",
         "action_history_alignment": "past_executed_actions_then_route_first_action",
         "action_scale": 5.0,
+        "state_distribution_source": {
+            "mode": "frozen_runtime_actor" if actor_checkpoint is not None else "dynamic_rule_controller",
+            "actor_checkpoint": str(actor_checkpoint) if actor_checkpoint is not None else None,
+            "actor_checkpoint_sha256": _sha256(actor_checkpoint) if actor_checkpoint is not None else None,
+            "actor_action_scale": float(actor_action_scale) if actor_checkpoint is not None else None,
+            "actor_recurrent_reset_interval_steps": (
+                int(actor_metadata["recurrent_reset_interval_steps"])
+                if actor_checkpoint is not None and actor_metadata.get("recurrent_reset_interval_steps") is not None
+                else None
+            ),
+            "runtime_match_required": actor_checkpoint is not None,
+        },
         "sample_stride": int(args.sample_stride),
         "sample_count_per_defender": int(arrays["inputs"].shape[0]),
         "array_shapes": {key: list(value.shape) for key, value in arrays.items()},
@@ -817,6 +922,8 @@ def main() -> int:
             "cuda_available": bool(torch.cuda.is_available()),
             "cuda_device_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
             "tensorboard_logdir": str(tensorboard_dir),
+            "actor_checkpoint": metadata.get("state_distribution_source", {}).get("actor_checkpoint"),
+            "actor_checkpoint_sha256": metadata.get("state_distribution_source", {}).get("actor_checkpoint_sha256"),
             "development_only": True,
             "locked_test_opened": False,
         },

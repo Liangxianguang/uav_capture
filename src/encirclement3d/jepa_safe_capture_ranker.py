@@ -9,6 +9,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from .jepa_safe_capture_candidates import SafeCaptureCandidateBatch, SafeCaptureCandidateHistory
+from .obstacle_route_candidates import ROUTE_LABELS
 from .reliability import SafeCaptureReliabilityDecision, SafeCaptureReliabilityLedger
 
 
@@ -17,6 +18,24 @@ from .reliability import SafeCaptureReliabilityDecision, SafeCaptureReliabilityL
 # must never win a JEPA score comparison while a nominal/escape candidate is
 # trusted.
 FALLBACK_ONLY_CANDIDATE_LABELS = frozenset({"verified_safe_hold"})
+ROUTE_SIDE_INDEX_BY_LABEL = {
+    "nominal": 0,
+    "left_detour": 1,
+    "right_detour": 2,
+    "upper_detour": 3,
+    "lower_detour": 4,
+    "radial_out": 5,
+    "formation_split": 6,
+    "formation_contract": 7,
+    "braking": 8,
+    "safe_intercept": 9,
+    "visibility_hold": 10,
+    # The archive reserves a distinct ``boundary_shadow`` side index for
+    # this offline-only fallback branch.  It must not alias the executable
+    # ``braking``/``hold`` side (index 8), otherwise route-conditioned
+    # inference sees a different contract from training.
+    "verified_safe_hold": 11,
+}
 
 
 def _json_float(value: float) -> float | None:
@@ -42,6 +61,8 @@ class SafeCaptureRankerConfig:
     target_weight: float = 1.0
     uncertainty_weight: float = 0.20
     clearance_weight: float = 1.0
+    boundary_clearance_margin_m: float = 0.35
+    route_progress_weight: float = 0.0
     ttc_weight: float = 0.50
     visibility_weight: float = 0.25
     cbf_risk_weight: float = 0.75
@@ -77,6 +98,8 @@ class SafeCaptureRankerConfig:
             raise ValueError("horizon_index must be non-negative and horizon/extent must be positive.")
         if self.max_cbf_correction_mps <= 0.0 or self.ttc_warning_seconds <= 0.0:
             raise ValueError("max_cbf_correction_mps and ttc_warning_seconds must be positive.")
+        if self.boundary_clearance_margin_m < 0.0 or self.route_progress_weight < 0.0:
+            raise ValueError("Boundary clearance margin and route progress weight must be non-negative.")
         if self.nominal_anchor_margin_m < 0.0:
             raise ValueError("nominal_anchor_margin_m must be non-negative.")
         if self.score_tie_tolerance_m < 0.0:
@@ -151,6 +174,8 @@ class SafeCaptureRankingTrace:
     hysteresis_applied: bool = False
     hold_steps_remaining: int = 0
     minimum_candidate_separation_m: float = 0.0
+    predicted_boundary_clearance_m: tuple[float, ...] = ()
+    predicted_route_progress_m: tuple[float, ...] = ()
     # Runtime diagnostics are intentionally separate from ranking decisions.
     # They are measured at inference time and must never affect selection.
     jepa_inference_latency_ms: float = 0.0
@@ -202,6 +227,8 @@ class SafeCaptureRankingTrace:
             "hysteresis_applied": bool(self.hysteresis_applied),
             "hold_steps_remaining": int(self.hold_steps_remaining),
             "minimum_candidate_separation_m": float(self.minimum_candidate_separation_m),
+            "predicted_boundary_clearance_m": _json_float_tuple(self.predicted_boundary_clearance_m),
+            "predicted_route_progress_m": _json_float_tuple(self.predicted_route_progress_m),
             "jepa_inference_latency_ms": float(self.jepa_inference_latency_ms),
             "ledger_route_latency_ms": float(self.ledger_route_latency_ms),
             "ranker_compute_latency_ms": float(self.ranker_compute_latency_ms),
@@ -567,6 +594,8 @@ class SafeCaptureJEPARanker:
         visibility = np.full(candidate_count, np.nan, dtype=np.float64)
         cbf_risk = np.full(candidate_count, np.nan, dtype=np.float64)
         candidate_separation = np.full(candidate_count, np.nan, dtype=np.float64)
+        predicted_boundary = np.full(candidate_count, np.nan, dtype=np.float64)
+        route_progress = np.full(candidate_count, np.nan, dtype=np.float64)
         decisions: list[SafeCaptureReliabilityDecision] = [
             SafeCaptureReliabilityDecision("safe_hold", 0.0, 0, "not_evaluated", "invalid_candidate", False, False)
             for _ in range(candidate_count)
@@ -575,9 +604,23 @@ class SafeCaptureJEPARanker:
         if valid_indices.size:
             jepa_started_ns = perf_counter_ns()
             try:
+                route_kwargs: dict[str, Any] = {}
+                if bool(getattr(self.history.predictor, "supports_route_chunks", False)):
+                    route_kwargs["candidate_chunks"] = chunks[valid_indices]
+                if bool(getattr(self.history.predictor, "supports_route_metadata", False)):
+                    labels = [str(candidate_batch.labels[index]) for index in valid_indices]
+                    route_kwargs["candidate_indices"] = np.asarray(
+                        [ROUTE_LABELS.index(label) if label in ROUTE_LABELS else -1 for label in labels],
+                        dtype=np.int64,
+                    )
+                    route_kwargs["route_side_indices"] = np.asarray(
+                        [ROUTE_SIDE_INDEX_BY_LABEL.get(label, -1) for label in labels],
+                        dtype=np.int64,
+                    )
                 means, stds, auxiliary = self.history.predict_candidates_multitask(
                     chunks[valid_indices, 0],
                     horizon_index=self.config.horizon_index,
+                    **route_kwargs,
                 )
             except RuntimeError as error:
                 if "non-finite" not in str(error).lower():
@@ -619,6 +662,18 @@ class SafeCaptureJEPARanker:
             intervention_probability = _sigmoid(np.asarray(auxiliary["cbf_intervention_logit"], dtype=np.float64))
             correction = np.asarray(auxiliary["cbf_correction"], dtype=np.float64)
             qp_probability = _sigmoid(np.asarray(auxiliary["cbf_qp_feasibility_logit"], dtype=np.float64))
+            boundary_prediction = auxiliary.get("boundary_clearance")
+            boundary = (
+                np.asarray(boundary_prediction, dtype=np.float64)
+                if boundary_prediction is not None
+                else np.full_like(obstacle, np.inf, dtype=np.float64)
+            )
+            progress_prediction = auxiliary.get("route_progress")
+            progress = (
+                np.asarray(progress_prediction, dtype=np.float64) * self.config.position_extent_m
+                if progress_prediction is not None
+                else np.zeros_like(obstacle, dtype=np.float64)
+            )
             base_context = self._context_base(observation)
             predicted_target = positions[None, :, :] + means.astype(np.float64) * self.config.position_extent_m
             future_defenders = positions[None, :, :] + chunks[valid_indices, 0].astype(np.float64) * self.config.horizon_seconds
@@ -628,9 +683,19 @@ class SafeCaptureJEPARanker:
             for local, candidate_index in enumerate(valid_indices):
                 min_obstacle = float(np.min(obstacle[local]))
                 min_inter = float(np.min(inter_agent[local]))
-                raw_min = float(min(float(np.min(raw_obstacle[local])), float(np.min(raw_inter_agent[local]))))
+                min_boundary = float(np.min(boundary[local]))
+                progress_value = float(np.mean(progress[local]))
+                raw_min = float(
+                    min(
+                        float(np.min(raw_obstacle[local])),
+                        float(np.min(raw_inter_agent[local])),
+                        min_boundary,
+                    )
+                )
                 raw_min_clearance[candidate_index] = raw_min
-                min_clearance[candidate_index] = min(min_obstacle, min_inter)
+                min_clearance[candidate_index] = min(min_obstacle, min_inter, min_boundary)
+                predicted_boundary[candidate_index] = min_boundary
+                route_progress[candidate_index] = progress_value
                 calibration_offset[candidate_index] = min_clearance[candidate_index] - raw_min
                 min_ttc[candidate_index] = float(np.min(ttc[local]))
                 uncertainty[candidate_index] = float(np.mean(stds[local]))
@@ -652,6 +717,7 @@ class SafeCaptureJEPARanker:
                 clearance_cost[candidate_index] = float(
                     max(self.config.obstacle_clearance_margin_m - min_obstacle, 0.0)
                     + max(self.config.inter_agent_clearance_margin_m - min_inter, 0.0)
+                    + max(self.config.boundary_clearance_margin_m - min_boundary, 0.0)
                 )
                 ttc_cost[candidate_index] = max(self.config.ttc_warning_seconds - min_ttc[candidate_index], 0.0) / self.config.ttc_warning_seconds
                 visibility_cost[candidate_index] = 1.0 - visibility[candidate_index]
@@ -675,6 +741,7 @@ class SafeCaptureJEPARanker:
                     + self.config.visibility_weight * visibility_cost[candidate_index]
                     + self.config.cbf_risk_weight * cbf_risk_cost[candidate_index]
                     + self.config.action_change_weight * action_change_cost[candidate_index]
+                    - self.config.route_progress_weight * route_progress[candidate_index]
                 )
 
         nominal_decision = decisions[0]
@@ -951,6 +1018,14 @@ class SafeCaptureJEPARanker:
             hysteresis_applied=hysteresis_applied,
             hold_steps_remaining=remaining_hold,
             minimum_candidate_separation_m=float(self.config.minimum_candidate_separation_m),
+            predicted_boundary_clearance_m=tuple(
+                float(value) if np.isfinite(value) else float("nan")
+                for value in predicted_boundary
+            ),
+            predicted_route_progress_m=tuple(
+                float(value) if np.isfinite(value) else float("nan")
+                for value in route_progress
+            ),
             jepa_inference_latency_ms=float(jepa_latency_ms),
             ledger_route_latency_ms=float(ledger_latency_ms),
             ranker_compute_latency_ms=float(

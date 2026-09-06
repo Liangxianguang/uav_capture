@@ -1,0 +1,114 @@
+import numpy as np
+import torch
+
+from encirclement3d.jepa_safe_capture_candidates import SafeCaptureCandidateHistory
+from encirclement3d.jepa_safe_capture_ranker import ROUTE_SIDE_INDEX_BY_LABEL
+from encirclement3d.prediction import (
+    InteractionAwareActionConditionedRouteJEPAPredictor,
+    build_action_conditioned_predictor,
+)
+
+
+def _model() -> InteractionAwareActionConditionedRouteJEPAPredictor:
+    torch.manual_seed(19)
+    return InteractionAwareActionConditionedRouteJEPAPredictor(
+        input_dim=63,
+        horizon_count=5,
+        hidden_dim=16,
+        latent_dim=8,
+        route_chunk_length=3,
+        route_candidate_count=12,
+        route_side_count=12,
+        interaction_group_slices=((0, 15), (15, 33), (33, 48), (48, 63)),
+    )
+
+
+def test_route_model_exposes_route_conditioned_heads():
+    model = _model().eval()
+    inputs = torch.randn(4, 8, 63)
+    actions = torch.randn(4, 8, 3)
+    route_chunks = torch.randn(4, 3, 3)
+    mean, log_variance, latent, auxiliary = model.forward_multitask(inputs, actions, route_chunks)
+
+    assert mean.shape == (4, 5, 3)
+    assert log_variance.shape == (4, 5, 3)
+    assert latent.shape == (4, 5, 8)
+    assert auxiliary["boundary_clearance"].shape == (4, 5)
+    assert auxiliary["cbf_min_slack"].shape == (4, 5)
+    assert auxiliary["route_progress"].shape == (4, 5)
+    assert auxiliary["cbf_feasibility_logit"].shape == (4, 5)
+    assert auxiliary["route_identity_logits"].shape == (4, 12)
+    assert auxiliary["route_side_logits"].shape == (4, 12)
+    assert auxiliary["route_geometry_logit"].shape == (4,)
+    assert auxiliary["route_termination_logit"].shape == (4,)
+    assert all(torch.isfinite(value).all() for value in auxiliary.values())
+
+
+def test_route_chunk_changes_conditioned_prediction():
+    model = _model().eval()
+    inputs = torch.zeros(1, 8, 63)
+    actions = torch.zeros(1, 8, 3)
+    first = torch.zeros(1, 3, 3)
+    second = first.clone()
+    second[:, :, 0] = 0.7
+    first_mean = model(inputs, actions, first)[0]
+    second_mean = model(inputs, actions, second)[0]
+    assert not torch.allclose(first_mean, second_mean)
+
+
+def test_factory_and_runtime_history_forward_route_chunks():
+    model = build_action_conditioned_predictor(
+        "interaction_aware_action_conditioned_jepa_route_identity_v1",
+        {
+            "input_dim": 63,
+            "horizon_count": 5,
+            "hidden_dim": 16,
+            "latent_dim": 8,
+            "interaction_group_slices": [[0, 15], [15, 33], [33, 48], [48, 63]],
+            "route_chunk_length": 3,
+            "route_candidate_count": 12,
+            "route_side_count": 12,
+        },
+    )
+    assert isinstance(model, InteractionAwareActionConditionedRouteJEPAPredictor)
+    history = SafeCaptureCandidateHistory(
+        model,
+        defender_count=2,
+        device=torch.device("cpu"),
+        history_length=8,
+        action_scale=5.0,
+    )
+    history.reset(np.zeros((2, 63), dtype=np.float32))
+    candidates = np.zeros((3, 2, 3), dtype=np.float32)
+    candidates[1, :, 0] = 0.3
+    candidates[2, :, 1] = -0.2
+    chunks = np.repeat(candidates[:, None, :, :], 3, axis=1)
+    _mean, _std, auxiliary = history.predict_candidates_multitask(
+        candidates,
+        horizon_index=2,
+        candidate_chunks=chunks,
+        candidate_indices=np.asarray([0, 1, 2], dtype=np.int64),
+        route_side_indices=np.asarray([0, 1, 2], dtype=np.int64),
+    )
+    assert auxiliary["route_identity_logits"].shape == (3, 2, 12)
+    assert auxiliary["route_side_logits"].shape == (3, 2, 12)
+    assert auxiliary["route_geometry_logit"].shape == (3, 2)
+    assert all(np.isfinite(value).all() for value in auxiliary.values())
+
+
+def test_runtime_route_side_indices_match_archive_vocab():
+    expected = {
+        "nominal": 0,
+        "left_detour": 1,
+        "right_detour": 2,
+        "upper_detour": 3,
+        "lower_detour": 4,
+        "radial_out": 5,
+        "formation_split": 6,
+        "formation_contract": 7,
+        "braking": 8,
+        "safe_intercept": 9,
+        "visibility_hold": 10,
+        "verified_safe_hold": 11,
+    }
+    assert ROUTE_SIDE_INDEX_BY_LABEL == expected
