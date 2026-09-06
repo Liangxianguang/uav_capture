@@ -99,6 +99,10 @@ class SafeCaptureRankerConfig:
     cautious_reacquisition_enabled: bool = False
     cautious_reacquisition_labels: tuple[str, ...] = ("visibility_hold",)
     cautious_reacquisition_max_steps: int = 3
+    # Reacquisition is only meaningful after the target has been received at
+    # least once. Without this explicit public state, the controller cannot
+    # distinguish stale loss from a never-initialized belief.
+    cautious_reacquisition_requires_prior_observation: bool = True
 
     def __post_init__(self) -> None:
         if self.horizon_index < 0 or self.horizon_seconds <= 0.0 or self.position_extent_m <= 0.0:
@@ -825,6 +829,13 @@ class SafeCaptureJEPARanker:
             ),
             dtype=np.float64,
         )
+        received_value = observation.get("target_observation_received")
+        prior_observation_available = False
+        if received_value is not None:
+            received_array = np.asarray(received_value, dtype=bool)
+            if received_array.shape != (self.history.defender_count,):
+                raise ValueError("target_observation_received must match defender count.")
+            prior_observation_available = bool(np.any(received_array))
         # A route may be used only to regain a missing target observation.  A
         # visible target, an OOD context, or an explicit terminal budget must
         # never enter this branch.
@@ -834,6 +845,10 @@ class SafeCaptureJEPARanker:
             and not bool(np.any(visible))
             and np.isfinite(ages).all()
             and float(np.max(ages, initial=0.0)) > 0.0
+            and (
+                not self.config.cautious_reacquisition_requires_prior_observation
+                or prior_observation_available
+            )
             and not bool(context_base.get("ood", False))
             and nominal_decision.fallback_reason
             not in {"ood", "non_finite_context", "uncertainty_high", "joint_ttc_cbf_risk"}

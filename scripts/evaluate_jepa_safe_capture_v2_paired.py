@@ -454,6 +454,7 @@ def _ranker_config(
         "cautious_reacquisition_enabled",
         "cautious_reacquisition_labels",
         "cautious_reacquisition_max_steps",
+        "cautious_reacquisition_requires_prior_observation",
         "ranking_device",
         "actor_device",
         # Protocol metadata for the calibrated v12 clearance transform.  The
@@ -2195,6 +2196,9 @@ def main() -> None:
             "cautious_reacquisition_enabled": bool(ranker_config.cautious_reacquisition_enabled),
             "cautious_reacquisition_labels": list(ranker_config.cautious_reacquisition_labels),
             "cautious_reacquisition_max_steps": int(ranker_config.cautious_reacquisition_max_steps),
+            "cautious_reacquisition_requires_prior_observation": bool(
+                ranker_config.cautious_reacquisition_requires_prior_observation
+            ),
             "fixed_point_score_comparison": bool(ranker_config.fixed_point_score_comparison),
             "action_comparison_quantum_mps": action_comparison_quantum_mps,
             "ranking_device": ranking_device_name,

@@ -1,0 +1,65 @@
+{
+  "stage": "WP3_v5_prior_observation_contract",
+  "development_only": true,
+  "locked_test_opened": false,
+  "tensorboard_required": true,
+  "python": "D:/download/anaconda3/envs/traj_pred_prep/python.exe",
+  "tests": "508 passed",
+  "artifacts": {
+    "abstention_counterfactual": {
+      "path": "results/jepa_safe_capture_v5_route12_abstention_cf_three_seed/abstention_counterfactual.json",
+      "sha256": "BE089D27DDD0847CA4E132BFA31EAA5B6EC4D155642A62DE1A22EE6073177739"
+    },
+    "abstention_tensorboard_event": {
+      "path": "results/jepa_safe_capture_v5_route12_abstention_cf_three_seed_tensorboard/events.out.tfevents.1788705063.PC-20250926.18088.0",
+      "sha256": "4D4F21F766139A6CF731B559261D0D73CEE27A21343ED0EAF4BA0BB0D4B034CF"
+    },
+    "ranker_source": {
+      "path": "src/encirclement3d/jepa_safe_capture_ranker.py",
+      "sha256": "3EA151383FF76B67ED4F7D985F20B926ABF35C4A29FCDE639B58D276B43501C3"
+    },
+    "paired_evaluator_source": {
+      "path": "scripts/evaluate_jepa_safe_capture_v2_paired.py",
+      "sha256": "CD08FB98717431B0C26A7F77960A1B497F756EEDBF1713C1C73C836664503851"
+    },
+    "protocol": {
+      "path": "configs/central_random_mixed_obstacle_s3_route_v1_reacquisition_v5_prior_observation_development_protocol.yaml",
+      "sha256": "DA352802EEAFB39B710E09FF1F7877233F737D8F01EE2F784CEDAC5F77A36B31"
+    },
+    "diagnostic_source": {
+      "path": "scripts/diagnose_jepa_safe_capture_v21_abstention_counterfactual.py",
+      "sha256": "C312467FE56FB3527CC078689A8813171B146E5710A22C7F4DF75EF394AEF78D"
+    },
+    "observation_audit_tensorboards": [
+      {
+        "path": "results/jepa_safe_capture_v5_prior_observation_contract_audit_tensorboard/events.out.tfevents.1788705620.PC-20250926.26860.0",
+        "sha256": "6476B663E7447C8C4CDE53006E4F79E4678FEABDE92EEF9825B88CBD8294DBCE"
+      },
+      {
+        "path": "results/jepa_safe_capture_v5_prior_observation_contract_audit_ep1_tensorboard/events.out.tfevents.1788705645.PC-20250926.34376.0",
+        "sha256": "02173F3DD2BBC9CB3CCD70138B7F80CB18E915D4AA5CD707E69D85BDECDB81BB"
+      },
+      {
+        "path": "results/jepa_safe_capture_v5_prior_observation_contract_audit_ep2_tensorboard/events.out.tfevents.1788705644.PC-20250926.33800.0",
+        "sha256": "C2B728E9D423097884FA1D765F97D8DDE4E3BAE56768A8A8A3F5FAFC0BFE408E"
+      }
+    ]
+  },
+  "results": {
+    "pooled_decisions": 1549,
+    "recorded_settled_safe_capture_rate": 0.007213114754098361,
+    "score_argmin_settled_safe_capture_rate": 0.0071013557133634605,
+    "recorded_vs_score_argmin_agreement": 0.9347966429954809,
+    "score_argmin_vs_settled_best_agreement": 0.20077469335054873,
+    "source_hard_safety_events": 0
+  },
+  "contract": {
+    "cautious_reacquisition_requires_prior_observation": true,
+    "max_steps": 3,
+    "labels": ["visibility_hold"],
+    "independent_cbf_probes_required": true,
+    "stale_ood_gates_changed": false,
+    "raw_unverified_execution_allowed": false,
+    "controlled_abort_preserved": true
+  }
+}

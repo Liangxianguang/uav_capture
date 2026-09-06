@@ -382,6 +382,7 @@ def test_cautious_reacquisition_selects_only_visible_hold_after_abstention() -> 
     hidden_observation = _observation()
     hidden_observation["target_visible"] = np.zeros(2, dtype=bool)
     hidden_observation["target_observation_age_steps"] = np.full(2, 60.0)
+    hidden_observation["target_observation_received"] = np.ones(2, dtype=bool)
     batch = _batch(actions)
     result = SafeCaptureJEPARanker(
         _FakeHistory(),
@@ -399,6 +400,26 @@ def test_cautious_reacquisition_selects_only_visible_hold_after_abstention() -> 
     assert result.fallback_reason == "cautious_reacquisition"
     assert result.trace.ledger_states[4] == "safe_hold"
     assert result.trace.cautious_reacquisition_allowed
+
+
+def test_cautious_reacquisition_rejects_never_received_target() -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[4, :, 1] = 0.4
+    hidden_observation = _observation()
+    hidden_observation["target_visible"] = np.zeros(2, dtype=bool)
+    hidden_observation["target_observation_age_steps"] = np.full(2, 60.0)
+    hidden_observation["target_observation_received"] = np.zeros(2, dtype=bool)
+    result = SafeCaptureJEPARanker(
+        _FakeHistory(),
+        config=SafeCaptureRankerConfig(cautious_reacquisition_enabled=True),
+        reliability_ledger=_ledger(0.90),
+        context_defaults={"layout_signature": "scenario_0", "target_motion_mode": "flee_persistence"},
+    ).rank(hidden_observation, _batch(actions))
+
+    assert result.execution_mode == "safe_hold"
+    assert result.selected_index == 0
+    assert result.fallback_reason == "observation_never_received"
+    assert not result.trace.cautious_reacquisition_allowed
 
 
 def test_cautious_reacquisition_never_overrides_ood_safe_hold() -> None:
