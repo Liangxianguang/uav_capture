@@ -16,6 +16,7 @@
 - **WP1 Ledger abstention audit：已完成。** 在 M3 episode `646102` 的 250 步中，`safe_hold=250`，其中 `208` 步为“eligible=0 但至少一个 route CBF verified”；三路独立 CBF probes 为 `250/250` 全通过，安全硬门仍为 0。下一步只允许设计 bounded `cautious_reacquisition` 合同，不得把 stale/OOD 重标为 trusted。详见 [Ledger abstention audit](JEPA_SAFE_CAPTURE_WP1_LEDGER_ABSTENTION_AUDIT_20260906.md)。
 - **WP1 bounded cautious reacquisition：已完成并停止扩大。** 新合同只允许三步 `visibility_hold`，仍保留 Ledger `safe_hold`、stale/OOD gate 和三路独立 CBF probes；同一三场景 replay 仍为 `2/3 safe_capture`，episode `646102` 仍 timeout，虽无安全回归。详见 [stop report](JEPA_SAFE_CAPTURE_WP1_CAUTIOUS_REACQUISITION_STOP_REPORT_20260906.md)。
 - **WP1 三训练 seed smoke：已完成并停止扩大。** 在同 manifest 配对的 M0/M3 上，M0 pooled 为 `6/9`，M3 pooled 为 `3/9`，paired delta `-33.3 pp`；UAV collision/boundary/pairwise/raw-unverified 均为 0。retry checkpoint 同 manifest 仍为 `2/3`，未改变结论。当前标签为 `prediction_signal_no_control_gain`；详见 [three-seed stop report](JEPA_SAFE_CAPTURE_ACTIVE_SEARCH_THREE_SEED_STOP_REPORT_20260906.md)。下一步只做 settled route-regret、stale/Ledger 和 candidate ranking 离线归因，不继续训练或扩大 L1-L3。
+- **P1 earliest CBF infeasibility：已完成首个 controlled-abort 只读切片并停止扩大。** 第 14 步仍有 `10` 条 primary CBF 可行路线，第 15 步仍有 `10` 条几何有效路线但 `0` 条 primary CBF 可行；selected/nominal/safe-hold 均失败，active constraints 为 obstacle + acceleration。高速度停止距离超过 strict-buffer 可用净空，下一步是 hard-negative counterfactual archive，不是降低 CBF 或直接重训。详见 [P1 earliest CBF abort report](JEPA_SAFE_CAPTURE_P1_EARLIEST_CBF_ABORT_20260907.md)。
 - **WP1 route-12 settled attribution：已完成并关闭重训闸门。** 在同一三 seed M3 trace 上对 1550 个决策执行记录 action chunk 的离线 settled replay；平均记录 eligibility 为 `8.543/12`，独立 CBF-verified eligibility 为 `8.952/12`，64 个决策属于 Ledger 全拒绝但仍存在 CBF 可行路线。Pooled selected-not-best 为 `78.3%`，selected settled safe 为 `0.71%`，best settled safe 为 `1.81%`，没有正向 route-ranking 控制收益；源运行的 collision/boundary/pairwise/raw-unverified 仍全部为 0。当前结论是先修 Ledger 过度拒绝与 JEPA 排序/辅助头，不再继续训练、增加数据或扩大场景；详见 [route-12 settled report](JEPA_SAFE_CAPTURE_V5_ROUTE12_SETTLED_THREE_SEED_REPORT_20260906.md)。
 - **WP3 abstention/reacquisition contract audit：已完成并停止扩大。** 在同一冻结 settled rows 上，去除 nominal-anchor/abstention 干扰的 score-argmin 反事实 safe-capture 为 `0.710%`，低于 recorded 的 `0.721%`；因此 abstention 不是当前控制收益的主要来源。公共观测审计还发现三步 `visibility_hold` 全为零动作，且 never-received belief 为零，不能据此主动搜索。ranker 现增加 `cautious_reacquisition_requires_prior_observation=true`，从未收到目标时保持 `safe_hold`；下一步只允许实现有界的公共几何 active-search，并要求非零投影动作和后续观测。详见 [abstention/reacquisition audit](JEPA_SAFE_CAPTURE_V5_ABSTENTION_REACQUISITION_AUDIT_20260906.md)。
 
@@ -243,7 +244,7 @@ CBF 不能为了提高捕获率而放松物理安全，但也不能把可恢复�
 - [ ] 冻结 `horizon=5` recovery protocol 和 manifest。
 - [ ] 完成三路独立 CBF counterfactual 与 message-age 修复回归。
 - [ ] 运行 L0 recovery M0 三 seed，比较 `strict_buffer` 与 `physical_feasibility`，分开归档。
-- [ ] 输出每个 abort 的约束类型、提前量和可恢复性。
+- [ ] 输出每个 abort 的约束类型、提前量和可恢复性（首个 WP2 abort 已完成；全量 abort 诊断仍未完成）。
 
 ### 下一阶段：先增加“可验证候选”，再训练 JEPA
 
