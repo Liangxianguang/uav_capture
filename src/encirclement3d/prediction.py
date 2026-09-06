@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 
 class HistoryTargetPredictor(nn.Module):
@@ -418,6 +419,304 @@ class InteractionAwareActionConditionedSafeCaptureJEPAPredictor(
         return values
 
 
+class InteractionAwareActionConditionedRouteJEPAPredictor(
+    InteractionAwareActionConditionedSafeCaptureJEPAPredictor
+):
+    """Route-conditioned JEPA evaluator for the obstacle-route protocol.
+
+    The route chunk is an input to the predictor, not an action emitted by it.
+    The runtime still executes only the first step after the independent Joint
+    CBF check.  Keeping this as a new model type makes old V2/V3 checkpoints
+    and their ledgers loadable without ambiguity.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        horizon_count: int,
+        action_dim: int = 3,
+        hidden_dim: int = 128,
+        latent_dim: int = 64,
+        num_layers: int = 1,
+        interaction_group_slices: tuple[tuple[int, int], ...] | list[list[int]] | None = None,
+        route_chunk_length: int = 3,
+        route_candidate_count: int = 12,
+        route_side_count: int = 12,
+    ) -> None:
+        super().__init__(
+            input_dim=input_dim,
+            horizon_count=horizon_count,
+            action_dim=action_dim,
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            num_layers=num_layers,
+            interaction_group_slices=interaction_group_slices,
+        )
+        if route_chunk_length <= 0 or route_candidate_count <= 0 or route_side_count <= 0:
+            raise ValueError("Route dimensions must be positive.")
+        self.route_chunk_length = int(route_chunk_length)
+        self.route_candidate_count = int(route_candidate_count)
+        self.route_side_count = int(route_side_count)
+        self.supports_route_chunks = True
+        self.supports_route_metadata = True
+        route_input_dim = self.route_chunk_length * self.action_dim
+        self.route_encoder = nn.Sequential(
+            nn.Linear(route_input_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.SiLU(),
+        )
+        # The route generator exposes the selected proposal identity to the
+        # evaluator.  This avoids pretending that two deliberately identical
+        # fallback chunks are distinguishable from actions alone, while still
+        # keeping the route decision outside the learned controller.
+        self.route_candidate_embedding = nn.Embedding(self.route_candidate_count + 1, self.hidden_dim)
+        self.route_side_embedding = nn.Embedding(self.route_side_count + 1, self.hidden_dim)
+        self.boundary_clearance_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.cbf_min_slack_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.route_progress_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.route_feasibility_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.route_identity_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, self.route_candidate_count),
+        )
+        self.route_side_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, self.route_side_count),
+        )
+        self.route_geometry_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.route_termination_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+
+    def _route_features(
+        self,
+        route_chunks: torch.Tensor | None,
+        batch_size: int,
+        dtype: torch.dtype,
+        device: torch.device,
+        route_candidate_indices: torch.Tensor | None = None,
+        route_side_indices: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if route_chunks is None:
+            route_chunks = torch.zeros(
+                batch_size,
+                self.route_chunk_length,
+                self.action_dim,
+                dtype=dtype,
+                device=device,
+            )
+        if route_chunks.shape != (batch_size, self.route_chunk_length, self.action_dim):
+            raise ValueError(
+                "Expected route_chunks shape "
+                f"{(batch_size, self.route_chunk_length, self.action_dim)}, got {tuple(route_chunks.shape)}."
+            )
+        if not torch.isfinite(route_chunks).all():
+            raise ValueError("route_chunks must be finite.")
+        features = self.route_encoder(route_chunks.reshape(batch_size, -1))
+        for values, embedding, count, name in (
+            (route_candidate_indices, self.route_candidate_embedding, self.route_candidate_count, "route_candidate_indices"),
+            (route_side_indices, self.route_side_embedding, self.route_side_count, "route_side_indices"),
+        ):
+            if values is None:
+                indices = torch.full((batch_size,), count, dtype=torch.long, device=device)
+            else:
+                if values.shape != (batch_size,):
+                    raise ValueError(f"{name} must have shape {(batch_size,)}, got {tuple(values.shape)}.")
+                if values.dtype not in (torch.int8, torch.int16, torch.int32, torch.int64):
+                    values = values.to(torch.long)
+                indices = values.to(device=device, dtype=torch.long)
+                if torch.any((indices < -1) | (indices >= count)):
+                    raise ValueError(f"{name} contains an index outside [-1,{count - 1}].")
+                indices = torch.where(indices < 0, torch.full_like(indices, count), indices)
+            features = features + embedding(indices)
+        return features
+
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        actions: torch.Tensor | None = None,
+        route_chunks: torch.Tensor | None = None,
+        route_candidate_indices: torch.Tensor | None = None,
+        route_side_indices: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if inputs.ndim != 3 or inputs.shape[-1] != self.input_dim:
+            raise ValueError(
+                f"Expected [batch, history, {self.input_dim}] inputs, got {tuple(inputs.shape)}."
+            )
+        if actions is None:
+            actions = torch.zeros(
+                inputs.shape[0], inputs.shape[1], self.action_dim, dtype=inputs.dtype, device=inputs.device
+            )
+        if actions.shape != (inputs.shape[0], inputs.shape[1], self.action_dim):
+            raise ValueError(
+                "Expected action history shape "
+                f"{(inputs.shape[0], inputs.shape[1], self.action_dim)}, got {tuple(actions.shape)}."
+            )
+        observation_features = self._encode_observations(inputs)
+        action_features = self.action_encoder(actions)
+        context, _hidden = self.context_encoder(torch.cat([observation_features, action_features], dim=-1))
+        route_features = self._route_features(
+            route_chunks,
+            inputs.shape[0],
+            inputs.dtype,
+            inputs.device,
+            route_candidate_indices,
+            route_side_indices,
+        )
+        context_last = context[:, -1] + route_features
+        predicted_latent = self.latent_predictor(context_last).view(
+            inputs.shape[0], self.horizon_count, self.latent_dim
+        )
+        mean = self.position_decoder(predicted_latent)
+        log_variance = torch.clamp(self.uncertainty_decoder(predicted_latent), min=-8.0, max=5.0)
+        return mean, log_variance, predicted_latent
+
+    def route_auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+        if latent.ndim != 3 or latent.shape[1:] != (self.horizon_count, self.latent_dim):
+            raise ValueError(
+                "Expected predicted latent shaped "
+                f"[batch, {self.horizon_count}, {self.latent_dim}], got {tuple(latent.shape)}."
+            )
+        return {
+            "boundary_clearance": self.boundary_clearance_decoder(latent).squeeze(-1),
+            "cbf_min_slack": self.cbf_min_slack_decoder(latent).squeeze(-1),
+            "route_progress": self.route_progress_decoder(latent).squeeze(-1),
+            "cbf_feasibility_logit": self.route_feasibility_decoder(latent).squeeze(-1),
+            # The route archive's feasibility label is the authoritative
+            # training target for both the new route head and the legacy
+            # ranker's expected key.  Keep one tensor so an untrained random
+            # inherited head can never silently drive runtime risk scoring.
+            "cbf_qp_feasibility_logit": self.route_feasibility_decoder(latent).squeeze(-1),
+            "route_identity_logits": self.route_identity_decoder(latent[:, -1]),
+            "route_side_logits": self.route_side_decoder(latent[:, -1]),
+            "route_geometry_logit": self.route_geometry_decoder(latent[:, -1]).squeeze(-1),
+            "route_termination_logit": self.route_termination_decoder(latent[:, -1]).squeeze(-1),
+        }
+
+    def auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+        values = super().auxiliary_predictions(latent)
+        values.update(self.route_auxiliary_predictions(latent))
+        return values
+
+    def forward_multitask(
+        self,
+        inputs: torch.Tensor,
+        actions: torch.Tensor | None = None,
+        route_chunks: torch.Tensor | None = None,
+        route_candidate_indices: torch.Tensor | None = None,
+        route_side_indices: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        mean, log_variance, latent = self.forward(
+            inputs,
+            actions,
+            route_chunks,
+            route_candidate_indices,
+            route_side_indices,
+        )
+        return mean, log_variance, latent, self.auxiliary_predictions(latent)
+
+
+class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
+    InteractionAwareActionConditionedRouteJEPAPredictor
+):
+    """Route JEPA with action-conditioned stopping/TTC risk heads.
+
+    The shared encoder and legacy route heads retain the route-identity v1
+    contract.  The five additional heads are trained from the v2 archive and
+    remain evaluator outputs; none emits a control action.
+    """
+
+    def __init__(self, *args: Any, ttc_clip_seconds: float = 10.0, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if ttc_clip_seconds <= 0.0:
+            raise ValueError("ttc_clip_seconds must be positive")
+        self.ttc_clip_seconds = float(ttc_clip_seconds)
+        self.stopping_distance_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.obstacle_ttc_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.boundary_ttc_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.pairwise_ttc_risk_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+        self.acceleration_slack_decoder = nn.Sequential(
+            nn.LayerNorm(self.latent_dim),
+            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, 1),
+        )
+
+    def hard_negative_auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+        if latent.ndim != 3 or latent.shape[1:] != (self.horizon_count, self.latent_dim):
+            raise ValueError(
+                "Expected predicted latent shaped "
+                f"[batch, {self.horizon_count}, {self.latent_dim}], got {tuple(latent.shape)}."
+            )
+        return {
+            "stopping_distance": F.softplus(self.stopping_distance_decoder(latent).squeeze(-1)),
+            "obstacle_ttc": self.ttc_clip_seconds
+            * torch.sigmoid(self.obstacle_ttc_decoder(latent).squeeze(-1)),
+            "boundary_ttc": self.ttc_clip_seconds
+            * torch.sigmoid(self.boundary_ttc_decoder(latent).squeeze(-1)),
+            "pairwise_ttc_risk": self.ttc_clip_seconds
+            * torch.sigmoid(self.pairwise_ttc_risk_decoder(latent).squeeze(-1)),
+            "acceleration_slack": self.acceleration_slack_decoder(latent).squeeze(-1),
+        }
+
+    def auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+        values = super().auxiliary_predictions(latent)
+        values.update(self.hard_negative_auxiliary_predictions(latent))
+        return values
+
+
 def build_action_conditioned_predictor(
     model_type: str,
     model_config: dict[str, Any],
@@ -432,6 +731,10 @@ def build_action_conditioned_predictor(
         predictor_class = InteractionAwareActionConditionedMultitaskJEPAPredictor
     elif normalized == "interaction_aware_action_conditioned_jepa_safe_capture_v2":
         predictor_class = InteractionAwareActionConditionedSafeCaptureJEPAPredictor
+    elif normalized == "interaction_aware_action_conditioned_jepa_route_identity_v1":
+        predictor_class = InteractionAwareActionConditionedRouteJEPAPredictor
+    elif normalized == "interaction_aware_action_conditioned_jepa_route_identity_hard_negative_v2":
+        predictor_class = InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor
     else:
         raise ValueError(f"Unsupported action-conditioned predictor model_type: {normalized!r}.")
     return predictor_class(**model_config)

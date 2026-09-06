@@ -36,6 +36,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from encirclement3d.prediction import (  # noqa: E402
+    InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor,
     InteractionAwareActionConditionedRouteJEPAPredictor,
     build_action_conditioned_predictor,
     deterministic_mse,
@@ -43,7 +44,7 @@ from encirclement3d.prediction import (  # noqa: E402
 )
 
 
-MODEL_TYPE = "interaction_aware_action_conditioned_jepa_route_identity_v1"
+MODEL_TYPE = "interaction_aware_action_conditioned_jepa_route_identity_hard_negative_v2"
 REQUIRED_ARRAYS = (
     "inputs",
     "action_history",
@@ -52,6 +53,11 @@ REQUIRED_ARRAYS = (
     "labels_obstacle_clearance",
     "labels_boundary_clearance",
     "labels_inter_agent_clearance",
+    "labels_stopping_distance",
+    "labels_obstacle_ttc",
+    "labels_boundary_ttc",
+    "labels_pairwise_ttc",
+    "labels_acceleration_slack",
     "labels_target_visible",
     "labels_cbf_correction",
     "labels_cbf_intervention",
@@ -81,6 +87,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--validation-metadata", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
+    parser.add_argument(
+        "--base-checkpoint",
+        type=Path,
+        help="Optional frozen route-identity v1 checkpoint used to initialize the shared JEPA/backbone.",
+    )
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch-size", type=int, default=256)
@@ -105,6 +116,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--route-side-loss-weight", type=float, default=0.25)
     parser.add_argument("--geometry-loss-weight", type=float, default=0.50)
     parser.add_argument("--termination-loss-weight", type=float, default=0.50)
+    parser.add_argument("--stopping-distance-loss-weight", type=float, default=0.50)
+    parser.add_argument("--obstacle-ttc-loss-weight", type=float, default=0.50)
+    parser.add_argument("--boundary-ttc-loss-weight", type=float, default=0.50)
+    parser.add_argument("--pairwise-ttc-loss-weight", type=float, default=0.50)
+    parser.add_argument("--acceleration-slack-loss-weight", type=float, default=0.50)
+    parser.add_argument(
+        "--head-only",
+        action="store_true",
+        help="Freeze shared JEPA and legacy route heads; optimize only v2 hard-negative risk heads.",
+    )
     parser.add_argument("--patience", type=int, default=8)
     parser.add_argument("--min-delta", type=float, default=1e-5)
     parser.add_argument("--histogram-interval", type=int, default=5)
@@ -176,6 +197,11 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
         "labels_obstacle_clearance",
         "labels_boundary_clearance",
         "labels_inter_agent_clearance",
+        "labels_stopping_distance",
+        "labels_obstacle_ttc",
+        "labels_boundary_ttc",
+        "labels_pairwise_ttc",
+        "labels_acceleration_slack",
         "labels_target_visible",
         "labels_cbf_correction",
         "labels_cbf_intervention",
@@ -375,6 +401,26 @@ def _losses(
     )
     boundary_mse = F.smooth_l1_loss(auxiliary["boundary_clearance"], batch["labels_boundary_clearance"])
     slack_mse = F.smooth_l1_loss(auxiliary["cbf_min_slack"], batch["labels_cbf_min_slack"])
+    stopping_distance_mse = F.smooth_l1_loss(
+        auxiliary["stopping_distance"], batch["labels_stopping_distance"]
+    )
+    obstacle_ttc_mse = F.smooth_l1_loss(
+        auxiliary["obstacle_ttc"] / 10.0, batch["labels_obstacle_ttc"] / 10.0
+    )
+    boundary_ttc_mse = F.smooth_l1_loss(
+        auxiliary["boundary_ttc"] / 10.0, batch["labels_boundary_ttc"] / 10.0
+    )
+    pairwise_ttc_mse = F.smooth_l1_loss(
+        auxiliary["pairwise_ttc_risk"] / 10.0, batch["labels_pairwise_ttc"] / 10.0
+    )
+    slack_target = batch["labels_acceleration_slack"]
+    slack_mask = slack_target != -1.0
+    if bool(slack_mask.any()):
+        acceleration_slack_mse = F.smooth_l1_loss(
+            auxiliary["acceleration_slack"][slack_mask], slack_target[slack_mask]
+        )
+    else:
+        acceleration_slack_mse = _zero_like(auxiliary["acceleration_slack"])
     progress_mse = F.smooth_l1_loss(auxiliary["route_progress"], batch["labels_route_progress"])
     feasibility_bce = F.binary_cross_entropy_with_logits(
         auxiliary["cbf_feasibility_logit"], batch["labels_cbf_feasible"]
@@ -417,6 +463,11 @@ def _losses(
         + weights["geometry"] * geometry_bce
         + weights["termination"] * termination_bce
         + weights["route_ranking"] * route_ranking_loss
+        + weights["stopping_distance"] * stopping_distance_mse
+        + weights["obstacle_ttc"] * obstacle_ttc_mse
+        + weights["boundary_ttc"] * boundary_ttc_mse
+        + weights["pairwise_ttc"] * pairwise_ttc_mse
+        + weights["acceleration_slack"] * acceleration_slack_mse
     )
     return {
         "loss": loss,
@@ -433,6 +484,11 @@ def _losses(
         "cbf_intervention_brier": F.mse_loss(intervention_probability, batch["labels_cbf_intervention"]),
         "boundary_clearance_mse": boundary_mse,
         "cbf_min_slack_mse": slack_mse,
+        "stopping_distance_mse": stopping_distance_mse,
+        "obstacle_ttc_mse": obstacle_ttc_mse,
+        "boundary_ttc_mse": boundary_ttc_mse,
+        "pairwise_ttc_mse": pairwise_ttc_mse,
+        "acceleration_slack_mse": acceleration_slack_mse,
         "route_progress_mse": progress_mse,
         "cbf_feasibility_bce": feasibility_bce,
         "cbf_feasibility_brier": F.mse_loss(feasibility_probability, batch["labels_cbf_feasible"]),
@@ -571,8 +627,47 @@ def main() -> None:
         "route_side_count": 12,
     }
     model = build_action_conditioned_predictor(MODEL_TYPE, model_config).to(device)
-    if not isinstance(model, InteractionAwareActionConditionedRouteJEPAPredictor):
+    if not isinstance(model, InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor):
         raise RuntimeError("Predictor factory did not create the route-aware JEPA model.")
+    base_checkpoint_sha256 = None
+    if args.base_checkpoint is not None:
+        base_checkpoint = args.base_checkpoint.resolve()
+        if not base_checkpoint.is_file():
+            raise FileNotFoundError(f"Base checkpoint does not exist: {base_checkpoint}")
+        base = torch.load(base_checkpoint, map_location="cpu", weights_only=True)
+        if base.get("model_type") != "interaction_aware_action_conditioned_jepa_route_identity_v1":
+            raise ValueError("--base-checkpoint must be a route-identity v1 checkpoint.")
+        base_model = base.get("model", {})
+        for field in ("input_dim", "horizon_count", "action_dim", "hidden_dim", "latent_dim", "num_layers"):
+            if base_model.get(field) != model_config.get(field):
+                raise ValueError(f"Base checkpoint model field {field!r} does not match the new model.")
+        state = base.get("model_state_dict")
+        if not isinstance(state, dict):
+            raise ValueError("Base checkpoint is missing model_state_dict.")
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        expected_missing = {
+            key for key in model.state_dict()
+            if key.startswith((
+                "stopping_distance_decoder.",
+                "obstacle_ttc_decoder.",
+                "boundary_ttc_decoder.",
+                "pairwise_ttc_risk_decoder.",
+                "acceleration_slack_decoder.",
+            ))
+        }
+        if set(missing) != expected_missing or unexpected:
+            raise ValueError(f"Base checkpoint state mismatch: missing={missing}, unexpected={unexpected}")
+        base_checkpoint_sha256 = _sha256(base_checkpoint)
+    if args.head_only:
+        trainable_prefixes = (
+            "stopping_distance_decoder.",
+            "obstacle_ttc_decoder.",
+            "boundary_ttc_decoder.",
+            "pairwise_ttc_risk_decoder.",
+            "acceleration_slack_decoder.",
+        )
+        for name, parameter in model.named_parameters():
+            parameter.requires_grad = name.startswith(trainable_prefixes)
     weights = {
         "latent": float(args.latent_loss_weight),
         "clearance": float(args.clearance_loss_weight),
@@ -588,6 +683,11 @@ def main() -> None:
         "route_side": float(args.route_side_loss_weight),
         "geometry": float(args.geometry_loss_weight),
         "termination": float(args.termination_loss_weight),
+        "stopping_distance": float(args.stopping_distance_loss_weight),
+        "obstacle_ttc": float(args.obstacle_ttc_loss_weight),
+        "boundary_ttc": float(args.boundary_ttc_loss_weight),
+        "pairwise_ttc": float(args.pairwise_ttc_loss_weight),
+        "acceleration_slack": float(args.acceleration_slack_loss_weight),
     }
     if any(value < 0.0 for value in weights.values()):
         raise ValueError("All task weights must be non-negative.")
@@ -596,7 +696,10 @@ def main() -> None:
         raise ValueError("--route-ranking-horizon-index is outside the archive horizon range.")
     train_loader = _loader(train_tensors, args.batch_size, True, args.seed)
     validation_loader = _loader(validation_tensors, args.batch_size, False, args.seed)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    trainable_parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
+    if not trainable_parameters:
+        raise RuntimeError("No trainable parameters remain after --head-only filtering.")
+    optimizer = torch.optim.AdamW(trainable_parameters, lr=args.learning_rate, weight_decay=args.weight_decay)
     args.output.mkdir(parents=True, exist_ok=True)
     args.tensorboard_logdir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(log_dir=str(args.tensorboard_logdir), flush_secs=5)
@@ -607,6 +710,7 @@ def main() -> None:
     writer.add_text("Dataset/train_metadata", json.dumps(train_metadata, indent=2), 0)
     writer.add_text("Dataset/validation_metadata", json.dumps(validation_metadata, indent=2), 0)
     writer.add_text("Provenance/source_hashes", json.dumps(source_hashes, indent=2), 0)
+    writer.add_text("Provenance/base_checkpoint", json.dumps({"path": str(args.base_checkpoint.resolve()) if args.base_checkpoint else None, "sha256": base_checkpoint_sha256}, indent=2), 0)
     writer.add_scalar("Dataset/train_samples", len(train_tensors["inputs"]), 0)
     writer.add_scalar("Dataset/validation_samples", len(validation_tensors["inputs"]), 0)
     writer.add_scalar("Dataset/train_boundary_negative_fraction", float((train_tensors["labels_boundary_clearance"] < 0).any(dim=1).float().mean()), 0)
@@ -673,6 +777,9 @@ def main() -> None:
                     "route_ranking_margin": args.route_ranking_margin,
                     "best_epoch": best_epoch,
                     "best_validation_loss": best_validation_loss,
+                    "base_checkpoint": str(args.base_checkpoint.resolve()) if args.base_checkpoint else None,
+                    "base_checkpoint_sha256": base_checkpoint_sha256,
+                    "head_only": bool(args.head_only),
                 },
                 args.output / "checkpoint.pt",
             )
@@ -724,6 +831,10 @@ def main() -> None:
         "route_ranking_margin": args.route_ranking_margin,
         "best_epoch": best_epoch,
         "best_validation_loss": best_validation_loss,
+        "base_checkpoint": str(args.base_checkpoint.resolve()) if args.base_checkpoint else None,
+        "base_checkpoint_sha256": base_checkpoint_sha256,
+        "head_only": bool(args.head_only),
+        "trainable_parameter_count": int(sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)),
         "hparams_write_mode": hparams_write_mode,
         "stop_reason": stop_reason,
         "elapsed_seconds": elapsed_seconds,

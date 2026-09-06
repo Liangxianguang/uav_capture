@@ -4,6 +4,7 @@ import torch
 from encirclement3d.jepa_safe_capture_candidates import SafeCaptureCandidateHistory
 from encirclement3d.jepa_safe_capture_ranker import ROUTE_SIDE_INDEX_BY_LABEL
 from encirclement3d.prediction import (
+    InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor,
     InteractionAwareActionConditionedRouteJEPAPredictor,
     build_action_conditioned_predictor,
 )
@@ -54,6 +55,38 @@ def test_route_chunk_changes_conditioned_prediction():
     first_mean = model(inputs, actions, first)[0]
     second_mean = model(inputs, actions, second)[0]
     assert not torch.allclose(first_mean, second_mean)
+
+
+def test_hard_negative_model_exposes_finite_risk_heads_and_factory_contract():
+    model = build_action_conditioned_predictor(
+        "interaction_aware_action_conditioned_jepa_route_identity_hard_negative_v2",
+        {
+            "input_dim": 63,
+            "horizon_count": 5,
+            "hidden_dim": 16,
+            "latent_dim": 8,
+            "interaction_group_slices": [[0, 15], [15, 33], [33, 48], [48, 63]],
+            "route_chunk_length": 3,
+            "route_candidate_count": 12,
+            "route_side_count": 12,
+        },
+    )
+    assert isinstance(model, InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor)
+    inputs = torch.randn(2, 8, 63)
+    actions = torch.randn(2, 8, 3)
+    chunks = torch.randn(2, 3, 3)
+    _mean, _log_variance, _latent, auxiliary = model.forward_multitask(inputs, actions, chunks)
+    for name in (
+        "stopping_distance",
+        "obstacle_ttc",
+        "boundary_ttc",
+        "pairwise_ttc_risk",
+        "acceleration_slack",
+    ):
+        assert auxiliary[name].shape == (2, 5)
+        assert torch.isfinite(auxiliary[name]).all()
+    assert torch.all(auxiliary["stopping_distance"] >= 0.0)
+    assert torch.all((auxiliary["obstacle_ttc"] >= 0.0) & (auxiliary["obstacle_ttc"] <= 10.0))
 
 
 def test_factory_and_runtime_history_forward_route_chunks():
