@@ -293,7 +293,26 @@ def _copy_cbf_filter(source: JointCBFQPSafetyFilter, env: CaptureRadiusPursuit3D
         tolerance=float(contract["tolerance"]),
         active_tolerance=float(contract["active_tolerance"]),
         anticipatory_horizon_steps=int(contract["anticipatory_horizon_steps"]),
+        barrier_mode=str(contract["barrier_mode"]),
     )
+
+
+def _archive_cbf_contract(archive_config: Mapping[str, Any]) -> dict[str, Any]:
+    """Read the archive's explicit CBF contract before collecting samples."""
+
+    value = archive_config.get("cbf_contract", {})
+    if not isinstance(value, Mapping):
+        raise ValueError("archive config cbf_contract must be a mapping")
+    horizon = int(value.get("anticipatory_horizon_steps", 0))
+    barrier_mode = str(value.get("barrier_mode", "")).strip()
+    if horizon <= 0:
+        raise ValueError("archive cbf_contract anticipatory_horizon_steps must be positive")
+    if barrier_mode not in {"strict_buffer", "physical_feasibility"}:
+        raise ValueError("archive cbf_contract barrier_mode is invalid")
+    return {
+        "anticipatory_horizon_steps": horizon,
+        "barrier_mode": barrier_mode,
+    }
 
 
 def _route_rollout(
@@ -637,6 +656,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     configured_source = str(archive_config.get("source_protocol", ""))
     if configured_source and Path(configured_source).name != args.protocol.resolve().name:
         raise ValueError("archive config source_protocol does not match --protocol")
+    cbf_contract = _archive_cbf_contract(archive_config)
     base_config = yaml.safe_load(env_config_path.read_text(encoding="utf-8"))
     if not isinstance(base_config, dict):
         raise ValueError("environment config must be a mapping")
@@ -702,7 +722,11 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                 observation,
                 actor_device,
             )
-        safety_filter = JointCBFQPSafetyFilter(env)
+        safety_filter = JointCBFQPSafetyFilter(
+            env,
+            anticipatory_horizon_steps=int(cbf_contract["anticipatory_horizon_steps"]),
+            barrier_mode=str(cbf_contract["barrier_mode"]),
+        )
         route_config = _route_config(env, safety_filter)
         extent = float(config["world"]["half_extent_xy"])
         observation_history = [policy_observations(env, observation).copy()]
@@ -877,6 +901,8 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         },
         "cbf_contract": {
             "solver": "scipy_slsqp_joint_cbf_qp",
+            "anticipatory_horizon_steps": int(cbf_contract["anticipatory_horizon_steps"]),
+            "barrier_mode": str(cbf_contract["barrier_mode"]),
             "routes_advance_only_after_primary_verified_feasible": True,
             "controlled_abort_preserved": True,
         },

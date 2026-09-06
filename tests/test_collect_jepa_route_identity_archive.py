@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "collect_jepa_route_identity_archive.py"
 SPEC = importlib.util.spec_from_file_location("collect_jepa_route_identity_archive", SCRIPT_PATH)
@@ -15,6 +16,8 @@ _append_boundary_shadow_samples = COLLECTOR._append_boundary_shadow_samples
 _boundary_shadow_rollout = COLLECTOR._boundary_shadow_rollout
 _class_counts = COLLECTOR._class_counts
 _empty_samples = COLLECTOR._empty_samples
+_copy_cbf_filter = COLLECTOR._copy_cbf_filter
+_archive_cbf_contract = COLLECTOR._archive_cbf_contract
 
 
 class _ShadowEnv:
@@ -96,3 +99,42 @@ def test_class_counts_separate_runtime_rows_from_boundary_shadow_rows() -> None:
         "boundary_clearance_negative": 2,
         "boundary_shadow_samples": 2,
     }
+
+
+def test_copy_cbf_filter_preserves_horizon_and_barrier_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeFilter:
+        def __init__(self, _env: object, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    class _Source:
+        contract = {
+            "gamma": 0.25,
+            "obstacle_margin_m": 0.35,
+            "inter_agent_margin_m": 0.35,
+            "boundary_margin_m": 0.35,
+            "max_correction_norm_mps": 5.0,
+            "max_latency_ms": 100.0,
+            "solver_maxiter": 80,
+            "tolerance": 1e-5,
+            "active_tolerance": 5e-5,
+            "anticipatory_horizon_steps": 5,
+            "barrier_mode": "strict_buffer",
+        }
+
+    monkeypatch.setattr(COLLECTOR, "JointCBFQPSafetyFilter", _FakeFilter)
+    _copy_cbf_filter(_Source(), object())
+
+    assert captured["anticipatory_horizon_steps"] == 5
+    assert captured["barrier_mode"] == "strict_buffer"
+
+
+def test_archive_cbf_contract_is_explicit_and_validated() -> None:
+    contract = _archive_cbf_contract(
+        {"cbf_contract": {"anticipatory_horizon_steps": 5, "barrier_mode": "strict_buffer"}}
+    )
+    assert contract == {"anticipatory_horizon_steps": 5, "barrier_mode": "strict_buffer"}
+
+    with pytest.raises(ValueError, match="barrier_mode"):
+        _archive_cbf_contract({"cbf_contract": {"anticipatory_horizon_steps": 5, "barrier_mode": "invalid"}})

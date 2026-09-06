@@ -52,6 +52,11 @@ safety_contract:
   raw_unverified_execution_allowed: false
   branch_advances_only_after_verified_primary_cbf: true
 
+cbf_contract:
+  anticipatory_horizon_steps: 5
+  barrier_mode: strict_buffer
+  margin_source: capture_radius_pursuit_central_v4_flee.yaml
+
 tensorboard:
   required: true
   scalar_groups:
