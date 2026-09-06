@@ -1,8 +1,8 @@
 # Distinct Model-Seed L0 Paired Gate Stop Report
 
-**Date:** 2026-09-07  
-**Scope:** development-only independent model-seed replay  
-**Locked test:** not opened  
+**Date:** 2026-09-07
+**Scope:** development-only independent model-seed replay
+**Locked test:** not opened
 **Hardware:** NVIDIA GeForce RTX 5050
 
 ## Decision
