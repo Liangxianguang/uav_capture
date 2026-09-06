@@ -857,6 +857,11 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         raise ValueError("This archive contract requires --actor-checkpoint")
     if str(state_distribution.get("mode", "")).strip() == "frozen_runtime_actor" and args.actor_checkpoint is None:
         raise ValueError("frozen_runtime_actor archives require --actor-checkpoint")
+    configured_split = str(archive_config.get("split", "")).strip()
+    if configured_split and configured_split != args.split:
+        raise ValueError(
+            f"archive config split {configured_split!r} does not match --split {args.split!r}"
+        )
     configured_source = str(archive_config.get("source_protocol", ""))
     if configured_source and Path(configured_source).name != args.protocol.resolve().name:
         raise ValueError("archive config source_protocol does not match --protocol")

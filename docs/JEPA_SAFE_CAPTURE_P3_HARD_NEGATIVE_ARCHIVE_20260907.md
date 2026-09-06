@@ -2,7 +2,7 @@
 
 **日期：** 2026-09-07  
 **阶段：** development-only train smoke  
-**结论标签：** `archive_signal_ready_training_blocked`
+**结论标签：** `archive_contract_gate_passed_training_blocked`
 
 ## 1. 目的
 
@@ -52,13 +52,23 @@ All new arrays have shape `[1872, 5]` and are finite:
 
 The `-1.0` acceleration-slack sentinel is reserved for failed/unknown diagnostics; successful rows contain measured slack. It is not interpreted as a CBF execution result.
 
-## 4. Interpretation
+## 4. Held-out validation and calibration smoke
+
+The same collector was run on disjoint protocol seed blocks with the same frozen actor and CBF contract:
+
+| split | seeds | total / runtime rows | geometry-valid | horizon failure | boundary-negative rows | dataset SHA-256 |
+|---|---|---:|---:|---:|---:|---|
+| validation | `646101–646104` | `1508 / 1392` | `1140 / 1392 = 81.90%` | `312 / 1392` | `82` | `28a9df1669fb62708f48883597879ad548fbc575bd2c11f0f066f8f34b9743bb` |
+| calibration | `648101–648104` | `2652 / 2448` | `1872 / 2448 = 76.47%` | `668 / 2448` | `142` | `750610cb660fa8166fcf41ef87ab0bb020d4ccd272de44a486d58626897d67d0` |
+
+Validation contains both positive and negative route-feasibility labels (`1080` branches remain valid through the recorded horizon and `312` fail within it), both boundary-clearance classes through runtime plus offline shadow rows, both visibility values, and both route-geometry classes. Train, validation and calibration episode seeds are disjoint by protocol construction. Each run has its own TensorBoard event file and provenance metadata.
+
+## 5. Interpretation
 
 The archive now contains the intended learning signal: first-step feasibility is not the bottleneck, while a substantial fraction of branches fail later in the horizon. This supports training stopping-distance/TTC/feasibility auxiliary heads and earlier braking or route switching.
 
 This is **not** evidence of improved `safe_capture`, JEPA accuracy, or end-to-end control. The archive is train-only and was collected from a frozen actor. The P3 gate remains open until a non-overlapping validation archive contains auditable positive and negative feasibility, boundary and visibility classes.
 
-## 5. Stop decision and next action
+## 6. Stop decision and next action
 
-No JEPA training, L1-L3 expansion, or multi-seed benchmark was started after this smoke. The next bounded action is to collect validation and calibration archives with disjoint seeds, audit label direction/calibration, and only then run a small head-only JEPA training smoke. If paired safe-capture does not improve after that controlled experiment, stop further model/data scaling and attribute the failure using the existing route/Cbf/Ledger traces.
-
+The archive collection gate is now satisfied, but no JEPA training, L1-L3 expansion, or multi-seed benchmark was started. The next bounded action is a label-direction and calibration audit across the three archives, followed by a small head-only JEPA training smoke. If paired safe-capture does not improve after that controlled experiment, stop further model/data scaling and attribute the failure using the existing route/CBF/Ledger traces.
