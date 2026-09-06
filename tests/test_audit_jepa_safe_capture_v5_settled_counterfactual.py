@@ -6,12 +6,42 @@ import numpy as np
 
 from scripts.audit_jepa_safe_capture_v5_settled_counterfactual import (
     _best_candidate,
+    _candidate_chunks_from_trace,
     _ece,
     _jsonable,
     _kendall,
     _softmax_probabilities,
     _spearman,
 )
+
+
+class _EnvStub:
+    n_defenders = 2
+
+
+def test_route_trace_candidate_chunks_support_twelve_candidates() -> None:
+    candidates = [
+        {
+            "label": f"route_{index}",
+            "action_chunk": np.zeros((3, 2, 3)).tolist(),
+            "fallback_only": index == 11,
+        }
+        for index in range(12)
+    ]
+    record = {
+        "route_runtime": {
+            "routes": {"candidates": candidates},
+            "candidate_batch": {"valid_mask": [True] * 12},
+            "cbf_counterfactuals": [{"accepted": True} for _ in range(12)],
+        }
+    }
+    chunks, cbf_eligible, labels, valid = _candidate_chunks_from_trace(
+        record, {}, env=_EnvStub(), previous_action=np.zeros((2, 3))
+    )
+    assert chunks.shape == (12, 3, 2, 3)
+    assert cbf_eligible.tolist() == [True] * 11 + [False]
+    assert labels[0] == "route_0"
+    assert valid.tolist() == [True] * 12
 
 
 def test_jsonable_converts_numpy_and_nonfinite_values() -> None:

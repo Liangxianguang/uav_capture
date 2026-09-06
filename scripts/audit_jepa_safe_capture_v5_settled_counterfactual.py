@@ -3,10 +3,11 @@
 The paired evaluator only executes the selected first action.  This audit
 reconstructs each frozen run with the recorded executed actions and, at every
 JEPA decision, branches the environment for each eligible candidate.  Each
-branch executes the constant three-step candidate chunk through the same
-Joint CBF-QP and uses simulator ground truth *offline* to settle local target
+branch executes the recorded candidate action chunk through the same Joint
+CBF-QP and uses simulator ground truth *offline* to settle local target
 progress, capture and safety labels.  No branch is used to alter the source
-run or an online decision.
+run or an online decision.  Route-aware V5 traces contain twelve candidates;
+the legacy five-candidate generator remains supported for older traces.
 
 The result is deliberately a local counterfactual diagnostic, not a claim that
 the unexecuted candidate would have produced a full-episode policy outcome.
@@ -329,10 +330,76 @@ def _candidate_config(env: CaptureRadiusPursuit3DEnv) -> SafeCaptureCandidateCon
     )
 
 
+def _candidate_chunks_from_trace(
+    record: Mapping[str, Any],
+    observation: Mapping[str, Any],
+    *,
+    env: CaptureRadiusPursuit3DEnv,
+    previous_action: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+    """Return immutable route chunks and an offline CBF eligibility view.
+
+    Route-aware traces already contain the public candidate action blocks and
+    independent CBF probe results. Reusing these fields avoids silently
+    regenerating a different route contract during the audit. Older traces
+    use the historical deterministic five-candidate generator.
+    """
+
+    route_runtime = record.get("route_runtime")
+    if isinstance(route_runtime, Mapping):
+        routes = route_runtime.get("routes")
+        candidates = routes.get("candidates") if isinstance(routes, Mapping) else None
+        candidate_batch = route_runtime.get("candidate_batch")
+        probes = route_runtime.get("cbf_counterfactuals")
+        if isinstance(candidates, list) and isinstance(candidate_batch, Mapping):
+            chunks: list[np.ndarray] = []
+            labels: list[str] = []
+            for candidate in candidates:
+                if not isinstance(candidate, Mapping):
+                    raise ValueError("Malformed route candidate in trace.")
+                chunk = np.asarray(candidate.get("action_chunk"), dtype=np.float64)
+                if chunk.ndim != 3 or chunk.shape[1:] != (env.n_defenders, 3) or not np.isfinite(chunk).all():
+                    raise ValueError("Route candidate action_chunk has an invalid shape or non-finite value.")
+                chunks.append(chunk)
+                labels.append(str(candidate.get("label", "")))
+            if not chunks:
+                raise ValueError("Route runtime contains no candidates.")
+            route_chunks = np.stack(chunks, axis=0)
+            valid_mask = np.asarray(candidate_batch.get("valid_mask", []), dtype=bool)
+            if valid_mask.shape != (len(chunks),):
+                raise ValueError("Route candidate valid_mask does not match candidate count.")
+            cbf_eligible = valid_mask.copy()
+            if isinstance(probes, list):
+                if len(probes) != len(chunks):
+                    raise ValueError("Route CBF probe count does not match candidate count.")
+                for index, probe in enumerate(probes):
+                    cbf_eligible[index] = bool(
+                        cbf_eligible[index] and isinstance(probe, Mapping) and probe.get("accepted", False)
+                    )
+            # The explicit fallback-only hold is a safety fallback, not a
+            # route-ranking alternative, even though it is geometrically valid.
+            for index, candidate in enumerate(candidates):
+                cbf_eligible[index] = bool(cbf_eligible[index] and not candidate.get("fallback_only", False))
+            return route_chunks, cbf_eligible, labels, valid_mask
+
+    batch = make_safe_capture_candidate_chunks(
+        np.asarray(record.get("reachable_nominal_action"), dtype=np.float64),
+        observation,
+        config=_candidate_config(env),
+        previous_action=previous_action,
+    )
+    return (
+        np.asarray(batch.chunks, dtype=np.float64),
+        np.asarray(batch.valid_mask, dtype=bool),
+        list(batch.labels),
+        np.asarray(batch.valid_mask, dtype=bool),
+    )
+
+
 def _branch_candidate(
     env: CaptureRadiusPursuit3DEnv,
     observation: Mapping[str, Any],
-    candidate_action: np.ndarray,
+    candidate_chunk: np.ndarray,
     nominal_action: np.ndarray,
     chunk_length: int,
 ) -> dict[str, Any]:
@@ -349,7 +416,11 @@ def _branch_candidate(
     unverified_steps = 0
     capture_event = False
     termination_reason = "chunk_complete"
-    for _ in range(chunk_length):
+    candidate_chunk = np.asarray(candidate_chunk, dtype=np.float64)
+    if candidate_chunk.ndim != 3 or candidate_chunk.shape[1:] != nominal_action.shape:
+        raise ValueError("candidate_chunk must have shape [steps, defenders, 3].")
+    for chunk_step in range(chunk_length):
+        candidate_action = candidate_chunk[min(chunk_step, candidate_chunk.shape[0] - 1)]
         filtered, diagnostics = safety_filter.filter(
             np.asarray(candidate_action, dtype=np.float64),
             observation if branch.step_count == env.step_count else branch.observe(),
@@ -429,6 +500,7 @@ def _settle_run(
     environment_config_path: Path,
     baseline_dir: Path,
     eligibility_floor_override_m: float | None = None,
+    eligibility_source: str = "recorded",
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     metadata, outcomes = _validate_run(run_dir)
     manifest_path = run_dir / "scene_manifest.jsonl"
@@ -462,7 +534,6 @@ def _settle_run(
         )
         observation = prepare_showcase_episode(env, scenario, seed=int(spec["episode_seed"]), record_history=True, validate_scenario=False)
         previous_action = np.asarray(env.defender_velocities, dtype=np.float64).copy()
-        candidate_config = _candidate_config(env)
         trace = _trace_rows(run_dir, episode_index)
         for record in trace:
             ranking = record.get("candidate_ranking")
@@ -474,37 +545,43 @@ def _settle_run(
             executed = np.asarray(record.get("executed_action"), dtype=np.float64)
             if reachable_nominal.shape != (env.n_defenders, 3) or executed.shape != reachable_nominal.shape:
                 raise ValueError(f"Malformed action trace in {run_dir} episode {episode_index}")
-            batch = make_safe_capture_candidate_chunks(
-                reachable_nominal,
+            candidate_chunks, route_cbf_eligible, candidate_labels, route_valid_mask = _candidate_chunks_from_trace(
+                record,
                 observation,
-                config=candidate_config,
+                env=env,
                 previous_action=previous_action,
             )
-            recorded_eligible = np.asarray(ranking.get("eligible_mask", batch.valid_mask.tolist()), dtype=bool)
-            if recorded_eligible.shape != (5,):
+            candidate_count = int(candidate_chunks.shape[0])
+            recorded_eligible = np.asarray(ranking.get("eligible_mask", route_valid_mask.tolist()), dtype=bool)
+            if recorded_eligible.shape != (candidate_count,):
                 raise ValueError(f"Malformed eligible_mask in {run_dir} episode {episode_index}")
-            scores = np.asarray(ranking.get("scores", [float("inf")] * 5), dtype=np.float64)
-            if scores.shape != (5,) or not np.isfinite(scores[recorded_eligible]).all():
+            scores = np.asarray(ranking.get("scores", [float("inf")] * candidate_count), dtype=np.float64)
+            if scores.shape != (candidate_count,) or not np.isfinite(scores[recorded_eligible]).all():
                 raise ValueError(f"Malformed finite scores in {run_dir} episode {episode_index}")
-            if eligibility_floor_override_m is None:
+            if eligibility_source == "route_cbf_verified":
+                # Development-only route-regret view: preserve geometry and
+                # independent CBF probes, while bypassing only the recorded
+                # Ledger eligibility gate for offline attribution.
+                eligible = route_cbf_eligible & np.isfinite(scores)
+            elif eligibility_floor_override_m is None:
                 eligible = recorded_eligible
             else:
                 predicted_clearance = np.asarray(
-                    ranking.get("predicted_min_clearance_m", [float("nan")] * 5),
+                    ranking.get("predicted_min_clearance_m", [float("nan")] * candidate_count),
                     dtype=np.float64,
                 )
                 ledger_states = np.asarray(
-                    ranking.get("ledger_states", ["safe_hold"] * 5),
+                    ranking.get("ledger_states", ["safe_hold"] * candidate_count),
                     dtype=object,
                 )
                 valid_mask = np.asarray(
-                    ranking.get("valid_mask", batch.valid_mask.tolist()),
+                    ranking.get("valid_mask", route_valid_mask.tolist()),
                     dtype=bool,
                 )
                 if (
-                    predicted_clearance.shape != (5,)
-                    or ledger_states.shape != (5,)
-                    or valid_mask.shape != (5,)
+                    predicted_clearance.shape != (candidate_count,)
+                    or ledger_states.shape != (candidate_count,)
+                    or valid_mask.shape != (candidate_count,)
                     or not np.isfinite(predicted_clearance).all()
                 ):
                     raise ValueError(f"Malformed ranking safety fields in {run_dir} episode {episode_index}")
@@ -521,9 +598,9 @@ def _settle_run(
                 _branch_candidate(
                     env,
                     observation,
-                    batch.chunks[index, 0],
+                    candidate_chunks[index],
                     reachable_nominal,
-                    int(batch.chunks.shape[1]),
+                    int(candidate_chunks.shape[1]),
                 )
                 if bool(eligible[index])
                 else {
@@ -542,10 +619,10 @@ def _settle_run(
                     "settled_cbf_unverified_steps": 0,
                     "settled_termination_reason": "ineligible",
                 }
-                for index in range(5)
+                for index in range(candidate_count)
             ]
             selected_index = int(ranking.get("selected_index", 0))
-            if not 0 <= selected_index < 5:
+            if not 0 <= selected_index < candidate_count:
                 raise ValueError(f"Invalid selected_index in {run_dir} episode {episode_index}")
             best_index = _best_candidate(local_outcomes, eligible)
             selected_outcome = local_outcomes[selected_index]
@@ -562,6 +639,11 @@ def _settle_run(
                 "step": int(record.get("step", env.step_count + 1)),
                 "pair_label": pair_labels[episode_index],
                 "selected_index": selected_index,
+                "candidate_count": candidate_count,
+                "candidate_labels": candidate_labels,
+                "eligible_count": int(np.sum(eligible)),
+                "route_cbf_eligible_count": int(np.sum(route_cbf_eligible)),
+                "eligibility_source": eligibility_source,
                 "best_settled_index": int(best_index),
                 "selected_not_best": bool(selected_index != best_index),
                 "selected_settled_safe_capture": bool(selected_outcome["settled_safe_capture"]),
@@ -588,12 +670,12 @@ def _settle_run(
                 "top_two_margin_m": ranking.get("top_two_margin_m"),
             }
             row["predicted_rank_spearman"] = _spearman(
-                [float(scores[index]) for index in range(5) if bool(eligible[index])],
-                [float(local_outcomes[index]["settled_progress_m"]) for index in range(5) if bool(eligible[index])],
+                [float(scores[index]) for index in range(candidate_count) if bool(eligible[index])],
+                [float(local_outcomes[index]["settled_progress_m"]) for index in range(candidate_count) if bool(eligible[index])],
             )
             row["predicted_rank_kendall"] = _kendall(
-                [float(scores[index]) for index in range(5) if bool(eligible[index])],
-                [float(local_outcomes[index]["settled_progress_m"]) for index in range(5) if bool(eligible[index])],
+                [float(scores[index]) for index in range(candidate_count) if bool(eligible[index])],
+                [float(local_outcomes[index]["settled_progress_m"]) for index in range(candidate_count) if bool(eligible[index])],
             )
             episode_rows.append(row)
             # Advance the source replay by exactly the recorded executed action.
@@ -697,6 +779,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Offline-only predicted clearance floor override; does not change the source replay or CBF margin.",
     )
+    parser.add_argument(
+        "--eligibility-source",
+        choices=("recorded", "route_cbf_verified"),
+        default="recorded",
+        help="Offline eligibility view; route_cbf_verified bypasses only Ledger eligibility for attribution.",
+    )
     parser.add_argument("--development-only", action="store_true", required=True)
     return parser.parse_args()
 
@@ -727,6 +815,7 @@ def main() -> None:
             environment_config_path=args.environment_config,
             baseline_dir=args.baseline_run.resolve(),
             eligibility_floor_override_m=args.eligibility_floor,
+            eligibility_source=args.eligibility_source,
         )
         if manifest_hash is None:
             manifest_hash = metadata["scene_manifest_sha256"]
@@ -748,7 +837,9 @@ def main() -> None:
         "scene_manifest_shared": len({metadata["scene_manifest_sha256"] for metadata in run_metadata}) == 1,
         "protocol_hash_matches": all(not metadata["protocol_sha256"] or metadata["protocol_sha256"] == protocol_hash for metadata in run_metadata),
         "finite_scores": all(np.isfinite(np.asarray(row["scores"], dtype=np.float64)[np.asarray(row["eligible_mask"], dtype=bool)]).all() for row in all_rows),
-        "selected_indices_valid": all(0 <= int(row["selected_index"]) < 5 for row in all_rows),
+        "selected_indices_valid": all(
+            0 <= int(row["selected_index"]) < len(row.get("scores", [])) for row in all_rows
+        ),
         # Unexecuted branches are allowed to be rejected/unverified; that is
         # precisely the risk signal this audit exposes. Only the source run's
         # actually executed path is subject to the raw-action hard gate.
@@ -758,6 +849,7 @@ def main() -> None:
         "counterfactual_unverified_observable": all(
             isinstance(row.get("selected_cbf_unverified_steps"), int) for row in all_rows
         ),
+        "candidate_contract_observable": all(len(row.get("scores", [])) in {5, 12} for row in all_rows),
     }
     report: dict[str, Any] = {
         "audit_type": "jepa_safe_capture_v5_settled_counterfactual",
@@ -767,12 +859,14 @@ def main() -> None:
         "not_a_locked_test": True,
         "locked_test_opened": False,
         "policy": {
-            "settlement": "offline simulator ground truth, constant 3-step candidate chunk, every step through Joint CBF-QP",
+            "settlement": "offline simulator ground truth, recorded candidate action chunk, every step through Joint CBF-QP",
             "counterfactual_scope": "local chunk, not full-episode policy outcome",
             "score_softmax_brier_ece": "proxy derived from -score among eligible candidates; not a calibrated capture probability",
             "protocol": str(args.protocol.resolve()),
             "environment_config": str(args.environment_config.resolve()),
             "eligibility_floor_override_m": args.eligibility_floor,
+            "eligibility_source": args.eligibility_source,
+            "route_candidate_count": 12,
         },
         "inputs": {
             "baseline_run": str(args.baseline_run.resolve()),
