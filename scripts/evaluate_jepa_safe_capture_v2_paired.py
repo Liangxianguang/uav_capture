@@ -914,6 +914,25 @@ def _run_episode(
             "message_age_state": observation.get("message_age_state"),
             "queue_age_steps": queue_age_steps,
         }
+        # Snapshot the exact pre-action public input.  It is intentionally
+        # captured before the environment step so offline audits can reason
+        # about what the controller actually knew at decision time.
+        public_observation = {
+            "defender_positions": observation.get("defender_positions"),
+            "defender_velocities": observation.get("defender_velocities"),
+            "target_belief_positions": observation.get("target_belief_positions"),
+            "target_belief_velocities": observation.get("target_belief_velocities"),
+            "target_visible": observation.get("target_visible"),
+            "target_observation_received": observation.get("target_observation_received"),
+            "target_observation_age_steps": observation.get("target_observation_age_steps"),
+            "target_observation_age_state": observation.get("target_observation_age_state"),
+            "message_age_steps": observation.get("message_age_steps"),
+            "message_received": observation.get("message_received"),
+            "message_age_state": observation.get("message_age_state"),
+            "obstacles": observation.get("obstacles"),
+            "world_lower": observation.get("world_lower"),
+            "world_upper": observation.get("world_upper"),
+        }
         queue_ages.append(queue_age_steps)
         candidate_started_ns = time.perf_counter_ns()
         route_runtime: ObstacleRouteRuntimeBatch | None = None
@@ -1276,6 +1295,10 @@ def _run_episode(
                 "executed_action": action,
                 "raw_unverified_executed": bool(raw_unverified_executed),
                 "input_observation": input_observation,
+                # Full causal input snapshot for observation-contract audits.
+                # This deliberately excludes simulator target truth; target
+                # truth remains available only in offline scene labels.
+                "public_observation": public_observation,
                 "observation": {
                     "target_visible": observation.get("target_visible"),
                     "target_observation_age_steps": observation.get("target_observation_age_steps"),
@@ -2122,7 +2145,7 @@ def main() -> None:
     }
     metadata = {
         "evaluation_type": "jepa_safe_capture_v2_p6_paired_development",
-        "trace_schema_version": 2,
+        "trace_schema_version": 3,
         "development_only": True,
         "not_a_locked_test": True,
         "locked_test_opened": False,
