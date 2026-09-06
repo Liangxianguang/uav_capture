@@ -24,6 +24,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
+from encirclement3d.cbf_qp import JointCBFQPSafetyFilter  # noqa: E402
 from encirclement3d.jepa_safe_capture_candidates import candidate_labels_for_profile  # noqa: E402
 from encirclement3d.showcase import (  # noqa: E402
     ShowcaseScenario,
@@ -89,11 +90,12 @@ def _spec_for_experiment(
     experiment_index: int,
     episode_index: int,
     episodes_per_scenario: int,
+    development_seed: int | None = None,
 ) -> dict[str, Any]:
     blocks = collection.get("seed_blocks", {})
     if not isinstance(blocks, Mapping) or "development" not in blocks:
         raise ValueError("Collection must provide a development seed block.")
-    base = int(blocks["development"])
+    base = int(blocks["development"] if development_seed is None else development_seed)
     ordinal = experiment_index * 10_000 + episode_index
     overrides = dict(experiment["pursuit_overrides"])
     motion = str(overrides.get("target_motion_mode", "flee_persistence"))
@@ -197,11 +199,19 @@ def _build_manifest(
     collection: Mapping[str, Any],
     environment_config: Path,
     episodes_per_scenario: int,
+    development_seed: int | None = None,
 ) -> list[dict[str, Any]]:
     manifest: list[dict[str, Any]] = []
     for experiment_index, experiment in enumerate(_experiments(collection)):
         for episode_index in range(episodes_per_scenario):
-            spec = _spec_for_experiment(collection, experiment, experiment_index, episode_index, episodes_per_scenario)
+            spec = _spec_for_experiment(
+                collection,
+                experiment,
+                experiment_index,
+                episode_index,
+                episodes_per_scenario,
+                development_seed=development_seed,
+            )
             scenario = _scenario_for_spec(spec, environment_config)
             manifest.append(
                 {
@@ -216,8 +226,19 @@ def _build_manifest(
     return manifest
 
 
-def _load_manifest(path: Path, expected: list[dict[str, Any]], environment_config: Path) -> list[dict[str, Any]]:
+def _load_manifest(
+    path: Path,
+    expected: list[dict[str, Any]],
+    environment_config: Path,
+    only_difficulty: str | None = None,
+) -> list[dict[str, Any]]:
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if only_difficulty is not None:
+        records = [
+            record
+            for record in records
+            if str(record.get("spec", {}).get("difficulty")) == only_difficulty
+        ]
     if len(records) != len(expected):
         raise ValueError(f"Manifest has {len(records)} records; expected {len(expected)}.")
     for index, (record, reference) in enumerate(zip(records, expected)):
@@ -246,6 +267,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--variant", choices=VARIANTS, required=True)
     parser.add_argument("--training-seed", type=int, choices=TRAINING_SEEDS, required=True)
     parser.add_argument("--episodes-per-scenario", type=int, default=8)
+    parser.add_argument(
+        "--development-seed",
+        type=int,
+        help="Override the collection development seed when generating a fresh manifest.",
+    )
+    parser.add_argument(
+        "--only-difficulty",
+        choices=(
+            "l0_open",
+            "l0_single_obstacle",
+            "l1_nominal",
+            "l1_s_curve",
+            "l2_partial_observation",
+            "l2_delayed_noisy",
+            "l3_mixed_obstacle",
+            "l3_s3_stress",
+        ),
+        help="Development gate: evaluate only one difficulty family from the paired manifest.",
+    )
     parser.add_argument("--split", choices=("development",), default="development")
     parser.add_argument("--collection-config", type=Path, default=DEFAULT_COLLECTION)
     parser.add_argument("--environment-config", type=Path, default=DEFAULT_ENVIRONMENT_CONFIG)
@@ -263,6 +303,18 @@ def parse_args() -> argparse.Namespace:
         help="Candidate profile; when omitted, use archive_contract.candidate_profile.",
     )
     parser.add_argument("--recurrent-reset-interval", type=int)
+    parser.add_argument(
+        "--cbf-horizon",
+        type=int,
+        default=3,
+        help="Joint CBF anticipatory horizon in control steps; 3 preserves historical runs.",
+    )
+    parser.add_argument(
+        "--cbf-barrier-mode",
+        choices=("strict_buffer", "physical_feasibility"),
+        default="strict_buffer",
+        help="Development-only CBF geometry contract; strict_buffer preserves the historical path.",
+    )
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument("--development-only", action="store_true", required=True)
     return parser.parse_args()
@@ -272,8 +324,8 @@ def main() -> None:
     args = parse_args()
     if not args.development_only:
         raise ValueError("L0-L3 evaluator requires --development-only.")
-    if args.episodes_per_scenario <= 0 or args.jepa_history_length <= 0:
-        raise ValueError("episodes-per-scenario and history length must be positive.")
+    if args.episodes_per_scenario <= 0 or args.jepa_history_length <= 0 or args.cbf_horizon <= 0:
+        raise ValueError("episodes-per-scenario, history length, and CBF horizon must be positive.")
     collection_path = args.collection_config.resolve()
     environment_config = args.environment_config.resolve()
     actor_checkpoint = args.actor_checkpoint.resolve()
@@ -301,8 +353,30 @@ def main() -> None:
             f"profile {candidate_profile!r} ({candidate_count})."
         )
     candidate_cbf_prefilter = bool(archive_contract.get("candidate_cbf_prefilter", False))
-    expected = _build_manifest(collection, environment_config, args.episodes_per_scenario)
-    manifest = expected if args.scene_manifest is None else _load_manifest(args.scene_manifest.resolve(), expected, environment_config)
+    expected = _build_manifest(
+        collection,
+        environment_config,
+        args.episodes_per_scenario,
+        development_seed=args.development_seed,
+    )
+    if args.only_difficulty is not None:
+        expected = [
+            item
+            for item in expected
+            if str(item["spec"].get("difficulty")) == args.only_difficulty
+        ]
+        if not expected:
+            raise ValueError(f"No collection records match --only-difficulty={args.only_difficulty!r}.")
+    manifest = (
+        expected
+        if args.scene_manifest is None
+        else _load_manifest(
+            args.scene_manifest.resolve(),
+            expected,
+            environment_config,
+            only_difficulty=args.only_difficulty,
+        )
+    )
     contract = _variant_contract(args.variant)
     ranking_contract = {"ranking_device": "execution", "actor_device": "execution"}
     ranker_config = _ranker_config(args.variant, ranking_contract)
@@ -369,6 +443,8 @@ def main() -> None:
             action_comparison_quantum_mps=0.0,
             ranking_device=device,
             actor_device=device,
+            cbf_barrier_mode=str(args.cbf_barrier_mode),
+            cbf_anticipatory_horizon_steps=args.cbf_horizon,
             output_dir=output_dir,
         )
         row.update(
@@ -409,6 +485,8 @@ def main() -> None:
         "split": args.split,
         "episodes": len(rows),
         "episodes_per_scenario": int(args.episodes_per_scenario),
+        "only_difficulty": str(args.only_difficulty) if args.only_difficulty is not None else None,
+        "development_seed_override": int(args.development_seed) if args.development_seed is not None else None,
         "scenario_count": len(_experiments(collection)),
         "candidate_contract": {
             "candidate_count": candidate_count,
@@ -418,7 +496,13 @@ def main() -> None:
             "perturbation_mps": float(args.jepa_perturbation_mps),
             "execute_first_step_then_replan": True,
             "project_to_reachable_dynamics": True,
+            "cbf_barrier_mode": str(args.cbf_barrier_mode),
         },
+        "cbf_contract": JointCBFQPSafetyFilter(
+            prototype,
+            anticipatory_horizon_steps=args.cbf_horizon,
+            barrier_mode=str(args.cbf_barrier_mode),
+        ).contract,
         "recurrent_reset_interval_steps": recurrent_reset_interval,
         "action_scale": float(action_scale),
         "git_revision": __import__("subprocess").check_output(["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True).strip(),
