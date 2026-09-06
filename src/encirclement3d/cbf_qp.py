@@ -255,6 +255,71 @@ class JointCBFQPSafetyFilter:
             minimum_state_clearance=minimum_state_clearance,
         )
 
+    def verify_requested_action(
+        self,
+        desired_actions: np.ndarray,
+        observation: Mapping[str, Any],
+    ) -> JointCBFQPDiagnostics:
+        """Check one candidate against the primary Joint CBF-QP without fallback.
+
+        Candidate generation uses this read-only probe before JEPA ranking.  A
+        candidate is eligible only when the requested action itself has a
+        finite, non-timeout, verified primary solve; nominal/safe-hold
+        fallbacks are deliberately not treated as candidate feasibility.
+        The normal :meth:`filter` path remains the sole execution boundary.
+        """
+
+        desired = np.asarray(desired_actions, dtype=np.float64)
+        expected = (self.env.n_defenders, 3)
+        current = np.asarray(observation.get("defender_velocities"), dtype=np.float64)
+        if current.shape != expected or not np.isfinite(current).all():
+            raise ValueError("Observed defender velocities must be finite and match the defender count.")
+        if desired.shape != expected:
+            raise ValueError(f"desired_actions must have shape {expected}, got {desired.shape}.")
+        records = self._build_barriers(observation)
+        task_slacks = self._task_constraint_slacks(observation, current)
+        minimum_state_clearance, state_violations = self._state_safety(observation)
+        if state_violations:
+            _action, diagnostics = self._controlled_abort(
+                current,
+                desired,
+                records,
+                task_slacks,
+                status="state_safety_violation",
+                message="; ".join(state_violations),
+                requested_action_finite=bool(np.isfinite(desired).all()),
+                state_safety_violation=True,
+                minimum_state_clearance=minimum_state_clearance,
+            )
+            return diagnostics
+        if not np.isfinite(desired).all():
+            _action, diagnostics = self._controlled_abort(
+                current,
+                desired,
+                records,
+                task_slacks,
+                status="nonfinite_request",
+                message="desired action contains non-finite values",
+                requested_action_finite=False,
+                minimum_state_clearance=minimum_state_clearance,
+            )
+            return diagnostics
+        primary = self._solve(
+            self._reachable_reference(current, desired),
+            current,
+            records,
+        )
+        return self._diagnostics(
+            primary,
+            desired,
+            requested_action_finite=True,
+            used_fallback=False,
+            fallback_mode="none",
+            infeasible=bool(primary.timed_out or not primary.verified_feasible),
+            task_slacks=task_slacks,
+            minimum_state_clearance=minimum_state_clearance,
+        )
+
     def _correction_ok(self, action: np.ndarray | None, requested: np.ndarray) -> bool:
         if action is None or not np.isfinite(action).all():
             return False

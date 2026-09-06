@@ -8,9 +8,11 @@ import torch
 
 from encirclement3d.jepa_safe_capture_candidates import (
     CANDIDATE_LABELS,
+    EXTENDED_CANDIDATE_LABELS,
     SafeCaptureCandidateBatch,
     SafeCaptureCandidateConfig,
     SafeCaptureCandidateHistory,
+    candidate_labels_for_profile,
     make_safe_capture_candidate_chunks,
 )
 from encirclement3d.jepa_safe_capture_ranker import (
@@ -136,6 +138,63 @@ def test_candidate_contract_is_fixed_and_nominal_is_exact_anchor() -> None:
     assert all(np.allclose(chunk, chunk[:1], rtol=0.0, atol=1e-9) for chunk in batch.chunks)
 
 
+def test_extended_candidate_profile_adds_safe_motion_fallbacks() -> None:
+    nominal = np.array([[0.5, 0.0, 0.0], [0.4, 0.0, 0.0]], dtype=np.float64)
+    config = SafeCaptureCandidateConfig(
+        candidate_profile="extended_v1",
+        candidate_count=len(EXTENDED_CANDIDATE_LABELS),
+        project_to_reachable_dynamics=True,
+    )
+    assert config.labels == EXTENDED_CANDIDATE_LABELS
+    assert candidate_labels_for_profile("extended_v1") == EXTENDED_CANDIDATE_LABELS
+    batch = make_safe_capture_candidate_chunks(
+        nominal,
+        _observation(),
+        config=config,
+        previous_action=nominal,
+    )
+    assert batch.chunks.shape == (len(EXTENDED_CANDIDATE_LABELS), 3, 2, 3)
+    assert batch.labels == EXTENDED_CANDIDATE_LABELS
+    assert np.all(batch.valid_mask)
+    np.testing.assert_array_equal(batch.chunks[0], np.repeat(nominal[None], 3, axis=0))
+    assert np.linalg.norm(batch.chunks[5, 0]) < np.linalg.norm(nominal)
+    np.testing.assert_array_equal(batch.chunks[-1], np.zeros_like(nominal)[None].repeat(3, axis=0))
+
+
+def test_ranker_accepts_extended_candidate_batch_without_fixed_five_assumption() -> None:
+    nominal = np.array([[0.5, 0.0, 0.0], [0.4, 0.0, 0.0]], dtype=np.float64)
+    batch = make_safe_capture_candidate_chunks(
+        nominal,
+        _observation(),
+        config=SafeCaptureCandidateConfig(
+            candidate_profile="extended_v1",
+            candidate_count=len(EXTENDED_CANDIDATE_LABELS),
+        ),
+    )
+    result = SafeCaptureJEPARanker(_FakeHistory()).rank(_observation(), batch)
+    assert len(result.trace.candidate_labels) == len(EXTENDED_CANDIDATE_LABELS)
+    assert len(result.trace.scores) == len(EXTENDED_CANDIDATE_LABELS)
+    assert len(result.trace.eligible_mask) == len(EXTENDED_CANDIDATE_LABELS)
+    assert 0 <= result.selected_index < len(EXTENDED_CANDIDATE_LABELS)
+
+
+def test_verified_safe_hold_is_fallback_only_and_cannot_win_task_ranking() -> None:
+    nominal = np.array([[0.5, 0.0, 0.0], [0.4, 0.0, 0.0]], dtype=np.float64)
+    batch = make_safe_capture_candidate_chunks(
+        nominal,
+        _observation(),
+        config=SafeCaptureCandidateConfig(
+            candidate_profile="extended_v1",
+            candidate_count=len(EXTENDED_CANDIDATE_LABELS),
+        ),
+    )
+    result = SafeCaptureJEPARanker(_FakeHistory()).rank(_observation(), batch)
+    hold_index = EXTENDED_CANDIDATE_LABELS.index("verified_safe_hold")
+    assert result.selected_index != hold_index
+    assert result.trace.eligible_mask[hold_index] is False
+    assert result.trace.candidate_eligibility_reasons[hold_index] == ("fallback_only_candidate",)
+
+
 def test_candidate_generator_rejects_nonfinite_nominal_and_marks_dynamics_failures() -> None:
     nominal = np.array([[np.nan, 0.0, 0.0], [0.0, 0.0, 0.0]])
     try:
@@ -155,6 +214,41 @@ def test_candidate_generator_rejects_nonfinite_nominal_and_marks_dynamics_failur
     assert not bool(batch.valid_mask[0])
     assert "acceleration_limit" in batch.rejection_reasons[0]
     assert "nominal_infeasible" in batch.rejection_reasons[0]
+
+
+def test_candidate_cbf_prefilter_marks_probe_failures_without_replacing_actions() -> None:
+    from scripts.evaluate_jepa_safe_capture_v2_paired import _prefilter_candidate_batch_with_cbf
+
+    nominal = np.zeros((2, 3), dtype=np.float64)
+    batch = make_safe_capture_candidate_chunks(nominal, _observation(), config=SafeCaptureCandidateConfig())
+
+    class _Probe:
+        def verify_requested_action(self, action: np.ndarray, observation: dict[str, object]):
+            index = int(round(float(action[0, 0])))
+            return SimpleNamespace(
+                verified_feasible=index not in {1, 2},
+                timed_out=index == 2,
+                infeasible=index == 1,
+                fallback_mode="none" if index not in {1, 2} else "controlled_abort",
+            )
+
+    encoded = np.zeros_like(batch.chunks[:, 0])
+    for index in range(encoded.shape[0]):
+        encoded[index, 0, 0] = index
+    probe_batch = SafeCaptureCandidateBatch(
+        chunks=np.repeat(encoded[:, None], 3, axis=1),
+        labels=batch.labels,
+        valid_mask=batch.valid_mask,
+        rejection_reasons=batch.rejection_reasons,
+    )
+    filtered, diagnostics = _prefilter_candidate_batch_with_cbf(probe_batch, _Probe(), _observation())
+
+    assert len(diagnostics) == 5
+    assert diagnostics[0].verified_feasible
+    assert filtered.valid_mask.tolist() == [True, False, False, True, True]
+    assert filtered.rejection_reasons[1] == ("cbf_infeasible",)
+    assert filtered.rejection_reasons[2] == ("cbf_timeout",)
+    np.testing.assert_array_equal(filtered.chunks, probe_batch.chunks)
 
 
 def test_history_uses_requested_three_step_horizon_and_is_action_conditioned() -> None:

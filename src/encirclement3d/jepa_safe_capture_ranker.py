@@ -12,6 +12,13 @@ from .jepa_safe_capture_candidates import SafeCaptureCandidateBatch, SafeCapture
 from .reliability import SafeCaptureReliabilityDecision, SafeCaptureReliabilityLedger
 
 
+# A hold request is kept in the candidate batch for counterfactual auditing,
+# but it is a fallback action rather than a task-progress alternative.  It
+# must never win a JEPA score comparison while a nominal/escape candidate is
+# trusted.
+FALLBACK_ONLY_CANDIDATE_LABELS = frozenset({"verified_safe_hold"})
+
+
 def _json_float(value: float) -> float | None:
     numeric = float(value)
     return numeric if np.isfinite(numeric) else None
@@ -514,14 +521,23 @@ class SafeCaptureJEPARanker:
         jepa_latency_ms = 0.0
         ledger_latency_ms = 0.0
         chunks = np.asarray(candidate_batch.chunks)
-        if chunks.ndim != 4 or chunks.shape[0] != len(candidate_batch.labels) or chunks.shape[1] <= 0:
-            raise ValueError("Candidate batch has an invalid chunk shape.")
-        if chunks.shape[0] != 5 or chunks.shape[2:] != (self.history.defender_count, self.history.predictor.action_dim):
-            raise ValueError("P4 requires exactly five [steps, defenders, action_dim] candidate chunks.")
+        candidate_count = len(candidate_batch.labels)
+        if (
+            chunks.ndim != 4
+            or candidate_count <= 0
+            or chunks.shape[0] != candidate_count
+            or chunks.shape[1] <= 0
+            or chunks.shape[2:] != (self.history.defender_count, self.history.predictor.action_dim)
+            or candidate_batch.labels[0] != "nominal"
+        ):
+            raise ValueError(
+                "Candidate batch must have shape [K, steps, defenders, action_dim] "
+                "with a nominal candidate at index zero."
+            )
         if not np.isfinite(chunks).all():
             raise ValueError("Candidate chunks must be finite before ranking.")
-        if previous_selected_index is not None and not 0 <= int(previous_selected_index) < 5:
-            raise ValueError("previous_selected_index must be in [0, 4].")
+        if previous_selected_index is not None and not 0 <= int(previous_selected_index) < candidate_count:
+            raise ValueError("previous_selected_index is outside the candidate range.")
         if hold_steps_remaining < 0:
             raise ValueError("hold_steps_remaining must be non-negative.")
         valid = np.asarray(candidate_batch.valid_mask, dtype=bool)
@@ -535,25 +551,25 @@ class SafeCaptureJEPARanker:
         if positions.shape != nominal.shape or not np.isfinite(positions).all():
             raise ValueError("defender_positions must be finite and match action shape.")
 
-        scores = np.full(5, np.inf, dtype=np.float64)
-        target_cost = np.full(5, np.inf, dtype=np.float64)
-        uncertainty_cost = np.full(5, np.inf, dtype=np.float64)
-        clearance_cost = np.full(5, np.inf, dtype=np.float64)
-        ttc_cost = np.full(5, np.inf, dtype=np.float64)
-        visibility_cost = np.full(5, np.inf, dtype=np.float64)
-        cbf_risk_cost = np.full(5, np.inf, dtype=np.float64)
-        action_change_cost = np.full(5, np.inf, dtype=np.float64)
-        min_clearance = np.full(5, np.nan, dtype=np.float64)
-        raw_min_clearance = np.full(5, np.nan, dtype=np.float64)
-        calibration_offset = np.full(5, np.nan, dtype=np.float64)
-        min_ttc = np.full(5, np.nan, dtype=np.float64)
-        uncertainty = np.full(5, np.nan, dtype=np.float64)
-        visibility = np.full(5, np.nan, dtype=np.float64)
-        cbf_risk = np.full(5, np.nan, dtype=np.float64)
-        candidate_separation = np.full(5, np.nan, dtype=np.float64)
+        scores = np.full(candidate_count, np.inf, dtype=np.float64)
+        target_cost = np.full(candidate_count, np.inf, dtype=np.float64)
+        uncertainty_cost = np.full(candidate_count, np.inf, dtype=np.float64)
+        clearance_cost = np.full(candidate_count, np.inf, dtype=np.float64)
+        ttc_cost = np.full(candidate_count, np.inf, dtype=np.float64)
+        visibility_cost = np.full(candidate_count, np.inf, dtype=np.float64)
+        cbf_risk_cost = np.full(candidate_count, np.inf, dtype=np.float64)
+        action_change_cost = np.full(candidate_count, np.inf, dtype=np.float64)
+        min_clearance = np.full(candidate_count, np.nan, dtype=np.float64)
+        raw_min_clearance = np.full(candidate_count, np.nan, dtype=np.float64)
+        calibration_offset = np.full(candidate_count, np.nan, dtype=np.float64)
+        min_ttc = np.full(candidate_count, np.nan, dtype=np.float64)
+        uncertainty = np.full(candidate_count, np.nan, dtype=np.float64)
+        visibility = np.full(candidate_count, np.nan, dtype=np.float64)
+        cbf_risk = np.full(candidate_count, np.nan, dtype=np.float64)
+        candidate_separation = np.full(candidate_count, np.nan, dtype=np.float64)
         decisions: list[SafeCaptureReliabilityDecision] = [
             SafeCaptureReliabilityDecision("safe_hold", 0.0, 0, "not_evaluated", "invalid_candidate", False, False)
-            for _ in range(5)
+            for _ in range(candidate_count)
         ]
         valid_indices = np.flatnonzero(valid)
         if valid_indices.size:
@@ -669,6 +685,11 @@ class SafeCaptureJEPARanker:
             min_clearance >= float(self.config.minimum_predicted_clearance_m)
         )
         eligible &= clearance_gate
+        fallback_only = np.asarray(
+            [str(label) in FALLBACK_ONLY_CANDIDATE_LABELS for label in candidate_batch.labels],
+            dtype=bool,
+        )
+        eligible &= ~fallback_only
         separation_gate = np.isfinite(candidate_separation) & (
             candidate_separation >= float(self.config.minimum_candidate_separation_m)
         )
@@ -676,7 +697,7 @@ class SafeCaptureJEPARanker:
         # finite nearest-competitor gap when the protocol enables this gate;
         # otherwise a nearly identical action can be selected on score noise.
         eligible &= np.asarray(
-            [bool(separation_gate[index]) if index != 0 else bool(eligible[index]) for index in range(5)],
+            [bool(separation_gate[index]) if index != 0 else bool(eligible[index]) for index in range(candidate_count)],
             dtype=bool,
         )
         if self.config.fixed_point_score_comparison:
@@ -706,16 +727,20 @@ class SafeCaptureJEPARanker:
         selected_index = 0
         eligibility_reasons = tuple(
             tuple(
-                dict.fromkeys(
-                    ("insufficient_candidate_separation",)
+                reason
+                for reason, applies in (
+                    ("fallback_only_candidate", bool(fallback_only[index])),
+                    (
+                        "insufficient_candidate_separation",
+                        index != 0
+                        and bool(valid[index])
+                        and np.isfinite(candidate_separation[index])
+                        and not bool(separation_gate[index]),
+                    ),
                 )
+                if applies
             )
-            if index != 0
-            and bool(valid[index])
-            and np.isfinite(candidate_separation[index])
-            and not bool(separation_gate[index])
-            else tuple()
-            for index in range(5)
+            for index in range(candidate_count)
         )
         if not bool(valid[0]):
             execution_mode = "safe_hold"
@@ -849,7 +874,7 @@ class SafeCaptureJEPARanker:
                         bool(valid[index])
                         and bool(decisions[index].state == "trusted")
                         and not bool(separation_gate[index])
-                        for index in range(1, 5)
+                        for index in range(1, candidate_count)
                     )
                 ):
                     execution_mode = "fallback_nominal"

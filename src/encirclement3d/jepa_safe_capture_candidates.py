@@ -18,13 +18,40 @@ import torch
 from .prediction import InteractionAwareActionConditionedSafeCaptureJEPAPredictor
 
 
-CANDIDATE_LABELS = (
+LEGACY_CANDIDATE_LABELS = (
     "nominal",
     "intercept",
     "lateral_clearance",
     "formation_clearance",
     "visibility_hold",
 )
+
+# The legacy five-candidate contract remains the default for all historical
+# protocols.  The extended profile adds physically interpretable escape and
+# braking alternatives while keeping the nominal action at index zero.
+CANDIDATE_LABELS = LEGACY_CANDIDATE_LABELS
+EXTENDED_CANDIDATE_LABELS = LEGACY_CANDIDATE_LABELS + (
+    "braking",
+    "left_tangential",
+    "right_tangential",
+    "radial_out",
+    "formation_contract",
+    "safe_intercept",
+    "verified_safe_hold",
+)
+CANDIDATE_PROFILES = {
+    "legacy": LEGACY_CANDIDATE_LABELS,
+    "extended_v1": EXTENDED_CANDIDATE_LABELS,
+}
+
+
+def candidate_labels_for_profile(profile: str) -> tuple[str, ...]:
+    """Return the frozen label order for a candidate protocol profile."""
+
+    try:
+        return tuple(CANDIDATE_PROFILES[str(profile)])
+    except KeyError as error:
+        raise ValueError(f"Unknown safe-capture candidate profile: {profile!r}.") from error
 
 
 def _normalize_rows(values: np.ndarray, fallback: np.ndarray | None = None) -> np.ndarray:
@@ -43,9 +70,10 @@ def _normalize_rows(values: np.ndarray, fallback: np.ndarray | None = None) -> n
 
 @dataclass(frozen=True)
 class SafeCaptureCandidateConfig:
-    """Frozen first-version candidate contract."""
+    """Frozen candidate contract selected by an explicit protocol profile."""
 
     candidate_count: int = 5
+    candidate_profile: str = "legacy"
     chunk_length_steps: int = 3
     perturbation_mps: float = 0.10
     max_speed_mps: float = 5.0
@@ -55,8 +83,11 @@ class SafeCaptureCandidateConfig:
     project_to_reachable_dynamics: bool = False
 
     def __post_init__(self) -> None:
-        if self.candidate_count != len(CANDIDATE_LABELS):
-            raise ValueError(f"Safe-capture v2 requires exactly {len(CANDIDATE_LABELS)} candidates.")
+        labels = candidate_labels_for_profile(self.candidate_profile)
+        if self.candidate_count != len(labels):
+            raise ValueError(
+                f"Candidate profile {self.candidate_profile!r} requires exactly {len(labels)} candidates."
+            )
         if self.chunk_length_steps != 3:
             raise ValueError("Safe-capture v2 first chunk contract requires exactly 3 control steps.")
         if self.perturbation_mps < 0.0 or self.max_speed_mps <= 0.0:
@@ -73,6 +104,10 @@ class SafeCaptureCandidateConfig:
             if self.max_action_change_mps is not None
             else self.max_acceleration_mps2 * self.dt_seconds
         )
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        return candidate_labels_for_profile(self.candidate_profile)
 
 
 @dataclass(frozen=True)
@@ -144,12 +179,14 @@ def make_safe_capture_candidate_chunks(
     config: SafeCaptureCandidateConfig | None = None,
     previous_action: np.ndarray | None = None,
 ) -> SafeCaptureCandidateBatch:
-    """Generate the fixed K=5 constant desired-action chunks.
+    """Generate deterministic constant desired-action chunks.
 
     Candidate 0 is an exact copy of the nominal action.  The remaining four
-    candidates are small, deterministic geometric perturbations based only on
-    defender positions and target beliefs available in the online observation.
-    No target ground truth or CBF output is read here.
+    legacy candidates are preserved byte-for-byte in label/order semantics.
+    The extended profile appends braking, two tangential directions, radial
+    separation, formation contraction, a lead-aware intercept, and a verified
+    safe-hold request.  All geometry comes only from the online observation;
+    no target ground truth or CBF output is read here.
     """
 
     settings = config or SafeCaptureCandidateConfig()
@@ -173,7 +210,18 @@ def make_safe_capture_candidate_chunks(
         target_direction + 0.25 * _normalize_rows(belief_velocities, fallback=target_direction),
         fallback=target_direction,
     )
-    directions = (target_direction, lateral_direction, formation_direction, visibility_direction)
+    # Radial-out means moving away from the current target belief.  Keeping it
+    # distinct from the formation-radius direction gives the ranker a genuine
+    # escape option when the target corridor is unsafe.
+    radial_out_direction = _normalize_rows(
+        positions - beliefs,
+        fallback=formation_direction,
+    )
+    formation_contract_direction = -radial_out_direction
+    safe_intercept_direction = _normalize_rows(
+        target_direction + 0.5 * _normalize_rows(belief_velocities, fallback=target_direction),
+        fallback=target_direction,
+    )
     reference_action = nominal if previous_action is None else np.asarray(previous_action, dtype=np.float64)
     if reference_action.shape != nominal.shape:
         raise ValueError(f"previous_action must have shape {nominal.shape}, got {reference_action.shape}.")
@@ -198,14 +246,32 @@ def make_safe_capture_candidate_chunks(
         candidate_norm = np.linalg.norm(candidate, axis=1, keepdims=True)
         return candidate * np.minimum(1.0, settings.max_speed_mps / np.maximum(candidate_norm, 1e-12))
 
-    chunks: list[np.ndarray] = [
-        np.repeat(reachable_candidate(nominal)[None, :, :], settings.chunk_length_steps, axis=0)
+    raw_by_label: dict[str, np.ndarray] = {
+        "nominal": nominal,
+        "intercept": nominal + settings.perturbation_mps * target_direction,
+        "lateral_clearance": nominal + settings.perturbation_mps * lateral_direction,
+        "formation_clearance": nominal + settings.perturbation_mps * formation_direction,
+        "visibility_hold": nominal + settings.perturbation_mps * visibility_direction,
+        # Braking is a reduction toward zero, not a reversal.  This preserves
+        # the intended emergency interpretation under a velocity policy.
+        "braking": nominal
+        * max(0.0, 1.0 - settings.perturbation_mps / settings.max_speed_mps),
+        # Use a larger signed offset than the legacy one-sided lateral
+        # candidate so the two new directions are not duplicate actions.
+        "left_tangential": nominal + 1.5 * settings.perturbation_mps * lateral_direction,
+        "right_tangential": nominal - 1.5 * settings.perturbation_mps * lateral_direction,
+        "radial_out": nominal + settings.perturbation_mps * radial_out_direction,
+        "formation_contract": nominal + settings.perturbation_mps * formation_contract_direction,
+        "safe_intercept": nominal + settings.perturbation_mps * safe_intercept_direction,
+        "verified_safe_hold": np.zeros_like(nominal),
+    }
+    missing = tuple(label for label in settings.labels if label not in raw_by_label)
+    if missing:
+        raise RuntimeError(f"Candidate profile has no construction rule for labels: {missing!r}")
+    chunks = [
+        np.repeat(reachable_candidate(raw_by_label[label])[None, :, :], settings.chunk_length_steps, axis=0)
+        for label in settings.labels
     ]
-    for direction in directions:
-        raw = nominal + settings.perturbation_mps * direction
-        chunks.append(
-            np.repeat(reachable_candidate(raw)[None, :, :], settings.chunk_length_steps, axis=0)
-        )
     all_chunks = np.stack(chunks, axis=0)
     valid: list[bool] = []
     reasons: list[tuple[str, ...]] = []
@@ -224,7 +290,7 @@ def make_safe_capture_candidate_chunks(
         reasons[0] = tuple(sorted(set(reasons[0] + ("nominal_infeasible",))))
     return SafeCaptureCandidateBatch(
         chunks=all_chunks,
-        labels=CANDIDATE_LABELS,
+        labels=settings.labels,
         valid_mask=np.asarray(valid, dtype=bool),
         rejection_reasons=tuple(reasons),
     )

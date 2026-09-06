@@ -196,6 +196,40 @@ def test_nonfinite_request_routes_to_controlled_abort() -> None:
     assert np.isinf(diagnostics.action_correction_norm)
 
 
+def test_requested_action_probe_accepts_only_primary_verified_solve() -> None:
+    env = _env()
+    observation = _observation(
+        env,
+        np.array([[5.0, 0.0, 4.0], [0.0, 5.0, 4.0], [-5.0, 0.0, 4.0], [0.0, -5.0, 4.0]]),
+    )
+    diagnostics = JointCBFQPSafetyFilter(env).verify_requested_action(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+    )
+
+    assert diagnostics.verified_feasible
+    assert not diagnostics.infeasible
+    assert not diagnostics.timed_out
+    assert diagnostics.fallback_mode == "none"
+    assert diagnostics.requested_action_finite
+
+
+def test_requested_action_probe_never_treats_nonfinite_request_as_feasible() -> None:
+    env = _env()
+    observation = _observation(
+        env,
+        np.array([[5.0, 0.0, 4.0], [0.0, 5.0, 4.0], [-5.0, 0.0, 4.0], [0.0, -5.0, 4.0]]),
+    )
+    requested = np.zeros((4, 3), dtype=np.float64)
+    requested[0, 0] = np.nan
+    diagnostics = JointCBFQPSafetyFilter(env).verify_requested_action(requested, observation)
+
+    assert not diagnostics.verified_feasible
+    assert diagnostics.infeasible
+    assert diagnostics.fallback_mode == "controlled_abort"
+    assert not diagnostics.requested_action_finite
+
+
 def test_motion_infeasibility_does_not_execute_original_action() -> None:
     env = _env()
     current = np.full((4, 3), 20.0)

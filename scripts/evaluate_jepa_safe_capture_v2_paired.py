@@ -35,8 +35,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.cbf_qp import JointCBFQPSafetyFilter  # noqa: E402
 from encirclement3d.jepa_safe_capture_candidates import (  # noqa: E402
+    SafeCaptureCandidateBatch,
     SafeCaptureCandidateConfig,
     SafeCaptureCandidateHistory,
+    candidate_labels_for_profile,
     make_safe_capture_candidate_chunks,
 )
 from encirclement3d.jepa_safe_capture_ranker import (  # noqa: E402
@@ -211,6 +213,52 @@ def _raw_unverified_executed(
     return fallback_mode not in {"safe_hold", "nominal_cbf", "controlled_abort"}
 
 
+def _prefilter_candidate_batch_with_cbf(
+    candidate_batch: SafeCaptureCandidateBatch,
+    safety_filter: JointCBFQPSafetyFilter,
+    observation: Mapping[str, Any],
+) -> tuple[SafeCaptureCandidateBatch, list[Any | None]]:
+    """Run an independent primary CBF probe for every valid candidate.
+
+    The probe never supplies an action to the environment.  It only marks a
+    candidate ineligible unless the requested first step has a finite,
+    non-timeout primary solve with no fallback.  The final selected action is
+    still passed through ``filter`` below, preserving one execution boundary.
+    """
+
+    valid = np.asarray(candidate_batch.valid_mask, dtype=bool).copy()
+    reasons = [list(values) for values in candidate_batch.rejection_reasons]
+    diagnostics: list[Any | None] = []
+    for index, is_valid in enumerate(valid):
+        if not bool(is_valid):
+            diagnostics.append(None)
+            continue
+        diagnostic = safety_filter.verify_requested_action(
+            np.asarray(candidate_batch.chunks[index, 0], dtype=np.float64),
+            observation,
+        )
+        diagnostics.append(diagnostic)
+        accepted = bool(
+            diagnostic.verified_feasible
+            and not diagnostic.timed_out
+            and not diagnostic.infeasible
+            and str(diagnostic.fallback_mode) == "none"
+        )
+        if not accepted:
+            valid[index] = False
+            reason = "cbf_timeout" if bool(diagnostic.timed_out) else "cbf_infeasible"
+            reasons[index].append(reason)
+    return (
+        SafeCaptureCandidateBatch(
+            chunks=np.asarray(candidate_batch.chunks),
+            labels=tuple(candidate_batch.labels),
+            valid_mask=valid,
+            rejection_reasons=tuple(tuple(dict.fromkeys(values)) for values in reasons),
+        ),
+        diagnostics,
+    )
+
+
 def _scene_hash(metadata: Mapping[str, Any]) -> str:
     payload = json.dumps(_jsonable(metadata), sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
@@ -248,6 +296,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tensorboard-dir", type=Path, required=True)
     parser.add_argument("--jepa-history-length", type=int, default=8)
+    parser.add_argument(
+        "--candidate-profile",
+        choices=("legacy", "extended_v1"),
+        default="legacy",
+        help="Frozen candidate construction profile; legacy preserves the five-candidate contract.",
+    )
+    parser.add_argument(
+        "--candidate-cbf-prefilter",
+        action="store_true",
+        help="Run an independent primary CBF feasibility probe before JEPA ranking.",
+    )
     parser.add_argument(
         "--jepa-perturbation-mps",
         type=float,
@@ -579,6 +638,8 @@ def _run_episode(
     action_comparison_quantum_mps: float = 0.0,
     ranking_device: torch.device | None = None,
     actor_device: torch.device | None = None,
+    candidate_profile: str = "legacy",
+    candidate_cbf_prefilter: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     episode_index = int(manifest_item["episode_index"])
     spec = dict(manifest_item["spec"])
@@ -622,6 +683,8 @@ def _run_episode(
             context_defaults=context_defaults,
         )
     safety_filter = JointCBFQPSafetyFilter(env) if contract["use_cbf"] else None
+    if candidate_cbf_prefilter and safety_filter is None:
+        raise ValueError("candidate_cbf_prefilter requires the Joint CBF safety filter.")
     actor_runtime_device = actor_device or device
     hidden = policy.initial_actor_hidden(env.n_defenders, device=actor_runtime_device) if hasattr(policy, "initial_actor_hidden") else None
     # Candidate validity is defined on the first-step command that is
@@ -632,8 +695,10 @@ def _run_episode(
     previous_action = np.asarray(env.defender_velocities, dtype=np.float64).copy()
     previous_selected_index: int | None = None
     hold_steps_remaining = 0
+    candidate_labels = candidate_labels_for_profile(candidate_profile)
     candidate_config = SafeCaptureCandidateConfig(
-        candidate_count=5,
+        candidate_count=len(candidate_labels),
+        candidate_profile=candidate_profile,
         chunk_length_steps=3,
         perturbation_mps=float(jepa_perturbation_mps),
         max_speed_mps=float(env.agents["defender_max_speed"]),
@@ -678,6 +743,9 @@ def _run_episode(
     raw_unverified_executed_steps = 0
     cbf_fallback_steps = 0
     cbf_intervention_steps = 0
+    candidate_cbf_prefilter_checks = 0
+    candidate_cbf_prefilter_rejections = 0
+    candidate_cbf_prefilter_timeouts = 0
     rank_fallback_steps = 0
     safe_hold_steps = 0
     target_collision = False
@@ -726,6 +794,25 @@ def _run_episode(
                 config=candidate_config,
                 previous_action=previous_action,
             )
+            candidate_cbf_diagnostics: list[Any | None] = []
+            if candidate_cbf_prefilter:
+                batch, candidate_cbf_diagnostics = _prefilter_candidate_batch_with_cbf(
+                    batch,
+                    safety_filter,
+                    observation,
+                )
+                candidate_cbf_prefilter_checks += sum(
+                    diagnostic is not None for diagnostic in candidate_cbf_diagnostics
+                )
+                candidate_cbf_prefilter_rejections += sum(
+                    diagnostic is not None
+                    and not bool(diagnostic.verified_feasible)
+                    for diagnostic in candidate_cbf_diagnostics
+                )
+                candidate_cbf_prefilter_timeouts += sum(
+                    diagnostic is not None and bool(diagnostic.timed_out)
+                    for diagnostic in candidate_cbf_diagnostics
+                )
             rank_result = ranker.rank(
                 observation,
                 batch,
@@ -861,6 +948,7 @@ def _run_episode(
                 "safety_observables": safety_values,
                 "target_clearance_m": target_clearance,
                 "candidate_ranking": rank_result.trace if rank_result is not None else None,
+                "candidate_cbf_prefilter": candidate_cbf_diagnostics if rank_result is not None else [],
                 "cbf": diagnostics,
             }
         )
@@ -974,6 +1062,13 @@ def _run_episode(
         "raw_unverified_executed_steps": raw_unverified_executed_steps,
         "cbf_fallback_steps": cbf_fallback_steps,
         "cbf_intervention_steps": cbf_intervention_steps,
+        "candidate_cbf_prefilter": bool(candidate_cbf_prefilter),
+        "candidate_cbf_prefilter_checks": candidate_cbf_prefilter_checks,
+        "candidate_cbf_prefilter_rejections": candidate_cbf_prefilter_rejections,
+        "candidate_cbf_prefilter_timeouts": candidate_cbf_prefilter_timeouts,
+        "candidate_cbf_prefilter_accepted": (
+            candidate_cbf_prefilter_checks - candidate_cbf_prefilter_rejections
+        ),
         "cbf_mean_solve_latency_ms": float(np.mean(cbf_latencies)) if cbf_latencies else 0.0,
         "cbf_p95_solve_latency_ms": float(np.percentile(cbf_latencies, 95)) if cbf_latencies else 0.0,
         "mean_cbf_action_correction_norm": float(np.mean(cbf_corrections)) if cbf_corrections else 0.0,
@@ -1107,6 +1202,10 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "cbf_unverified_steps": count("cbf_unverified_steps"),
         "raw_unverified_executed_steps": count("raw_unverified_executed_steps"),
         "cbf_fallback_steps": count("cbf_fallback_steps"),
+        "candidate_cbf_prefilter_checks": count("candidate_cbf_prefilter_checks"),
+        "candidate_cbf_prefilter_rejections": count("candidate_cbf_prefilter_rejections"),
+        "candidate_cbf_prefilter_timeouts": count("candidate_cbf_prefilter_timeouts"),
+        "candidate_cbf_prefilter_accepted": count("candidate_cbf_prefilter_accepted"),
         "transit_success_rate": rate("transit_success"),
         "mean_capture_time_seconds": float(np.mean(capture_times)) if capture_times else None,
         "mean_min_clearance_m": float(np.mean([float(row["min_clearance_m"]) for row in rows])),
@@ -1179,6 +1278,26 @@ def _write_tensorboard(
             writer.add_scalar("Safety/raw_unverified_executed_steps", float(row["raw_unverified_executed_steps"]), index)
             writer.add_scalar("CBF/intervention_steps", float(row["cbf_intervention_steps"]), index)
             writer.add_scalar("CBF/p95_solve_latency_ms", float(row["cbf_p95_solve_latency_ms"]), index)
+            writer.add_scalar(
+                "CandidateCBF/checks",
+                float(row.get("candidate_cbf_prefilter_checks", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "CandidateCBF/rejections",
+                float(row.get("candidate_cbf_prefilter_rejections", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "CandidateCBF/timeouts",
+                float(row.get("candidate_cbf_prefilter_timeouts", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "CandidateCBF/accepted",
+                float(row.get("candidate_cbf_prefilter_accepted", 0)),
+                index,
+            )
             writer.add_scalar("Fallback/rank_steps", float(row["rank_fallback_steps"]), index)
             writer.add_scalar("Fallback/safe_hold_steps", float(row["safe_hold_steps"]), index)
             writer.add_scalar("Ranking/selected_candidate_mean_index", float(row["selected_candidate_mean_index"] or 0.0), index)
@@ -1226,6 +1345,26 @@ def _write_tensorboard(
         )
         writer.add_scalar("Aggregate/pairwise_violation_rate", float(summary["pairwise_violation_rate"]), 0)
         writer.add_scalar("Aggregate/raw_unverified_executed_steps", float(summary["raw_unverified_executed_steps"]), 0)
+        writer.add_scalar(
+            "Aggregate/CandidateCBF/checks",
+            float(summary.get("candidate_cbf_prefilter_checks", 0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/CandidateCBF/rejections",
+            float(summary.get("candidate_cbf_prefilter_rejections", 0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/CandidateCBF/timeouts",
+            float(summary.get("candidate_cbf_prefilter_timeouts", 0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/CandidateCBF/accepted",
+            float(summary.get("candidate_cbf_prefilter_accepted", 0)),
+            0,
+        )
         writer.add_scalar("Aggregate/p95_cbf_latency_ms", float(summary["max_cbf_p95_solve_latency_ms"]), 0)
         writer.add_scalar("Aggregate/control_cycles", float(summary.get("control_cycles", 0)), 0)
         writer.add_scalar("Aggregate/mean_queue_age_steps", float(summary.get("mean_queue_age_steps", 0.0)), 0)
@@ -1303,6 +1442,8 @@ def main() -> None:
     if args.recurrent_reset_interval is not None and args.recurrent_reset_interval <= 0:
         raise ValueError("--recurrent-reset-interval must be positive.")
     contract = _variant_contract(args.variant)
+    if args.candidate_cbf_prefilter and not contract["use_cbf"]:
+        raise ValueError("--candidate-cbf-prefilter requires a CBF-enabled variant.")
     protocol_path = args.protocol.resolve()
     environment_config = args.environment_config.resolve()
     actor_checkpoint = args.actor_checkpoint.resolve()
@@ -1433,12 +1574,14 @@ def main() -> None:
             ledger=ledger,
             history_length=args.jepa_history_length,
             jepa_perturbation_mps=args.jepa_perturbation_mps,
+            candidate_profile=args.candidate_profile,
             recurrent_reset_interval=recurrent_reset_interval,
             ranker_config=ranker_config,
             action_comparison_quantum_mps=action_comparison_quantum_mps,
             ranking_device=ranking_device,
             actor_device=actor_device,
             output_dir=output_dir,
+            candidate_cbf_prefilter=args.candidate_cbf_prefilter,
         )
         row["training_seed"] = int(args.training_seed)
         row["scene_hash"] = item["scene_hash"]
@@ -1484,7 +1627,9 @@ def main() -> None:
         "split": args.split,
         "episodes": int(args.episodes),
         "candidate_contract": {
-            "candidate_count": 5,
+            "candidate_count": len(candidate_labels_for_profile(args.candidate_profile)),
+            "candidate_profile": args.candidate_profile,
+            "candidate_cbf_prefilter": bool(args.candidate_cbf_prefilter),
             "chunk_length_steps": 3,
             "perturbation_mps": float(args.jepa_perturbation_mps),
             "zero_perturbation_identity_bypass": requires_zero_perturbation_identity_bypass(

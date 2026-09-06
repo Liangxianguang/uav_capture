@@ -24,6 +24,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
+from encirclement3d.jepa_safe_capture_candidates import candidate_labels_for_profile  # noqa: E402
 from encirclement3d.showcase import (  # noqa: E402
     ShowcaseScenario,
     _opposite_side_positions,
@@ -256,6 +257,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tensorboard-dir", type=Path, required=True)
     parser.add_argument("--jepa-history-length", type=int, default=8)
     parser.add_argument("--jepa-perturbation-mps", type=float, default=0.1)
+    parser.add_argument(
+        "--candidate-profile",
+        choices=("legacy", "extended_v1"),
+        help="Candidate profile; when omitted, use archive_contract.candidate_profile.",
+    )
     parser.add_argument("--recurrent-reset-interval", type=int)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument("--development-only", action="store_true", required=True)
@@ -277,6 +283,24 @@ def main() -> None:
     collection = _load_yaml(collection_path)
     if collection.get("phase") != "development_only" or collection.get("locked_test_opened") is not False:
         raise ValueError("Collection protocol is not a closed development-only contract.")
+    archive_contract = collection.get("archive_contract", {})
+    if not isinstance(archive_contract, Mapping):
+        raise ValueError("Collection archive_contract must be a mapping.")
+    configured_profile = str(archive_contract.get("candidate_profile", "legacy"))
+    candidate_profile = str(args.candidate_profile or configured_profile)
+    if args.candidate_profile is not None and candidate_profile != configured_profile:
+        raise ValueError(
+            "--candidate-profile must match archive_contract.candidate_profile "
+            f"({configured_profile!r})."
+        )
+    candidate_count = len(candidate_labels_for_profile(candidate_profile))
+    declared_count = int(archive_contract.get("candidate_count", candidate_count))
+    if declared_count != candidate_count:
+        raise ValueError(
+            f"archive_contract candidate_count={declared_count} does not match "
+            f"profile {candidate_profile!r} ({candidate_count})."
+        )
+    candidate_cbf_prefilter = bool(archive_contract.get("candidate_cbf_prefilter", False))
     expected = _build_manifest(collection, environment_config, args.episodes_per_scenario)
     manifest = expected if args.scene_manifest is None else _load_manifest(args.scene_manifest.resolve(), expected, environment_config)
     contract = _variant_contract(args.variant)
@@ -338,6 +362,8 @@ def main() -> None:
             ledger=ledger,
             history_length=args.jepa_history_length,
             jepa_perturbation_mps=args.jepa_perturbation_mps,
+            candidate_profile=candidate_profile,
+            candidate_cbf_prefilter=candidate_cbf_prefilter,
             recurrent_reset_interval=recurrent_reset_interval,
             ranker_config=ranker_config,
             action_comparison_quantum_mps=0.0,
@@ -385,7 +411,9 @@ def main() -> None:
         "episodes_per_scenario": int(args.episodes_per_scenario),
         "scenario_count": len(_experiments(collection)),
         "candidate_contract": {
-            "candidate_count": 5,
+            "candidate_count": candidate_count,
+            "candidate_profile": candidate_profile,
+            "candidate_cbf_prefilter": candidate_cbf_prefilter,
             "chunk_length_steps": 3,
             "perturbation_mps": float(args.jepa_perturbation_mps),
             "execute_first_step_then_replan": True,
