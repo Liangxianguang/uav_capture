@@ -98,6 +98,7 @@ class JointCBFQPSafetyFilter:
         tolerance: float = 1e-5,
         active_tolerance: float = 5e-5,
         anticipatory_horizon_steps: int = 3,
+        barrier_mode: str = "strict_buffer",
     ) -> None:
         self.env = env
         self.gamma = float(gamma if gamma is not None else env.task.get("cbf_gamma", 0.25))
@@ -114,6 +115,7 @@ class JointCBFQPSafetyFilter:
         self.tolerance = float(tolerance)
         self.active_tolerance = float(active_tolerance)
         self.anticipatory_horizon_steps = int(anticipatory_horizon_steps)
+        self.barrier_mode = str(barrier_mode)
         if not 0.0 < self.gamma <= 1.0:
             raise ValueError("gamma must be in (0, 1].")
         if min(self.obstacle_margin_m, self.inter_agent_margin_m, self.boundary_margin_m) < 0.0:
@@ -124,6 +126,8 @@ class JointCBFQPSafetyFilter:
             raise ValueError("solver_maxiter and tolerances must be positive.")
         if self.anticipatory_horizon_steps < 0:
             raise ValueError("anticipatory_horizon_steps must be non-negative.")
+        if self.barrier_mode not in {"strict_buffer", "physical_feasibility"}:
+            raise ValueError("barrier_mode must be 'strict_buffer' or 'physical_feasibility'.")
 
     @property
     def contract(self) -> dict[str, float | int | str]:
@@ -141,7 +145,37 @@ class JointCBFQPSafetyFilter:
             "tolerance": float(self.tolerance),
             "active_tolerance": float(self.active_tolerance),
             "anticipatory_horizon_steps": int(self.anticipatory_horizon_steps),
+            "barrier_mode": self.barrier_mode,
+            "operational_obstacle_buffer_m": float(self.obstacle_margin_m),
+            "operational_inter_agent_buffer_m": float(self.inter_agent_margin_m),
+            "operational_boundary_buffer_m": float(self.boundary_margin_m),
+            "hard_constraint_semantics": (
+                "physical_geometry_plus_operational_buffer"
+                if self.barrier_mode == "strict_buffer"
+                else "physical_geometry_only"
+            ),
         }
+
+    @property
+    def _obstacle_geometry_margin_m(self) -> float:
+        """Return the margin used by the hard CBF rows.
+
+        ``strict_buffer`` preserves the historical contract.  In
+        ``physical_feasibility`` the configured safety margin remains an
+        operational warning/buffer, while the CBF invariant is the actual
+        physical non-collision set.  This is a new development contract, not
+        a silent change to the historical evaluator.
+        """
+
+        return 0.0 if self.barrier_mode == "physical_feasibility" else self.obstacle_margin_m
+
+    @property
+    def _inter_agent_geometry_margin_m(self) -> float:
+        return 0.0 if self.barrier_mode == "physical_feasibility" else self.inter_agent_margin_m
+
+    @property
+    def _boundary_geometry_margin_m(self) -> float:
+        return 0.0 if self.barrier_mode == "physical_feasibility" else self.boundary_margin_m
 
     def filter(
         self,
@@ -360,7 +394,7 @@ class JointCBFQPSafetyFilter:
                 clearance, normal = self.env._cylinder_clearance_and_normal(position, obstacle)
                 if not np.isfinite(clearance) or not np.isfinite(normal).all():
                     raise ValueError(f"Obstacle {obstacle_index} produced non-finite geometry.")
-                barrier = float(clearance) - radius - self.obstacle_margin_m
+                barrier = float(clearance) - radius - self._obstacle_geometry_margin_m
                 add_single(
                     f"obstacle_{obstacle_index}_defender_{defender}",
                     defender,
@@ -368,10 +402,10 @@ class JointCBFQPSafetyFilter:
                     self._closing_speed_bound(barrier, max_accel),
                 )
             for axis in range(3):
-                lower_barrier = float(position[axis] - self.env.lower[axis] - radius - self.boundary_margin_m)
+                lower_barrier = float(position[axis] - self.env.lower[axis] - radius - self._boundary_geometry_margin_m)
                 lower_normal = np.zeros(3, dtype=np.float64)
                 lower_normal[axis] = 1.0
-                upper_barrier = float(self.env.upper[axis] - radius - self.boundary_margin_m - position[axis])
+                upper_barrier = float(self.env.upper[axis] - radius - self._boundary_geometry_margin_m - position[axis])
                 upper_normal = np.zeros(3, dtype=np.float64)
                 upper_normal[axis] = -1.0
                 prefix = "altitude" if axis == 2 else "boundary"
@@ -393,7 +427,7 @@ class JointCBFQPSafetyFilter:
                 delta = positions[first] - positions[second]
                 distance = float(np.linalg.norm(delta))
                 normal = _unit(delta, fallback=np.array([1.0, 0.0, 0.0], dtype=np.float64))
-                barrier = distance - (2.0 * radius + self.inter_agent_margin_m)
+                barrier = distance - (2.0 * radius + self._inter_agent_geometry_margin_m)
                 row = np.zeros(self.env.n_defenders * 3, dtype=np.float64)
                 row[3 * first : 3 * first + 3] = normal
                 row[3 * second : 3 * second + 3] = -normal

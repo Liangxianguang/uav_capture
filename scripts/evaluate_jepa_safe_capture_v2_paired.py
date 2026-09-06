@@ -57,6 +57,7 @@ from encirclement3d.obstacle_route_runtime import (  # noqa: E402
     probe_route_batch_with_cbf,
 )
 from encirclement3d.prediction import (  # noqa: E402
+    InteractionAwareActionConditionedRouteJEPAPredictor,
     InteractionAwareActionConditionedSafeCaptureJEPAPredictor,
     build_action_conditioned_predictor,
 )
@@ -336,6 +337,12 @@ def parse_args() -> argparse.Namespace:
         help="Candidate action perturbation in m/s; set to 0 only for the strict zero-perturbation regression.",
     )
     parser.add_argument("--recurrent-reset-interval", type=int)
+    parser.add_argument(
+        "--cbf-horizon",
+        type=int,
+        default=3,
+        help="Joint CBF anticipatory horizon in control steps; 3 preserves historical runs.",
+    )
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument(
         "--development-only",
@@ -351,9 +358,12 @@ def _load_jepa(
 ) -> InteractionAwareActionConditionedSafeCaptureJEPAPredictor:
     checkpoint = torch.load(checkpoint_path.resolve(), map_location="cpu", weights_only=True)
     model_type = checkpoint.get("model_type")
-    expected = "interaction_aware_action_conditioned_jepa_safe_capture_v2"
-    if model_type != expected:
-        raise ValueError(f"Expected {expected}, got {model_type!r}.")
+    expected = {
+        "interaction_aware_action_conditioned_jepa_safe_capture_v2",
+        "interaction_aware_action_conditioned_jepa_route_identity_v1",
+    }
+    if model_type not in expected:
+        raise ValueError(f"Expected one of {sorted(expected)}, got {model_type!r}.")
     model_config = checkpoint.get("model")
     state_dict = checkpoint.get("model_state_dict")
     if not isinstance(model_config, dict) or not isinstance(state_dict, dict):
@@ -596,6 +606,50 @@ def _safety_observables(env: CaptureRadiusPursuit3DEnv) -> dict[str, float]:
     }
 
 
+def _operational_buffer_observables(
+    env: CaptureRadiusPursuit3DEnv,
+    safety_filter: JointCBFQPSafetyFilter | None,
+) -> dict[str, float]:
+    """Measure the configured buffer separately from physical safety.
+
+    In ``physical_feasibility`` mode these values may be negative while the
+    physical safety observables remain non-negative.  They are diagnostics,
+    never execution gates.
+    """
+
+    if safety_filter is None:
+        return {
+            "minimum_obstacle_buffer_clearance_m": float("inf"),
+            "minimum_pairwise_buffer_clearance_m": float("inf"),
+            "minimum_boundary_buffer_clearance_m": float("inf"),
+        }
+    positions = np.asarray(env.defender_positions, dtype=np.float64)
+    radius = float(env.agents["drone_radius"])
+    obstacle_values = [
+        float(env._obstacle_clearance(position, obstacle) - radius - safety_filter.obstacle_margin_m)
+        for position in positions
+        for obstacle in env.obstacles
+    ]
+    pairwise_values = [
+        float(
+            np.linalg.norm(positions[first] - positions[second])
+            - 2.0 * radius
+            - safety_filter.inter_agent_margin_m
+        )
+        for first in range(env.n_defenders)
+        for second in range(first + 1, env.n_defenders)
+    ]
+    boundary_values = [
+        float(value - radius - safety_filter.boundary_margin_m)
+        for value in np.concatenate([positions - env.lower[None, :], env.upper[None, :] - positions]).reshape(-1)
+    ]
+    return {
+        "minimum_obstacle_buffer_clearance_m": min(obstacle_values) if obstacle_values else float("inf"),
+        "minimum_pairwise_buffer_clearance_m": min(pairwise_values) if pairwise_values else float("inf"),
+        "minimum_boundary_buffer_clearance_m": min(boundary_values) if boundary_values else float("inf"),
+    }
+
+
 def _actor_action(
     policy: Any,
     local_observation: np.ndarray,
@@ -662,6 +716,9 @@ def _run_episode(
     actor_device: torch.device | None = None,
     candidate_profile: str = "legacy",
     candidate_cbf_prefilter: bool = False,
+    cbf_barrier_mode: str = "strict_buffer",
+    proactive_braking_clearance_m: float | None = None,
+    cbf_anticipatory_horizon_steps: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     episode_index = int(manifest_item["episode_index"])
     spec = dict(manifest_item["spec"])
@@ -704,9 +761,25 @@ def _run_episode(
             reliability_ledger=ledger if contract["use_ledger"] else None,
             context_defaults=context_defaults,
         )
-    safety_filter = JointCBFQPSafetyFilter(env) if contract["use_cbf"] else None
+    if cbf_anticipatory_horizon_steps is not None and cbf_anticipatory_horizon_steps <= 0:
+        raise ValueError("cbf_anticipatory_horizon_steps must be positive when enabled.")
+    safety_filter = (
+        JointCBFQPSafetyFilter(
+            env,
+            anticipatory_horizon_steps=(
+                int(cbf_anticipatory_horizon_steps)
+                if cbf_anticipatory_horizon_steps is not None
+                else 3
+            ),
+            barrier_mode=str(cbf_barrier_mode),
+        )
+        if contract["use_cbf"]
+        else None
+    )
     if candidate_cbf_prefilter and safety_filter is None:
         raise ValueError("candidate_cbf_prefilter requires the Joint CBF safety filter.")
+    if proactive_braking_clearance_m is not None and proactive_braking_clearance_m <= 0.0:
+        raise ValueError("proactive_braking_clearance_m must be positive when enabled.")
     actor_runtime_device = actor_device or device
     hidden = policy.initial_actor_hidden(env.n_defenders, device=actor_runtime_device) if hasattr(policy, "initial_actor_hidden") else None
     # Candidate validity is defined on the first-step command that is
@@ -761,6 +834,9 @@ def _run_episode(
     minimum_obstacle = float("inf")
     minimum_pairwise = float("inf")
     minimum_boundary = float("inf")
+    minimum_obstacle_buffer = float("inf")
+    minimum_pairwise_buffer = float("inf")
+    minimum_boundary_buffer = float("inf")
     cbf_infeasible_steps = 0
     cbf_timeout_steps = 0
     cbf_abort_steps = 0
@@ -786,6 +862,7 @@ def _run_episode(
     independent_cbf_probe_timeouts = 0
     rank_fallback_steps = 0
     safe_hold_steps = 0
+    proactive_braking_steps = 0
     target_collision = False
     forced_termination_reason: str | None = None
     final_info: dict[str, Any] = {}
@@ -942,6 +1019,73 @@ def _run_episode(
                     "route_length_m": selected_route.route_length_m,
                     "rejection_reasons": list(selected_route.rejection_reasons),
                 }
+        # The ranker can choose a tangential route while the current velocity
+        # is already too large to preserve a pairwise/boundary barrier.  This
+        # opt-in development guard turns that state into a reachable braking
+        # request; it still goes through the same final CBF filter.
+        proactive_braking = False
+        if proactive_braking_clearance_m is not None and safety_filter is not None:
+            positions = np.asarray(observation["defender_positions"], dtype=np.float64)
+            velocities = np.asarray(observation["defender_velocities"], dtype=np.float64)
+            pairwise_clearance = float(
+                min(
+                    np.linalg.norm(positions[i] - positions[j])
+                    - 2.0 * float(env.agents["drone_radius"])
+                    for i in range(env.n_defenders)
+                    for j in range(i + 1, env.n_defenders)
+                )
+            )
+            boundary_clearance = float(
+                np.min(np.concatenate([positions - env.lower[None, :], env.upper[None, :] - positions]))
+            )
+            target_bearing_distance = float(
+                np.min(
+                    np.linalg.norm(
+                        positions - np.asarray(observation["target_belief_positions"], dtype=np.float64),
+                        axis=1,
+                    )
+                )
+            )
+            closing_pair = False
+            brake_mask = np.zeros(env.n_defenders, dtype=bool)
+            for i in range(env.n_defenders):
+                for j in range(i + 1, env.n_defenders):
+                    delta = positions[i] - positions[j]
+                    distance = float(np.linalg.norm(delta))
+                    if distance > 1e-9 and float(np.dot(delta, velocities[i] - velocities[j])) / distance < -0.05:
+                        closing_pair = True
+                        if pairwise_clearance < proactive_braking_clearance_m:
+                            brake_mask[i] = True
+                            brake_mask[j] = True
+            closing_boundary = bool(
+                np.any((positions - env.lower[None, :] < proactive_braking_clearance_m) & (velocities < -0.05))
+                or np.any((env.upper[None, :] - positions < proactive_braking_clearance_m) & (velocities > 0.05))
+            )
+            brake_mask |= np.any(
+                (positions - env.lower[None, :] < proactive_braking_clearance_m) & (velocities < -0.05),
+                axis=1,
+            )
+            brake_mask |= np.any(
+                (env.upper[None, :] - positions < proactive_braking_clearance_m) & (velocities > 0.05),
+                axis=1,
+            )
+            proactive_braking = bool(
+                target_bearing_distance < 3.0 * proactive_braking_clearance_m
+                and (
+                    (pairwise_clearance < proactive_braking_clearance_m and closing_pair)
+                    or (boundary_clearance < proactive_braking_clearance_m and closing_boundary)
+                )
+            )
+            if proactive_braking:
+                requested_action = np.asarray(requested_action, dtype=np.float64).copy()
+                requested_action[brake_mask] = 0.0
+                reachable_nominal_action = env._move_toward_velocity(
+                    previous_action,
+                    requested_action,
+                    max_delta=float(env.agents["defender_max_acceleration"]) * float(env.dt),
+                )
+                proactive_braking_steps += 1
+
         # Keep the three safety alternatives auditable for every CBF-enabled
         # run, including M0 (which has no ranker) and the historical
         # five-candidate profile.  Legacy candidates have no explicit hold
@@ -1038,9 +1182,19 @@ def _run_episode(
             float(final_info.get("target_observation_never_received_fraction", 0.0))
         )
         safety_values = _safety_observables(env)
+        buffer_values = _operational_buffer_observables(env, safety_filter)
         minimum_obstacle = min(minimum_obstacle, safety_values["minimum_obstacle_clearance_m"])
         minimum_pairwise = min(minimum_pairwise, safety_values["minimum_pairwise_clearance_m"])
         minimum_boundary = min(minimum_boundary, safety_values["minimum_boundary_clearance_m"])
+        minimum_obstacle_buffer = min(
+            minimum_obstacle_buffer, buffer_values["minimum_obstacle_buffer_clearance_m"]
+        )
+        minimum_pairwise_buffer = min(
+            minimum_pairwise_buffer, buffer_values["minimum_pairwise_buffer_clearance_m"]
+        )
+        minimum_boundary_buffer = min(
+            minimum_boundary_buffer, buffer_values["minimum_boundary_buffer_clearance_m"]
+        )
         target_clearance = min(
             float(env._obstacle_clearance(env.target_position, obstacle)) for obstacle in env.obstacles
         ) if env.obstacles else float("inf")
@@ -1054,6 +1208,7 @@ def _run_episode(
                 "desired_action": desired_action,
                 "reachable_nominal_action": reachable_nominal_action,
                 "requested_action": requested_action,
+                "proactive_braking": bool(proactive_braking),
                 "executed_action": action,
                 "raw_unverified_executed": bool(raw_unverified_executed),
                 "input_observation": input_observation,
@@ -1079,6 +1234,7 @@ def _run_episode(
                     "cycle_total": cycle_latencies[-1],
                 },
                 "safety_observables": safety_values,
+                "operational_buffer_observables": buffer_values,
                 "target_clearance_m": target_clearance,
                 "candidate_ranking": rank_result.trace if rank_result is not None else None,
                 "candidate_cbf_prefilter": candidate_cbf_diagnostics if rank_result is not None else [],
@@ -1171,6 +1327,9 @@ def _run_episode(
         "minimum_obstacle_clearance_m": minimum_obstacle,
         "minimum_pairwise_clearance_m": minimum_pairwise,
         "minimum_boundary_clearance_m": minimum_boundary,
+        "minimum_obstacle_buffer_clearance_m": minimum_obstacle_buffer,
+        "minimum_pairwise_buffer_clearance_m": minimum_pairwise_buffer,
+        "minimum_boundary_buffer_clearance_m": minimum_boundary_buffer,
         "target_min_obstacle_clearance_m": target_clearance_over_run,
         "mean_visible_fraction": float(np.mean(visible_fractions)) if visible_fractions else 0.0,
         "mean_message_age_steps": float(np.mean(message_ages)) if message_ages else 0.0,
@@ -1229,6 +1388,7 @@ def _run_episode(
         "cbf_enabled": bool(contract["use_cbf"]),
         "rank_fallback_steps": rank_fallback_steps,
         "safe_hold_steps": safe_hold_steps,
+        "proactive_braking_steps": proactive_braking_steps,
         "selected_candidate_indices": selected_indices,
         "selected_candidate_mean_index": float(np.mean(selected_indices)) if selected_indices else None,
         "ledger_state_counts": {
@@ -1430,6 +1590,21 @@ def _write_tensorboard(
             writer.add_scalar("Safety/pairwise_violation", float(bool(row["pairwise_violation"])), index)
             writer.add_scalar("Safety/min_obstacle_clearance_m", float(row["minimum_obstacle_clearance_m"]), index)
             writer.add_scalar("Safety/min_pairwise_clearance_m", float(row["minimum_pairwise_clearance_m"]), index)
+            writer.add_scalar(
+                "Safety/min_obstacle_buffer_clearance_m",
+                float(row.get("minimum_obstacle_buffer_clearance_m", float("inf"))),
+                index,
+            )
+            writer.add_scalar(
+                "Safety/min_pairwise_buffer_clearance_m",
+                float(row.get("minimum_pairwise_buffer_clearance_m", float("inf"))),
+                index,
+            )
+            writer.add_scalar(
+                "Safety/min_boundary_buffer_clearance_m",
+                float(row.get("minimum_boundary_buffer_clearance_m", float("inf"))),
+                index,
+            )
             writer.add_scalar("CBF/infeasible_steps", float(row["cbf_infeasible_steps"]), index)
             writer.add_scalar("CBF/timeout_steps", float(row["cbf_timeout_steps"]), index)
             writer.add_scalar("CBF/fallback_steps", float(row["cbf_fallback_steps"]), index)
@@ -1650,6 +1825,8 @@ def main() -> None:
         raise ValueError("--jepa-perturbation-mps must be finite and non-negative.")
     if args.recurrent_reset_interval is not None and args.recurrent_reset_interval <= 0:
         raise ValueError("--recurrent-reset-interval must be positive.")
+    if args.cbf_horizon <= 0:
+        raise ValueError("--cbf-horizon must be positive.")
     contract = _variant_contract(args.variant)
     if args.candidate_cbf_prefilter and not contract["use_cbf"]:
         raise ValueError("--candidate-cbf-prefilter requires a CBF-enabled variant.")
@@ -1733,7 +1910,14 @@ def main() -> None:
         obstacle_count=0,
         target_speed_scale=float(first_spec["target_speed_scale"]),
     )
-    cbf_contract = JointCBFQPSafetyFilter(prototype).contract if contract["use_cbf"] else None
+    cbf_contract = (
+        JointCBFQPSafetyFilter(
+            prototype,
+            anticipatory_horizon_steps=args.cbf_horizon,
+        ).contract
+        if contract["use_cbf"]
+        else None
+    )
     prototype_observation = prototype.reset(seed=int(first_spec["episode_seed"]))
     policy, action_scale, actor_metadata = load_policy(
         actor_checkpoint,
@@ -1795,6 +1979,7 @@ def main() -> None:
             actor_device=actor_device,
             output_dir=output_dir,
             candidate_cbf_prefilter=args.candidate_cbf_prefilter,
+            cbf_anticipatory_horizon_steps=args.cbf_horizon,
         )
         row["training_seed"] = int(args.training_seed)
         row["scene_hash"] = item["scene_hash"]

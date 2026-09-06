@@ -162,6 +162,50 @@ def test_anticipatory_horizon_adds_only_a_conservative_braking_constraint() -> N
     assert np.isfinite(action).all()
 
 
+def test_physical_feasibility_mode_keeps_hard_boundary_safe_without_buffer_abort() -> None:
+    """The operational buffer must not make a physically recoverable state abort."""
+
+    env = _env()
+    observation = _observation(
+        env,
+        np.array([[-7.35, 0.0, 4.0], [-2.0, 4.0, 4.0], [-2.0, -4.0, 4.0], [-2.0, 0.0, 7.0]]),
+        np.array([[-4.84, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+    )
+    requested = observation["defender_velocities"].copy()
+
+    _strict_action, strict = JointCBFQPSafetyFilter(env, barrier_mode="strict_buffer").filter(
+        requested, observation
+    )
+    physical_action, physical = JointCBFQPSafetyFilter(
+        env, barrier_mode="physical_feasibility"
+    ).filter(requested, observation)
+
+    assert strict.fallback_mode == "controlled_abort"
+    assert not strict.verified_feasible
+    assert physical.verified_feasible
+    assert physical.fallback_mode == "none"
+    assert physical.constraint_slacks["boundary_lower_defender_0_axis_0"] >= -1e-5
+    # The one-step state remains outside the physical boundary after the
+    # verified action; the 0.35 m buffer is intentionally only operational.
+    next_position = observation["defender_positions"] + physical_action * env.dt
+    assert next_position[0, 0] >= env.lower[0] + env.agents["drone_radius"] - 1e-5
+
+
+def test_physical_feasibility_mode_still_aborts_when_hard_boundary_is_unrecoverable() -> None:
+    env = _env()
+    observation = _observation(
+        env,
+        np.array([[-9.45, 0.0, 4.0], [-2.0, 4.0, 4.0], [-2.0, -4.0, 4.0], [-2.0, 0.0, 7.0]]),
+        np.array([[-4.84, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+    )
+    _action, diagnostics = JointCBFQPSafetyFilter(
+        env, barrier_mode="physical_feasibility"
+    ).filter(observation["defender_velocities"], observation)
+
+    assert diagnostics.fallback_mode == "controlled_abort"
+    assert not diagnostics.verified_feasible
+
+
 def test_current_state_violation_is_not_claimed_feasible() -> None:
     env = _env(obstacles=[CylinderObstacle(np.array([0.0, 0.0]), 1.0, 5.0)])
     observation = _observation(

@@ -1,0 +1,36 @@
+experiment_name: capture_radius_recurrent_behavior_cloning_l0_open_recovery_long_seed661606
+environment_config: capture_radius_pursuit_central_v4_flee.yaml
+
+# Development-only longer fine-tune over the frozen L0-open expert archive.
+# This is a separate checkpoint; historical actors and locked tests remain
+# untouched.
+imitation:
+  seed: 661606
+  device: cuda
+  episodes: 96
+  expert_max_attempts_per_episode: 20
+  expert_max_rejection_rate: 0.95
+  expert_collection_checkpoint_every_accepted_episodes: 16
+  expert_require_safe_capture: true
+  expert_require_cooperative_safe_capture: true
+  training_obstacle_counts: [0]
+  training_target_speed_scales: [0.45]
+  training_target_motion_modes: [flee_persistence]
+  training_required_defender_zone_entries: 1
+  training_showcase_stages:
+    - until_progress: 1.0
+      showcase_probability: 1.0
+      randomized_central_probability: 0.0
+      layouts: [open]
+      initial_side_distances: [6.0, 6.5, 7.0, 7.5]
+      defender_sides: [left, right]
+      target_speed_scales: [0.45]
+      target_motion_modes: [flee_persistence]
+      target_crossing_probability: 0.0
+      required_defender_zone_entries: 1
+  initialize_from: ../models/v5_development_exact_reactive_seed661606.pt
+  learning_rate: 0.00005
+  action_scale_mode: full_range
+  hidden_dim: 128
+  epochs: 256
+  validation_episodes: 8
