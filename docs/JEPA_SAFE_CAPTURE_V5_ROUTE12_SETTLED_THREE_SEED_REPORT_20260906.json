@@ -1,0 +1,154 @@
+{
+  "report_type": "jepa_safe_capture_v5_route12_settled_three_seed",
+  "development_only": true,
+  "locked_test_opened": false,
+  "platform": "Windows-10-10.0.19045-SP0",
+  "python": "3.11.14",
+  "policy": {
+    "scope": "offline local-chunk settled route-regret and Ledger abstention attribution",
+    "eligibility_source": "route_cbf_verified; recorded Ledger eligibility is compared, not modified",
+    "target_truth": "offline settled labels only",
+    "online_decision_changed": false,
+    "cbf_margin_changed": false,
+    "controlled_abort_removed": false,
+    "stop_rule": "do not retrain or enlarge scenes while selected route ranking has no positive signal"
+  },
+  "inputs": {
+    "protocol": "D:\\uav-capture\\uav_capture\\configs\\central_random_mixed_obstacle_s3_route_v1_reacquisition_v4_independent_scene_block_development_protocol.yaml",
+    "protocol_sha256": "5fc57476361b016f474600900de1887849a853b30ae776f3b51476be7041e119",
+    "environment_config": "D:\\uav-capture\\uav_capture\\configs\\capture_radius_pursuit_central_v4_flee.yaml",
+    "environment_config_sha256": "42bd4e158c5e314e0ece6add8038b32c384a7a2ca027e9387327656fccf751ad",
+    "audit_dirs": [
+      "D:\\uav-capture\\uav_capture\\results\\jepa_safe_capture_v5_route12_settled_seed20260911_route_cbf",
+      "D:\\uav-capture\\uav_capture\\results\\jepa_safe_capture_v5_route12_settled_seed20260912_route_cbf",
+      "D:\\uav-capture\\uav_capture\\results\\jepa_safe_capture_v5_route12_settled_seed20260913_route_cbf"
+    ],
+    "source_runs": [
+      "D:\\uav-capture\\uav_capture\\results\\wp1_active_search_v4_m3_seed20260911",
+      "D:\\uav-capture\\uav_capture\\results\\wp1_active_search_v4_m3_seed20260912",
+      "D:\\uav-capture\\uav_capture\\results\\wp1_active_search_v4_m3_seed20260913"
+    ]
+  },
+  "decision_count": 1550,
+  "seeds": [
+    {
+      "seed": 20260911,
+      "audit_dir": "D:\\uav-capture\\uav_capture\\results\\jepa_safe_capture_v5_route12_settled_seed20260911_route_cbf",
+      "source_run": "D:\\uav-capture\\uav_capture\\results\\wp1_active_search_v4_m3_seed20260911",
+      "audit_sha256": "b3a6c46e6ddf76fa0329eb62ec71edc457f56e5256af3a10a75f8431099e03a6",
+      "source_summary_sha256": "b633ec9e5dcedb355533cd3bf0cd063435396ef87f514ed29fd58b7f6a5b98f5",
+      "decision_count": 239,
+      "mean_recorded_eligible": 8.167364016736402,
+      "mean_route_cbf_eligible": 8.577405857740585,
+      "recorded_all_ineligible_count": 11,
+      "route_all_ineligible_count": 1,
+      "ledger_over_abstention_count": 10,
+      "selected_not_best_rate": 0.5355648535564853,
+      "selected_settled_safe_capture_rate": 0.03347280334728033,
+      "best_settled_safe_capture_rate": 0.08368200836820083,
+      "selected_settled_safety_rate": 0.9539748953974896,
+      "spearman_mean": -0.45540284072698944,
+      "kendall_mean": -0.3587459226114688,
+      "mean_selected_progress_m": 0.36300434671490656,
+      "mean_best_progress_m": 0.4279100274658657,
+      "source_safety_hard_events": {
+        "collision_count": 0,
+        "boundary_violation_count": 0,
+        "pairwise_violation_count": 0,
+        "raw_unverified_executed_steps": 0
+      }
+    },
+    {
+      "seed": 20260912,
+      "audit_dir": "D:\\uav-capture\\uav_capture\\results\\jepa_safe_capture_v5_route12_settled_seed20260912_route_cbf",
+      "source_run": "D:\\uav-capture\\uav_capture\\results\\wp1_active_search_v4_m3_seed20260912",
+      "audit_sha256": "19a70295111e1031b973229b07b0791247ae623a90c75e9ad1d001f7b0c05507",
+      "source_summary_sha256": "df784676778fe29889db6daee4b30a8b2aec23302c75ad8f72c4961860ce0559",
+      "decision_count": 561,
+      "mean_recorded_eligible": 9.032085561497325,
+      "mean_route_cbf_eligible": 9.206773618538325,
+      "recorded_all_ineligible_count": 10,
+      "route_all_ineligible_count": 0,
+      "ledger_over_abstention_count": 10,
+      "selected_not_best_rate": 0.6916221033868093,
+      "selected_settled_safe_capture_rate": 0.0053475935828877,
+      "best_settled_safe_capture_rate": 0.0142602495543672,
+      "selected_settled_safety_rate": 0.9857397504456328,
+      "spearman_mean": -0.1725951652312848,
+      "kendall_mean": -0.1468444739389481,
+      "mean_selected_progress_m": 0.1858914409182436,
+      "mean_best_progress_m": 0.35954960120799323,
+      "source_safety_hard_events": {
+        "collision_count": 0,
+        "boundary_violation_count": 0,
+        "pairwise_violation_count": 0,
+        "raw_unverified_executed_steps": 0
+      }
+    },
+    {
+      "seed": 20260913,
+      "audit_dir": "D:\\uav-capture\\uav_capture\\results\\jepa_safe_capture_v5_route12_settled_seed20260913_route_cbf",
+      "source_run": "D:\\uav-capture\\uav_capture\\results\\wp1_active_search_v4_m3_seed20260913",
+      "audit_sha256": "57fa8a17be37b8b1afd55d82a957e9b9a0f465af0f6e6b1cae176b59c6fc411a",
+      "source_summary_sha256": "b3e9212fcb536de21bad68190bc3049fdda7acc2b82dadbde77a43dadd48bfb3",
+      "decision_count": 750,
+      "mean_recorded_eligible": 8.296,
+      "mean_route_cbf_eligible": 8.88,
+      "recorded_all_ineligible_count": 44,
+      "route_all_ineligible_count": 0,
+      "ledger_over_abstention_count": 44,
+      "selected_not_best_rate": 0.9306666666666666,
+      "selected_settled_safe_capture_rate": 0.0,
+      "best_settled_safe_capture_rate": 0.0,
+      "selected_settled_safety_rate": 0.9893333333333333,
+      "spearman_mean": 0.05443223013026524,
+      "kendall_mean": 0.038294500561167226,
+      "mean_selected_progress_m": 0.11158481878354765,
+      "mean_best_progress_m": 0.29010955833149826,
+      "source_safety_hard_events": {
+        "collision_count": 0,
+        "boundary_violation_count": 0,
+        "pairwise_violation_count": 0,
+        "raw_unverified_executed_steps": 0
+      }
+    }
+  ],
+  "pooled": {
+    "selected_not_best_rate": 0.7832258064516129,
+    "selected_settled_safe_capture_rate": 0.0070967741935483875,
+    "best_settled_safe_capture_rate": 0.01806451612903226,
+    "selected_settled_safety_rate": 0.9825806451612903,
+    "mean_recorded_eligible": 8.54258064516129,
+    "mean_route_cbf_eligible": 8.951612903225806,
+    "mean_selected_progress_m": 0.17724629116623103,
+    "mean_best_progress_m": 0.33649031715525796,
+    "ledger_over_abstention_count": 64,
+    "recorded_all_ineligible_count": 65,
+    "route_all_ineligible_count": 1
+  },
+  "source_hard_events": {
+    "collision_count": 0,
+    "boundary_violation_count": 0,
+    "pairwise_violation_count": 0,
+    "raw_unverified_executed_steps": 0
+  },
+  "gates": {
+    "development_only": true,
+    "locked_test_opened": false,
+    "twelve_candidate_contract": true,
+    "all_source_hard_safety_events_zero": true,
+    "route_settled_safety_observable": true,
+    "retraining_allowed": false
+  },
+  "provenance": {
+    "git_revision": "73158b16359a1406bc908e8e7c34ce0f4c422acb",
+    "script_sha256": "b7f0ba960c2952fa7c054efd96eb164fb86c865ecd3a098b2a73235d3a362eeb"
+  },
+  "tensorboard": {
+    "logdir": "D:\\uav-capture\\uav_capture\\results\\jepa_safe_capture_v5_route12_settled_three_seed_tensorboard_v2",
+    "event_files": [
+      "events.out.tfevents.1788704881.PC-20250926.34700.0"
+    ],
+    "scalar_tag_count": 27
+  }
+}
