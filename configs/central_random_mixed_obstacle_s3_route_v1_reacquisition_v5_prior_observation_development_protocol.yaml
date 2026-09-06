@@ -46,6 +46,14 @@ s3:
         message_dropout_probability: 0.10
   max_sampling_attempts: 500
 
+candidate_contract:
+  visibility_search_enabled: true
+  visibility_search_offset_m: 1.5
+  visibility_search_mode: lateral_interior_scan_v1
+  requires_public_observation_only: true
+  requires_prior_observation: true
+  requires_independent_cbf_probes: true
+
 route_contract:
   candidate_profile: obstacle_route_v1
   candidate_count: 12

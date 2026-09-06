@@ -24,7 +24,7 @@
     },
     "protocol": {
       "path": "configs/central_random_mixed_obstacle_s3_route_v1_reacquisition_v5_prior_observation_development_protocol.yaml",
-      "sha256": "DA352802EEAFB39B710E09FF1F7877233F737D8F01EE2F784CEDAC5F77A36B31"
+      "sha256": "E45C92BB2AEB38194F171FFAA4BDC714ECD3A194DF013A2E650D57E50EA7FC75"
     },
     "diagnostic_source": {
       "path": "scripts/diagnose_jepa_safe_capture_v21_abstention_counterfactual.py",
