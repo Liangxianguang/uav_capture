@@ -14,6 +14,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 import platform
 import subprocess
 import sys
@@ -22,6 +23,8 @@ from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from torch.utils.tensorboard import SummaryWriter
@@ -34,7 +37,9 @@ from index_jepa_safe_capture_failures import read_trace  # noqa: E402
 
 
 REPLAY_TYPE = "jepa_safe_capture_v3_wp1_deterministic_failure_replay"
+V21_REPLAY_TYPE = "jepa_safe_capture_v21_deterministic_failure_replay"
 INDEX_TYPE = "jepa_safe_capture_v3_wp1_failure_index"
+V21_INDEX_TYPE = "jepa_safe_capture_v21_paired_smoke_failure_index"
 CATEGORY_ORDER = (
     "candidate_capture_regression",
     "high_credit_failure",
@@ -208,6 +213,10 @@ def _validate_csv_against_index(csv_path: Path, report: Mapping[str, Any]) -> No
         for field in fields:
             expected = json_by_key[key].get(field)
             actual = csv_by_key[key].get(field)
+            if expected is None and actual in (None, ""):
+                continue
+            if expected is None or actual in (None, ""):
+                raise ValueError(f"Failure-index CSV missing field {field} for {key}")
             if field.endswith("_violation") or field == "safe_capture":
                 matches = _as_bool(actual) == _as_bool(expected)
             else:
@@ -217,15 +226,18 @@ def _validate_csv_against_index(csv_path: Path, report: Mapping[str, Any]) -> No
 
 
 def load_failure_index(path: Path) -> tuple[dict[str, Any], dict[str, str]]:
-    """Load a V3 index and verify its development boundary and CSV consistency."""
+    """Load a supported development failure index and verify its boundary."""
 
     path = path.resolve()
     json_path = _failure_index_json_path(path)
     report = _read_json(json_path)
-    if report.get("index_type") != INDEX_TYPE:
+    index_type = report.get("index_type")
+    if index_type not in {INDEX_TYPE, V21_INDEX_TYPE}:
         raise ValueError(f"Unexpected failure-index type: {report.get('index_type')!r}")
-    if report.get("input_format") != "v3":
+    if index_type == INDEX_TYPE and report.get("input_format") != "v3":
         raise ValueError("WP-B2 requires a V3 failure index")
+    if index_type == V21_INDEX_TYPE and report.get("input_format", "v21") != "v21":
+        raise ValueError("V21 replay requires a V21 failure index")
     if report.get("development_only") is not True or report.get("locked_test_opened") is not False:
         raise ValueError("Failure index crossed the locked-test boundary")
     if not isinstance(report.get("runs"), list) or not isinstance(report.get("rows"), list):
@@ -313,7 +325,7 @@ def _category_matches(row: Mapping[str, Any], category: str) -> bool:
     if category == "candidate_oscillation":
         return category in labels
     if category == "stale_or_noisy":
-        return "stale_observation" in labels or str(row.get("observation_condition")) == "delayed_noisy"
+        return "stale_observation" in labels or "communication_age_saturated" in labels or str(row.get("observation_condition")) == "delayed_noisy"
     if category == "timeout":
         return "timeout" in labels or str(row.get("termination_reason")) in {"timeout", "truncated"}
     raise ValueError(f"Unknown replay category: {category}")
@@ -458,6 +470,7 @@ def _reduce_trace(
     identifier: str,
     categories: Sequence[str],
     scene_hash: str,
+    replay_type: str = REPLAY_TYPE,
 ) -> list[dict[str, Any]]:
     reduced: list[dict[str, Any]] = []
     episode_index = _as_int(row.get("episode_index"), "episode_index")
@@ -476,7 +489,7 @@ def _reduce_trace(
         target_visible = _copy_bool_list(observation.get("target_visible"))
         active = cbf.get("active_constraints")
         record: dict[str, Any] = {
-            "replay_type": REPLAY_TYPE,
+            "replay_type": replay_type,
             "identifier": identifier,
             "training_seed": _as_int(row.get("training_seed"), "training_seed"),
             "variant": str(row.get("variant")),
@@ -601,7 +614,7 @@ def _write_tensorboard(result: Mapping[str, Any], logdir: Path) -> dict[str, Any
     with SummaryWriter(log_dir=str(logdir), flush_secs=1) as writer:
         writer.add_text(
             "Config/wp1_failure_replay",
-            json.dumps({"replay_type": REPLAY_TYPE, "development_only": True, "locked_test_opened": False, "repeats": result["repeats"]}, indent=2),
+            json.dumps({"replay_type": result["replay_type"], "development_only": True, "locked_test_opened": False, "repeats": result["repeats"]}, indent=2),
             0,
         )
         writer.add_text("Provenance/failure_index", json.dumps(result["input_index"], indent=2), 0)
@@ -660,6 +673,7 @@ def replay_failure_index(
     if repeats < 2:
         raise ValueError("WP-B2 requires at least two deterministic replays")
     report, index_hashes = load_failure_index(failure_index_path)
+    replay_type = V21_REPLAY_TYPE if report.get("index_type") == V21_INDEX_TYPE else REPLAY_TYPE
     runs = validate_source_runs(report)
     rows = [row for row in report["rows"] if isinstance(row, Mapping)]
     if len(rows) != len(report["rows"]):
@@ -684,6 +698,7 @@ def replay_failure_index(
             identifier=str(selected["identifier"]),
             categories=selected["categories"],
             scene_hash=scene_hash,
+            replay_type=replay_type,
         )
         episode_payloads.append((selected, payload))
         used_run_keys.add(run_key)
@@ -723,7 +738,7 @@ def replay_failure_index(
             }
         )
     result: dict[str, Any] = {
-        "replay_type": REPLAY_TYPE,
+        "replay_type": replay_type,
         "development_only": True,
         "locked_test_opened": False,
         "repeats": repeats,
@@ -731,7 +746,7 @@ def replay_failure_index(
             "path": str(failure_index_path.resolve()),
             **index_hashes,
             "index_type": report["index_type"],
-            "input_format": report["input_format"],
+            "input_format": report.get("input_format", "v21"),
         },
         "selection": selection,
         "source_runs": source_runs,
