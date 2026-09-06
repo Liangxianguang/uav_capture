@@ -54,6 +54,13 @@ steps, and `906/906` accepted independent selected/nominal/safe-hold probes.
 The three-scene block therefore preserves all safety hard gates while removing
 the prior timeout.
 
+A paired M0 (`legacy actor + horizon-5 CBF`, no JEPA and no Ledger) on the same
+manifest reached `1/3 safe_capture`, with two controlled aborts and no
+collision, boundary, pairwise, or raw-unverified event. The M3 minus M0 paired
+delta is therefore `+66.7 percentage points` on this small development block.
+M0's two CBF-infeasible/controlled-abort episodes are retained as the baseline
+failure evidence; they are not hidden by the active-search result.
+
 ## Episode 646102 Observation Audit
 
 The audit reads only the evaluator's causal pre-action public snapshots. Target
@@ -95,6 +102,8 @@ Inputs and hashes:
   SHA-256 `2bae4f054b269a930be14373f971adb3c8292ac60ead496160e40f6a1add5db0`;
 - observation audit: `results/wp1_active_search_v3_observation_audit_episode646102/observation_contract.json`  
   SHA-256 `3de253aa3a813a66c34650dd6c2a049a20f18984238297cbc56d1e086c026288`.
+- paired M0 summary: `results/wp1_active_search_v3_m0_seed20260911/summary.json`  
+  SHA-256 `ddbadd683f92e895ad1b7db1fa5a9d0fcd577cf09336ba906c522fdc1c1bf99`;
 
 TensorBoard event files:
 
@@ -104,6 +113,8 @@ TensorBoard event files:
   event SHA-256 `139800283f1344836fbb995537dcc69d8fced0840b8bf99b2f9a82b79b4feab`;
 - observation audit: `results/wp1_active_search_v3_observation_audit_episode646102_tensorboard`  
   event SHA-256 `c83e1721d11429b8a2e8d8cc6cd1f4f960db72f48d08735e9ce841058f34a8bc`.
+- paired M0: `results/wp1_active_search_v3_m0_seed20260911_tensorboard`  
+  event SHA-256 `c0e57dc98d8b99ef1af3db1adff5d15b88505c20217e4cfe0d0c41b3a1dbde13`.
 
 ## Continue / Stop Rule
 
