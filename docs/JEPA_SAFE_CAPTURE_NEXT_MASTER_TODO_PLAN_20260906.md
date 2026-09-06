@@ -6,6 +6,12 @@
 **主指标：** episode-level `safe_capture`  
 **安全硬门：** `collision=0`、`boundary=0`、`pairwise=0`、`raw_unverified=0`；保留 `controlled_abort`
 
+## 当前执行状态（2026-09-06）
+
+- **P0 L0 recovery：已通过开发闸门。** 同一 recovery actor 在三个独立场景 seed、24 个 L0 open episode 上达到 `24/24 safe_capture`，所有安全硬门通过；结果见 [P0 report](JEPA_SAFE_CAPTURE_P0_L0_RECOVERY_THREE_SCENE_SEEDS_20260906.md)。这不是三训练 checkpoint 结论。
+- **P2 route-aware runtime：已暂停扩大。** `obstacle_route_v1` 最新 smoke 为 `0/2 safe_capture`，虽无安全违规，但出现一次 controlled abort 和一次 timeout；结果见 [route gate stop report](JEPA_SAFE_CAPTURE_P2_ROUTE_GATE_STOP_20260906.md)。
+- **当前唯一允许的下一步：** actor-matched counterfactual、route ranking/CBF failure replay 和标签/校准审计；在通过固定微场景 gate 前，不扩大 route 多 seed、40/60 episode 或新模型规模。
+
 ## 0. 最终目标和当前判断
 
 最终系统是一个安全增强的闭环：
