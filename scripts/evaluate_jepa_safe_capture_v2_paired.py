@@ -343,6 +343,12 @@ def parse_args() -> argparse.Namespace:
         default=3,
         help="Joint CBF anticipatory horizon in control steps; 3 preserves historical runs.",
     )
+    parser.add_argument(
+        "--route-corridor-samples",
+        type=int,
+        default=65,
+        help="Public-geometry samples per route segment for obstacle_route_v1; 65 preserves the current contract.",
+    )
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument(
         "--development-only",
@@ -719,6 +725,7 @@ def _run_episode(
     cbf_barrier_mode: str = "strict_buffer",
     proactive_braking_clearance_m: float | None = None,
     cbf_anticipatory_horizon_steps: int | None = None,
+    route_corridor_samples: int = 65,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     episode_index = int(manifest_item["episode_index"])
     spec = dict(manifest_item["spec"])
@@ -924,6 +931,7 @@ def _run_episode(
                         project_to_reachable_dynamics=True,
                         world_lower=tuple(float(value) for value in env.lower),
                         world_upper=tuple(float(value) for value in env.upper),
+                        corridor_samples=int(route_corridor_samples),
                     ),
                     previous_action=previous_action,
                 )
@@ -1827,6 +1835,8 @@ def main() -> None:
         raise ValueError("--recurrent-reset-interval must be positive.")
     if args.cbf_horizon <= 0:
         raise ValueError("--cbf-horizon must be positive.")
+    if args.route_corridor_samples < 3:
+        raise ValueError("--route-corridor-samples must be at least 3.")
     contract = _variant_contract(args.variant)
     if args.candidate_cbf_prefilter and not contract["use_cbf"]:
         raise ValueError("--candidate-cbf-prefilter requires a CBF-enabled variant.")
@@ -1980,6 +1990,7 @@ def main() -> None:
             output_dir=output_dir,
             candidate_cbf_prefilter=args.candidate_cbf_prefilter,
             cbf_anticipatory_horizon_steps=args.cbf_horizon,
+            route_corridor_samples=args.route_corridor_samples,
         )
         row["training_seed"] = int(args.training_seed)
         row["scene_hash"] = item["scene_hash"]
@@ -2036,6 +2047,7 @@ def main() -> None:
             ),
             "execute_first_step_then_replan": True,
             "project_to_reachable_dynamics": True,
+            "route_corridor_samples": int(args.route_corridor_samples),
             "score_tie_tolerance_m": 5e-4,
             "score_comparison_quantum_m": float(ranker_config.score_comparison_quantum_m),
             "score_comparison_safety_band_m": float(ranker_config.score_comparison_safety_band_m),
