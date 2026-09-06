@@ -1,0 +1,110 @@
+protocol_name: central_random_mixed_obstacle_s3_route_v1_reacquisition_v4_independent_scene_block_development
+protocol_version: 4
+phase: development_only
+locked_test_opened: false
+not_a_replacement_for_existing_locked_benchmarks: true
+parent_protocol: configs/central_random_mixed_obstacle_s3_route_v1_reacquisition_v3_active_search_development_protocol.yaml
+change_note: independent_validation_scene_seed_block_650101
+
+seed_blocks:
+  train: 645101
+  validation: 650101
+  calibration: 648101
+  development: 649101
+  locked_test: 647201
+
+episodes_per_split:
+  train: 40
+  validation: 40
+  calibration: 20
+  development: 20
+  locked_test: 100
+
+s3:
+  target_crossing_required: false
+  required_defender_zone_entries: 2
+  obstacle_count_range: [3, 5]
+  initial_side_distances: [6.0, 6.5, 7.0, 7.5, 9.0]
+  defender_sides: [left, right]
+  target_speed_scales: [0.45, 0.55]
+  target_crossing_speed_scales: [0.90]
+  target_motion_modes: [flee_persistence, s_curve]
+  observation_conditions:
+    - name: nominal
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.15
+        observation_noise_std: 0.03
+        message_delay_steps: 2
+        message_dropout_probability: 0.05
+    - name: delayed_noisy
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.22
+        observation_noise_std: 0.06
+        message_delay_steps: 4
+        message_dropout_probability: 0.10
+  max_sampling_attempts: 500
+
+route_contract:
+  candidate_profile: obstacle_route_v1
+  candidate_count: 12
+  route_labels:
+    - nominal
+    - left_detour
+    - right_detour
+    - upper_detour
+    - lower_detour
+    - radial_out
+    - formation_split
+    - formation_contract
+    - braking
+    - safe_intercept
+    - visibility_hold
+    - verified_safe_hold
+  chunk_length_steps: 3
+  execute_only_first_step: true
+  project_to_reachable_dynamics: true
+  primary_cbf_prefilter: true
+  visibility_search:
+    enabled: true
+    mode: lateral_interior_scan_v1
+    offset_m: 1.5
+    route_identity_label: visibility_hold
+    requires_public_observation_only: true
+    requires_independent_cbf_probes: true
+  cautious_reacquisition:
+    enabled: true
+    labels: [visibility_hold]
+    max_steps: 12
+    requires_independent_cbf_probes: true
+    stale_ood_remain_safe_hold: true
+
+candidate_contract:
+  visibility_search_enabled: true
+  visibility_search_offset_m: 1.5
+  visibility_search_mode: lateral_interior_scan_v1
+
+candidate_ranking:
+  profile: legacy
+  cautious_reacquisition_enabled: true
+  cautious_reacquisition_labels: [visibility_hold]
+  cautious_reacquisition_max_steps: 12
+
+safety_contract:
+  cbf_margin_changed: false
+  stale_ood_nonfinite_gates_changed: false
+  controlled_abort_preserved: true
+  raw_unverified_execution_allowed: false
+  independent_selected_nominal_safe_hold_probes_required: true
+
+tensorboard:
+  required: true
+  root: results/jepa_safe_capture_route_reacquisition_v4_independent_scene_tensorboard
+
+provenance:
+  target_truth_used_only_for_offline_labels: true
+  require_protocol_hash: true
+  require_checkpoint_hash: true
+  require_calibration_archive_hash: true
+  results_are_not_locked_evidence: true
