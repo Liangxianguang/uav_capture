@@ -451,6 +451,9 @@ def _ranker_config(
         "candidate_hysteresis_margin_m",
         "minimum_hold_steps",
         "minimum_candidate_separation_m",
+        "cautious_reacquisition_enabled",
+        "cautious_reacquisition_labels",
+        "cautious_reacquisition_max_steps",
         "ranking_device",
         "actor_device",
         # Protocol metadata for the calibrated v12 clearance transform.  The
@@ -869,6 +872,10 @@ def _run_episode(
     independent_cbf_probe_timeouts = 0
     rank_fallback_steps = 0
     safe_hold_steps = 0
+    cautious_reacquisition_steps_remaining: int | None = None
+    cautious_reacquisition_attempt_steps = 0
+    cautious_reacquisition_accepted_steps = 0
+    cautious_reacquisition_rejected_steps = 0
     proactive_braking_steps = 0
     target_collision = False
     forced_termination_reason: str | None = None
@@ -911,6 +918,7 @@ def _run_episode(
         candidate_started_ns = time.perf_counter_ns()
         route_runtime: ObstacleRouteRuntimeBatch | None = None
         independent_cbf_counterfactuals: list[dict[str, Any]] = []
+        cautious_reacquisition_probe_status: str | None = None
         selected_route_metadata: dict[str, Any] | None = None
         if ranker is not None and candidate_history is not None:
             candidate_cbf_diagnostics: list[Any | None] = []
@@ -995,6 +1003,7 @@ def _run_episode(
                 previous_action=previous_action,
                 previous_selected_index=previous_selected_index,
                 hold_steps_remaining=hold_steps_remaining,
+                reacquisition_steps_remaining=cautious_reacquisition_steps_remaining,
             )
             requested_action = np.asarray(rank_result.selected_action, dtype=np.float64)
             selected_indices.append(int(rank_result.selected_index))
@@ -1121,6 +1130,53 @@ def _run_episode(
             independent_cbf_probe_accepted += sum(probe.accepted for probe in independent_probes)
             independent_cbf_probe_rejected += sum(not probe.accepted for probe in independent_probes)
             independent_cbf_probe_timeouts += sum(probe.timed_out for probe in independent_probes)
+            if rank_result is not None and rank_result.execution_mode == "cautious_reacquisition":
+                cautious_reacquisition_attempt_steps += 1
+                probes_passed = bool(
+                    len(independent_probes) == 3
+                    and all(probe.accepted for probe in independent_probes)
+                )
+                if probes_passed:
+                    cautious_reacquisition_accepted_steps += 1
+                    prior_remaining = cautious_reacquisition_steps_remaining
+                    cautious_reacquisition_steps_remaining = max(
+                        int(ranker.config.cautious_reacquisition_max_steps) - 1
+                        if prior_remaining is None
+                        else int(prior_remaining) - 1,
+                        0,
+                    )
+                    cautious_reacquisition_probe_status = "accepted"
+                else:
+                    cautious_reacquisition_rejected_steps += 1
+                    cautious_reacquisition_steps_remaining = 0
+                    cautious_reacquisition_probe_status = "rejected"
+                    rejection_reason = "cautious_reacquisition_probe_rejected"
+                    hold_chunk = np.repeat(
+                        safe_hold_action[None, :, :],
+                        rank_result.selected_chunk.shape[0],
+                        axis=0,
+                    )
+                    rank_result = replace(
+                        rank_result,
+                        selected_index=0,
+                        selected_action=safe_hold_action.copy(),
+                        selected_chunk=hold_chunk,
+                        execution_mode="safe_hold",
+                        fallback_reason=rejection_reason,
+                        trace=replace(
+                            rank_result.trace,
+                            selected_index=0,
+                            execution_mode="safe_hold",
+                            fallback_reason=rejection_reason,
+                        ),
+                    )
+                    requested_action = safe_hold_action.copy()
+        if rank_result is not None and rank_result.execution_mode != "cautious_reacquisition":
+            # A trusted route means reacquisition succeeded; any other state
+            # ends the bounded attempt and returns to the explicit hold path.
+            cautious_reacquisition_steps_remaining = (
+                None if rank_result.execution_mode == "trusted" else 0
+            )
         candidate_latencies.append((time.perf_counter_ns() - candidate_started_ns) / 1_000_000.0)
         if rank_result is not None:
             jepa_latencies.append(float(getattr(rank_result.trace, "jepa_inference_latency_ms", 0.0)))
@@ -1245,6 +1301,7 @@ def _run_episode(
                 "operational_buffer_observables": buffer_values,
                 "target_clearance_m": target_clearance,
                 "candidate_ranking": rank_result.trace if rank_result is not None else None,
+                "cautious_reacquisition_probe_status": cautious_reacquisition_probe_status,
                 "candidate_cbf_prefilter": candidate_cbf_diagnostics if rank_result is not None else [],
                 "route_runtime": route_runtime.as_dict() if route_runtime is not None else None,
                 "selected_route": selected_route_metadata,
@@ -1396,6 +1453,9 @@ def _run_episode(
         "cbf_enabled": bool(contract["use_cbf"]),
         "rank_fallback_steps": rank_fallback_steps,
         "safe_hold_steps": safe_hold_steps,
+        "cautious_reacquisition_attempt_steps": cautious_reacquisition_attempt_steps,
+        "cautious_reacquisition_accepted_steps": cautious_reacquisition_accepted_steps,
+        "cautious_reacquisition_rejected_steps": cautious_reacquisition_rejected_steps,
         "proactive_braking_steps": proactive_braking_steps,
         "selected_candidate_indices": selected_indices,
         "selected_candidate_mean_index": float(np.mean(selected_indices)) if selected_indices else None,
@@ -1533,6 +1593,9 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "independent_cbf_probe_accepted": count("independent_cbf_probe_accepted"),
         "independent_cbf_probe_rejected": count("independent_cbf_probe_rejected"),
         "independent_cbf_probe_timeouts": count("independent_cbf_probe_timeouts"),
+        "cautious_reacquisition_attempt_steps": count("cautious_reacquisition_attempt_steps"),
+        "cautious_reacquisition_accepted_steps": count("cautious_reacquisition_accepted_steps"),
+        "cautious_reacquisition_rejected_steps": count("cautious_reacquisition_rejected_steps"),
         "transit_success_rate": rate("transit_success"),
         "mean_capture_time_seconds": float(np.mean(capture_times)) if capture_times else None,
         "mean_min_clearance_m": float(np.mean([float(row["min_clearance_m"]) for row in rows])),
@@ -1667,6 +1730,21 @@ def _write_tensorboard(
             )
             writer.add_scalar("Fallback/rank_steps", float(row["rank_fallback_steps"]), index)
             writer.add_scalar("Fallback/safe_hold_steps", float(row["safe_hold_steps"]), index)
+            writer.add_scalar(
+                "Reacquisition/attempt_steps",
+                float(row.get("cautious_reacquisition_attempt_steps", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "Reacquisition/accepted_steps",
+                float(row.get("cautious_reacquisition_accepted_steps", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "Reacquisition/rejected_steps",
+                float(row.get("cautious_reacquisition_rejected_steps", 0)),
+                index,
+            )
             writer.add_scalar("Ranking/selected_candidate_mean_index", float(row["selected_candidate_mean_index"] or 0.0), index)
             writer.add_scalar("Latency/mean_cbf_correction", float(row["mean_cbf_action_correction_norm"]), index)
             writer.add_scalar("Queue/mean_age_steps", float(row.get("mean_queue_age_steps", 0.0)), index)
@@ -1755,6 +1833,21 @@ def _write_tensorboard(
         writer.add_scalar(
             "Aggregate/Route/independent_cbf_probe_timeouts",
             float(summary.get("independent_cbf_probe_timeouts", 0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Reacquisition/attempt_steps",
+            float(summary.get("cautious_reacquisition_attempt_steps", 0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Reacquisition/accepted_steps",
+            float(summary.get("cautious_reacquisition_accepted_steps", 0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Reacquisition/rejected_steps",
+            float(summary.get("cautious_reacquisition_rejected_steps", 0)),
             0,
         )
         writer.add_scalar("Aggregate/p95_cbf_latency_ms", float(summary["max_cbf_p95_solve_latency_ms"]), 0)
@@ -1859,6 +1952,8 @@ def main() -> None:
     if not isinstance(ranking_contract, Mapping):
         raise ValueError("candidate_ranking protocol section must be a mapping.")
     ranker_config = _ranker_config(str(contract["variant"]), ranking_contract)
+    if ranker_config.cautious_reacquisition_enabled and not contract["use_cbf"]:
+        raise ValueError("cautious_reacquisition requires the Joint CBF execution boundary.")
     candidate_contract = protocol.get("candidate_contract", {})
     if not isinstance(candidate_contract, Mapping):
         raise ValueError("candidate_contract protocol section must be a mapping.")
@@ -2055,6 +2150,9 @@ def main() -> None:
             "minimum_predicted_clearance_m": float(ranker_config.minimum_predicted_clearance_m),
             "candidate_hysteresis_margin_m": float(ranker_config.candidate_hysteresis_margin_m),
             "minimum_hold_steps": int(ranker_config.minimum_hold_steps),
+            "cautious_reacquisition_enabled": bool(ranker_config.cautious_reacquisition_enabled),
+            "cautious_reacquisition_labels": list(ranker_config.cautious_reacquisition_labels),
+            "cautious_reacquisition_max_steps": int(ranker_config.cautious_reacquisition_max_steps),
             "fixed_point_score_comparison": bool(ranker_config.fixed_point_score_comparison),
             "action_comparison_quantum_mps": action_comparison_quantum_mps,
             "ranking_device": ranking_device_name,

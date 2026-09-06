@@ -376,6 +376,54 @@ def test_ranker_nominal_fallback_and_safe_hold_never_use_untrusted_candidate() -
     assert missing_provenance.fallback_reason == "ood"
 
 
+def test_cautious_reacquisition_selects_only_visible_hold_after_abstention() -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[4, :, 1] = 0.4
+    hidden_observation = _observation()
+    hidden_observation["target_visible"] = np.zeros(2, dtype=bool)
+    hidden_observation["target_observation_age_steps"] = np.full(2, 60.0)
+    batch = _batch(actions)
+    result = SafeCaptureJEPARanker(
+        _FakeHistory(),
+        config=SafeCaptureRankerConfig(
+            cautious_reacquisition_enabled=True,
+            cautious_reacquisition_labels=("visibility_hold",),
+            cautious_reacquisition_max_steps=3,
+        ),
+        reliability_ledger=_ledger(0.90),
+        context_defaults={"layout_signature": "scenario_0", "target_motion_mode": "flee_persistence"},
+    ).rank(hidden_observation, batch)
+
+    assert result.execution_mode == "cautious_reacquisition"
+    assert result.selected_index == 4
+    assert result.fallback_reason == "cautious_reacquisition"
+    assert result.trace.ledger_states[4] == "safe_hold"
+    assert result.trace.cautious_reacquisition_allowed
+
+
+def test_cautious_reacquisition_never_overrides_ood_safe_hold() -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[4, :, 1] = 0.4
+    hidden_observation = _observation()
+    hidden_observation["target_visible"] = np.zeros(2, dtype=bool)
+    hidden_observation["target_observation_age_steps"] = np.full(2, 60.0)
+    batch = _batch(actions)
+    result = SafeCaptureJEPARanker(
+        _FakeHistory(),
+        config=SafeCaptureRankerConfig(cautious_reacquisition_enabled=True),
+        reliability_ledger=_ledger(0.90),
+        context_defaults={
+            "layout_signature": "scenario_0",
+            "target_motion_mode": "flee_persistence",
+            "ood": True,
+        },
+    ).rank(hidden_observation, batch)
+
+    assert result.execution_mode == "safe_hold"
+    assert result.selected_index == 0
+    assert result.fallback_reason == "ood"
+
+
 def test_zero_perturbation_keeps_nominal_anchor() -> None:
     nominal = np.array([[0.5, 0.0, 0.0], [0.4, 0.0, 0.0]], dtype=np.float64)
     batch = make_safe_capture_candidate_chunks(

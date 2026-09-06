@@ -14,6 +14,7 @@
 - **WP1 fixed micro-scene gate：已通过。** Corridor sampling `65/17/9` 在 `central_single`、左右封锁和 `wall_single_gap` 四个公开观测场景上保持相同的 valid/CBF-verified 路线集合；独立 4097 点复核的 geometry false accept 为 0。详见 [WP1 route sampling and paired replay report](JEPA_SAFE_CAPTURE_WP1_ROUTE_SAMPLING_AND_PAIRED_REPLAY_20260906.md)。
 - **WP1 bounded runtime replay：已完成但不扩大。** 同一三场景 manifest 上 M0 为 `1/3`、M3 为 `2/3`，安全硬门均为 0；M3 的一个 timeout 由 Ledger `safe_hold` 过度拒绝触发。M1 去 Ledger 诊断在同一场景为 `1/1`，因此下一步是 stale/OOD Ledger 路由审计，不是降低 CBF 或立即重训。
 - **WP1 Ledger abstention audit：已完成。** 在 M3 episode `646102` 的 250 步中，`safe_hold=250`，其中 `208` 步为“eligible=0 但至少一个 route CBF verified”；三路独立 CBF probes 为 `250/250` 全通过，安全硬门仍为 0。下一步只允许设计 bounded `cautious_reacquisition` 合同，不得把 stale/OOD 重标为 trusted。详见 [Ledger abstention audit](JEPA_SAFE_CAPTURE_WP1_LEDGER_ABSTENTION_AUDIT_20260906.md)。
+- **WP1 bounded cautious reacquisition：已完成并停止扩大。** 新合同只允许三步 `visibility_hold`，仍保留 Ledger `safe_hold`、stale/OOD gate 和三路独立 CBF probes；同一三场景 replay 仍为 `2/3 safe_capture`，episode `646102` 仍 timeout，虽无安全回归。详见 [stop report](JEPA_SAFE_CAPTURE_WP1_CAUTIOUS_REACQUISITION_STOP_REPORT_20260906.md)。
 
 ## 0. 最终目标和当前判断
 

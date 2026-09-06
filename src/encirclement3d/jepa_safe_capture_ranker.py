@@ -92,6 +92,13 @@ class SafeCaptureRankerConfig:
     # into an explicit eligibility gate.  Candidate 0 (nominal) remains the
     # immutable anchor even when alternatives are insufficiently separated.
     minimum_candidate_separation_m: float = 0.0
+    # Development-only recovery route.  This does not change a Ledger state;
+    # it permits a bounded, explicitly named visibility route to be proposed
+    # when the trusted nominal anchor is unavailable.  The runtime must still
+    # pass the independent selected/nominal/safe-hold CBF probes.
+    cautious_reacquisition_enabled: bool = False
+    cautious_reacquisition_labels: tuple[str, ...] = ("visibility_hold",)
+    cautious_reacquisition_max_steps: int = 3
 
     def __post_init__(self) -> None:
         if self.horizon_index < 0 or self.horizon_seconds <= 0.0 or self.position_extent_m <= 0.0:
@@ -117,6 +124,12 @@ class SafeCaptureRankerConfig:
             or self.minimum_candidate_separation_m < 0.0
         ):
             raise ValueError("minimum_candidate_separation_m must be finite and non-negative.")
+        if self.cautious_reacquisition_max_steps <= 0:
+            raise ValueError("cautious_reacquisition_max_steps must be positive.")
+        if not self.cautious_reacquisition_labels or any(
+            not isinstance(label, str) or not label for label in self.cautious_reacquisition_labels
+        ):
+            raise ValueError("cautious_reacquisition_labels must contain non-empty labels.")
         weights = (
             self.target_weight,
             self.uncertainty_weight,
@@ -182,6 +195,8 @@ class SafeCaptureRankingTrace:
     ledger_route_latency_ms: float = 0.0
     ranker_compute_latency_ms: float = 0.0
     rank_total_latency_ms: float = 0.0
+    cautious_reacquisition_allowed: bool = False
+    cautious_reacquisition_steps_remaining: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -233,6 +248,12 @@ class SafeCaptureRankingTrace:
             "ledger_route_latency_ms": float(self.ledger_route_latency_ms),
             "ranker_compute_latency_ms": float(self.ranker_compute_latency_ms),
             "rank_total_latency_ms": float(self.rank_total_latency_ms),
+            "cautious_reacquisition_allowed": bool(self.cautious_reacquisition_allowed),
+            "cautious_reacquisition_steps_remaining": (
+                None
+                if self.cautious_reacquisition_steps_remaining is None
+                else int(self.cautious_reacquisition_steps_remaining)
+            ),
         }
 
 
@@ -543,6 +564,7 @@ class SafeCaptureJEPARanker:
         previous_action: np.ndarray | None = None,
         previous_selected_index: int | None = None,
         hold_steps_remaining: int = 0,
+        reacquisition_steps_remaining: int | None = None,
     ) -> SafeCaptureRankingResult:
         rank_started_ns = perf_counter_ns()
         jepa_latency_ms = 0.0
@@ -567,6 +589,8 @@ class SafeCaptureJEPARanker:
             raise ValueError("previous_selected_index is outside the candidate range.")
         if hold_steps_remaining < 0:
             raise ValueError("hold_steps_remaining must be non-negative.")
+        if reacquisition_steps_remaining is not None and reacquisition_steps_remaining < 0:
+            raise ValueError("reacquisition_steps_remaining must be non-negative or None.")
         valid = np.asarray(candidate_batch.valid_mask, dtype=bool)
         if valid.shape != (chunks.shape[0],):
             raise ValueError("Candidate valid_mask shape mismatch.")
@@ -792,6 +816,39 @@ class SafeCaptureJEPARanker:
         nominal_anchor_selected = False
         remaining_hold = max(int(hold_steps_remaining) - 1, 0)
         selected_index = 0
+        context_base = self._context_base(observation)
+        visible = np.asarray(observation.get("target_visible", np.ones(self.history.defender_count)), dtype=bool)
+        ages = np.asarray(
+            observation.get(
+                "target_observation_age_steps",
+                observation.get("message_age_steps", np.zeros(self.history.defender_count)),
+            ),
+            dtype=np.float64,
+        )
+        # A route may be used only to regain a missing target observation.  A
+        # visible target, an OOD context, or an explicit terminal budget must
+        # never enter this branch.
+        cautious_allowed = bool(
+            self.config.cautious_reacquisition_enabled
+            and (reacquisition_steps_remaining is None or reacquisition_steps_remaining > 0)
+            and not bool(np.any(visible))
+            and np.isfinite(ages).all()
+            and float(np.max(ages, initial=0.0)) > 0.0
+            and not bool(context_base.get("ood", False))
+            and nominal_decision.fallback_reason
+            not in {"ood", "non_finite_context", "uncertainty_high", "joint_ttc_cbf_risk"}
+        )
+        cautious_index = next(
+            (
+                index
+                for index, label in enumerate(candidate_batch.labels)
+                if str(label) in self.config.cautious_reacquisition_labels
+                and bool(valid[index])
+                and not bool(fallback_only[index])
+            ),
+            None,
+        )
+        cautious_selected = False
         eligibility_reasons = tuple(
             tuple(
                 dict.fromkeys(
@@ -962,7 +1019,12 @@ class SafeCaptureJEPARanker:
             else:
                 execution_mode = "fallback_nominal"
                 fallback_reason = "no_trusted_candidate"
-        if execution_mode != "trusted":
+        if cautious_allowed and cautious_index is not None and execution_mode in {"safe_hold", "fallback_nominal"}:
+            selected_index = int(cautious_index)
+            execution_mode = "cautious_reacquisition"
+            fallback_reason = "cautious_reacquisition"
+            cautious_selected = True
+        if execution_mode not in {"trusted", "cautious_reacquisition"}:
             selected_index = 0
         trace = SafeCaptureRankingTrace(
             candidate_labels=tuple(candidate_batch.labels),
@@ -1037,6 +1099,12 @@ class SafeCaptureJEPARanker:
                 )
             ),
             rank_total_latency_ms=float((perf_counter_ns() - rank_started_ns) / 1_000_000.0),
+            cautious_reacquisition_allowed=cautious_allowed,
+            cautious_reacquisition_steps_remaining=(
+                self.config.cautious_reacquisition_max_steps
+                if cautious_selected and reacquisition_steps_remaining is None
+                else reacquisition_steps_remaining
+            ),
         )
         return SafeCaptureRankingResult(
             selected_index=selected_index,
