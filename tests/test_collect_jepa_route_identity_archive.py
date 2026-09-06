@@ -18,6 +18,9 @@ _class_counts = COLLECTOR._class_counts
 _empty_samples = COLLECTOR._empty_samples
 _copy_cbf_filter = COLLECTOR._copy_cbf_filter
 _archive_cbf_contract = COLLECTOR._archive_cbf_contract
+_pairwise_ttc_labels = COLLECTOR._pairwise_ttc_labels
+_risk_labels = COLLECTOR._risk_labels
+_boundary_shadow_ttc = COLLECTOR._boundary_shadow_ttc
 
 
 class _ShadowEnv:
@@ -35,7 +38,11 @@ class _ShadowEnv:
         self.upper = np.array([10.0, 10.0, 10.0], dtype=np.float64)
         self.n_defenders = 4
         self.dt = 0.5
-        self.agents = {"drone_radius": 0.5, "defender_max_speed": 2.0}
+        self.agents = {
+            "drone_radius": 0.5,
+            "defender_max_speed": 2.0,
+            "defender_max_acceleration": 2.0,
+        }
         self.step_calls = 0
 
     def step(self, _action: np.ndarray) -> None:
@@ -73,6 +80,17 @@ def test_boundary_shadow_append_is_offline_only_and_does_not_step_environment() 
     assert env.step_calls == 0
     assert samples["sample_type"] == [1, 1, 1, 1]
     assert samples["route_candidate_index"] == [-1, -1, -1, -1]
+
+
+def test_boundary_shadow_ttc_is_nonnegative_and_finite() -> None:
+    env = _ShadowEnv()
+    actions, boundary = _boundary_shadow_rollout(env)
+    ttc = _boundary_shadow_ttc(env, actions)
+
+    assert ttc.shape == boundary.shape
+    assert np.all(np.isfinite(ttc))
+    assert float(ttc.min()) >= 0.0
+    assert float(ttc.max()) <= COLLECTOR.TTC_CLIP_SECONDS
 
 
 def test_class_counts_separate_runtime_rows_from_boundary_shadow_rows() -> None:
@@ -138,3 +156,49 @@ def test_archive_cbf_contract_is_explicit_and_validated() -> None:
 
     with pytest.raises(ValueError, match="barrier_mode"):
         _archive_cbf_contract({"cbf_contract": {"anticipatory_horizon_steps": 5, "barrier_mode": "invalid"}})
+
+
+def test_pairwise_ttc_labels_distinguish_approaching_and_receding_agents() -> None:
+    positions = np.array([[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]], dtype=np.float64)
+    approaching = np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]], dtype=np.float64)
+    receding = -approaching
+
+    approaching_ttc = _pairwise_ttc_labels(
+        positions, approaching, radius=0.5, margin=0.35
+    )
+    receding_ttc = _pairwise_ttc_labels(
+        positions, receding, radius=0.5, margin=0.35
+    )
+
+    assert np.all(np.isfinite(approaching_ttc))
+    assert np.all(approaching_ttc < 10.0)
+    assert np.all(receding_ttc == 10.0)
+
+
+def test_risk_labels_include_stopping_distance_and_boundary_ttc() -> None:
+    class _RiskEnv:
+        defender_positions = np.array([[8.0, 0.0, 1.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+        lower = np.array([-10.0, -10.0, 0.5], dtype=np.float64)
+        upper = np.array([10.0, 10.0, 10.0], dtype=np.float64)
+        n_defenders = 2
+        obstacles: list[object] = []
+        agents = {
+            "drone_radius": 0.5,
+            "defender_max_acceleration": 2.0,
+        }
+
+    env = _RiskEnv()
+    velocities = np.array([[4.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=np.float64)
+    labels = _risk_labels(
+        env,
+        velocities,
+        obstacle_margin_m=0.35,
+        boundary_margin_m=0.35,
+        inter_agent_margin_m=0.35,
+    )
+
+    assert set(labels) == {"stopping_distance", "obstacle_ttc", "boundary_ttc", "pairwise_ttc"}
+    assert all(np.all(np.isfinite(value)) for value in labels.values())
+    assert labels["stopping_distance"][0] == pytest.approx(4.0)
+    assert labels["boundary_ttc"][0] < 10.0
+    assert labels["boundary_ttc"][1] == pytest.approx(10.0)

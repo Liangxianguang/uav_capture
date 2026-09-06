@@ -13,7 +13,7 @@ episodes_smoke: 4
 sample_stride: 8
 
 data_contract:
-  dataset_version: jepa_safe_capture_route_identity_v1
+  dataset_version: jepa_safe_capture_route_identity_hard_negative_v2
   history_length: 8
   horizon_steps: [1, 2, 3, 5]
   chunk_length_steps: 3
@@ -31,6 +31,11 @@ labels:
     - obstacle_clearance
     - boundary_clearance
     - inter_agent_clearance
+    - stopping_distance
+    - obstacle_ttc
+    - boundary_ttc
+    - pairwise_ttc
+    - acceleration_slack
     - target_visibility
     - cbf_correction
     - cbf_intervention
@@ -43,6 +48,10 @@ labels:
   negative_examples_required:
     - cbf_feasible
     - boundary_clearance
+    - boundary_ttc
+    - obstacle_ttc
+    - pairwise_ttc
+    - acceleration_slack
     - route_geometry_valid
 
 safety_contract:
@@ -64,6 +73,9 @@ tensorboard:
     - Archive/route_geometry_valid_fraction
     - Archive/cbf_first_step_feasible_fraction
     - Archive/branch_failure_within_horizon_fraction
+    - Archive/negative_boundary_ttc_fraction
+    - Archive/negative_pairwise_ttc_fraction
+    - Archive/negative_acceleration_slack_fraction
     - Archive/route_samples
   text_artifacts:
     - dataset_version

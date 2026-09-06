@@ -57,8 +57,9 @@ from encirclement3d.showcase import (  # noqa: E402
 )
 
 
-DATASET_VERSION = "jepa_safe_capture_route_identity_v1"
+DATASET_VERSION = "jepa_safe_capture_route_identity_hard_negative_v2"
 HORIZON_STEPS = (1, 2, 3, 5)
+TTC_CLIP_SECONDS = 10.0
 ROUTE_SIDES = (
     "nominal",
     "left",
@@ -236,6 +237,119 @@ def _target_progress(env: CaptureRadiusPursuit3DEnv, initial_distances: np.ndarr
     return ((initial_distances - distances) / extent).astype(np.float32)
 
 
+def _pairwise_ttc_labels(
+    positions: np.ndarray,
+    velocities: np.ndarray,
+    *,
+    radius: float,
+    margin: float,
+    clip_seconds: float = TTC_CLIP_SECONDS,
+) -> np.ndarray:
+    """Return conservative per-defender TTC to the operational pairwise set."""
+
+    positions = np.asarray(positions, dtype=np.float64)
+    velocities = np.asarray(velocities, dtype=np.float64)
+    if positions.shape != velocities.shape or positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError("positions and velocities must have shape [defenders, 3]")
+    result = np.full(positions.shape[0], float(clip_seconds), dtype=np.float64)
+    safe_distance = 2.0 * float(radius) + float(margin)
+    for first in range(positions.shape[0]):
+        for second in range(first + 1, positions.shape[0]):
+            relative_position = positions[first] - positions[second]
+            relative_velocity = velocities[first] - velocities[second]
+            speed_squared = float(np.dot(relative_velocity, relative_velocity))
+            if speed_squared <= 1e-12:
+                continue
+            closing = float(np.dot(relative_position, relative_velocity))
+            c = float(np.dot(relative_position, relative_position) - safe_distance**2)
+            if c <= 0.0:
+                time = 0.0
+            elif closing >= 0.0:
+                continue
+            else:
+                discriminant = closing**2 - speed_squared * c
+                if discriminant < 0.0:
+                    continue
+                time = (-closing - float(np.sqrt(discriminant))) / speed_squared
+            if 0.0 <= time <= clip_seconds:
+                result[first] = min(result[first], time)
+                result[second] = min(result[second], time)
+    return result.astype(np.float32)
+
+
+def _risk_labels(
+    env: CaptureRadiusPursuit3DEnv,
+    velocities: np.ndarray,
+    *,
+    obstacle_margin_m: float,
+    boundary_margin_m: float,
+    inter_agent_margin_m: float,
+) -> dict[str, np.ndarray]:
+    """Compute offline risk labels from one public state and a candidate velocity."""
+
+    positions = np.asarray(env.defender_positions, dtype=np.float64)
+    velocities = np.asarray(velocities, dtype=np.float64)
+    if positions.shape != velocities.shape:
+        raise ValueError("risk label positions and velocities must have identical shapes")
+    radius = float(env.agents["drone_radius"])
+    max_acceleration = float(env.agents["defender_max_acceleration"])
+    speeds = np.linalg.norm(velocities, axis=1)
+    stopping_distance = speeds**2 / max(2.0 * max_acceleration, 1e-12)
+    obstacle_ttc = np.full(env.n_defenders, TTC_CLIP_SECONDS, dtype=np.float64)
+    boundary_ttc = np.full(env.n_defenders, TTC_CLIP_SECONDS, dtype=np.float64)
+    for index, position in enumerate(positions):
+        for obstacle in env.obstacles:
+            clearance, normal = env._cylinder_clearance_and_normal(position, obstacle)
+            gap = float(clearance) - radius - float(obstacle_margin_m)
+            closing_speed = max(0.0, -float(np.dot(normal, velocities[index])))
+            if gap <= 0.0:
+                candidate = 0.0
+            elif closing_speed <= 1e-9:
+                continue
+            else:
+                candidate = gap / closing_speed
+            obstacle_ttc[index] = min(obstacle_ttc[index], candidate)
+        for axis in range(3):
+            lower_gap = float(position[axis] - env.lower[axis] - radius - boundary_margin_m)
+            upper_gap = float(env.upper[axis] - radius - boundary_margin_m - position[axis])
+            speed = float(velocities[index, axis])
+            if speed < -1e-9:
+                candidate = 0.0 if lower_gap <= 0.0 else lower_gap / -speed
+                boundary_ttc[index] = min(boundary_ttc[index], candidate)
+            elif speed > 1e-9:
+                candidate = 0.0 if upper_gap <= 0.0 else upper_gap / speed
+                boundary_ttc[index] = min(boundary_ttc[index], candidate)
+    return {
+        "stopping_distance": stopping_distance.astype(np.float32),
+        "obstacle_ttc": np.clip(obstacle_ttc, 0.0, TTC_CLIP_SECONDS).astype(np.float32),
+        "boundary_ttc": np.clip(boundary_ttc, 0.0, TTC_CLIP_SECONDS).astype(np.float32),
+        "pairwise_ttc": _pairwise_ttc_labels(
+            positions,
+            velocities,
+            radius=radius,
+            margin=inter_agent_margin_m,
+        ),
+    }
+
+
+def _acceleration_slack_labels(diagnostics: Any, defender_count: int) -> np.ndarray:
+    """Extract per-defender acceleration slack without inventing feasibility."""
+
+    result = np.full(defender_count, -1.0, dtype=np.float32)
+    slacks = getattr(diagnostics, "constraint_slacks", {}) if diagnostics is not None else {}
+    if not isinstance(slacks, Mapping):
+        return result
+    for defender in range(defender_count):
+        values = [
+            float(value)
+            for key, value in slacks.items()
+            if str(key) == f"acceleration_defender_{defender}" and np.isfinite(float(value))
+        ]
+        if values:
+            result[defender] = float(min(values))
+    return result
+
+
 def _boundary_shadow_rollout(
     env: CaptureRadiusPursuit3DEnv,
     *,
@@ -277,6 +391,39 @@ def _boundary_shadow_rollout(
         )
         boundary.append(values.astype(np.float32))
     return actions, np.stack(boundary, axis=0)
+
+
+def _boundary_shadow_ttc(
+    env: CaptureRadiusPursuit3DEnv,
+    actions: np.ndarray,
+    *,
+    horizon: int = max(HORIZON_STEPS),
+    clip_seconds: float = TTC_CLIP_SECONDS,
+) -> np.ndarray:
+    """Return non-negative time-to-boundary labels for the offline shadow."""
+
+    positions = np.asarray(env.defender_positions, dtype=np.float64).copy()
+    actions = np.asarray(actions, dtype=np.float64)
+    radius = float(env.agents["drone_radius"])
+    dt = float(env.dt)
+    result: list[np.ndarray] = []
+    for _step in range(int(horizon)):
+        positions += actions[0] * dt
+        per_agent = np.full(env.n_defenders, float(clip_seconds), dtype=np.float64)
+        for agent, position in enumerate(positions):
+            for axis in range(3):
+                lower_gap = float(position[axis] - env.lower[axis] - radius)
+                upper_gap = float(env.upper[axis] - position[axis] - radius)
+                speed = float(actions[0, agent, axis])
+                if speed < -1e-9:
+                    candidate = 0.0 if lower_gap <= 0.0 else lower_gap / -speed
+                elif speed > 1e-9:
+                    candidate = 0.0 if upper_gap <= 0.0 else upper_gap / speed
+                else:
+                    continue
+                per_agent[agent] = min(per_agent[agent], candidate)
+        result.append(np.clip(per_agent, 0.0, clip_seconds).astype(np.float32))
+    return np.stack(result, axis=0)
 
 
 def _copy_cbf_filter(source: JointCBFQPSafetyFilter, env: CaptureRadiusPursuit3DEnv) -> JointCBFQPSafetyFilter:
@@ -339,6 +486,11 @@ def _route_rollout(
         "obstacle_clearance": [],
         "inter_agent_clearance": [],
         "boundary_clearance": [],
+        "stopping_distance": [],
+        "obstacle_ttc": [],
+        "boundary_ttc": [],
+        "pairwise_ttc": [],
+        "acceleration_slack": [],
         "target_visible": [],
         "cbf_correction": [],
         "cbf_intervention": [],
@@ -353,10 +505,22 @@ def _route_rollout(
     for step in range(1, maximum_horizon + 1):
         if failed:
             obstacle, pairwise, boundary = _clearance_labels(clone)
+            risk = _risk_labels(
+                clone,
+                np.asarray(clone.defender_velocities, dtype=np.float64),
+                obstacle_margin_m=float(safety_filter.obstacle_margin_m),
+                boundary_margin_m=float(safety_filter.boundary_margin_m),
+                inter_agent_margin_m=float(safety_filter.inter_agent_margin_m),
+            )
             labels["relative"].append(_target_relative(clone, extent))
             labels["obstacle_clearance"].append(obstacle.astype(np.float32))
             labels["inter_agent_clearance"].append(pairwise.astype(np.float32))
             labels["boundary_clearance"].append(boundary.astype(np.float32))
+            labels["stopping_distance"].append(risk["stopping_distance"])
+            labels["obstacle_ttc"].append(risk["obstacle_ttc"])
+            labels["boundary_ttc"].append(risk["boundary_ttc"])
+            labels["pairwise_ttc"].append(risk["pairwise_ttc"])
+            labels["acceleration_slack"].append(np.full(defender_count, -1.0, dtype=np.float32))
             labels["target_visible"].append(np.asarray(clone.target_visible, dtype=np.float32))
             labels["cbf_correction"].append(np.zeros(defender_count, dtype=np.float32))
             labels["cbf_intervention"].append(np.zeros(defender_count, dtype=np.float32))
@@ -384,10 +548,22 @@ def _route_rollout(
             failed = True
             cbf_failed = True
             obstacle, pairwise, boundary = _clearance_labels(clone)
+            risk = _risk_labels(
+                clone,
+                np.asarray(clone.defender_velocities, dtype=np.float64),
+                obstacle_margin_m=float(safety_filter.obstacle_margin_m),
+                boundary_margin_m=float(safety_filter.boundary_margin_m),
+                inter_agent_margin_m=float(safety_filter.inter_agent_margin_m),
+            )
             labels["relative"].append(_target_relative(clone, extent))
             labels["obstacle_clearance"].append(obstacle.astype(np.float32))
             labels["inter_agent_clearance"].append(pairwise.astype(np.float32))
             labels["boundary_clearance"].append(boundary.astype(np.float32))
+            labels["stopping_distance"].append(risk["stopping_distance"])
+            labels["obstacle_ttc"].append(risk["obstacle_ttc"])
+            labels["boundary_ttc"].append(risk["boundary_ttc"])
+            labels["pairwise_ttc"].append(risk["pairwise_ttc"])
+            labels["acceleration_slack"].append(_acceleration_slack_labels(diagnostics, defender_count))
             labels["target_visible"].append(np.asarray(clone.target_visible, dtype=np.float32))
             labels["cbf_correction"].append(np.full(defender_count, failure_correction, dtype=np.float32))
             labels["cbf_intervention"].append(np.zeros(defender_count, dtype=np.float32))
@@ -413,10 +589,22 @@ def _route_rollout(
         correction = float(final_diagnostics.action_correction_norm)
         clone_observation, _reward, terminated, truncated, _info = clone.step(executed)
         obstacle, pairwise, boundary = _clearance_labels(clone)
+        risk = _risk_labels(
+            clone,
+            np.asarray(clone.defender_velocities, dtype=np.float64),
+            obstacle_margin_m=float(safety_filter.obstacle_margin_m),
+            boundary_margin_m=float(safety_filter.boundary_margin_m),
+            inter_agent_margin_m=float(safety_filter.inter_agent_margin_m),
+        )
         labels["relative"].append(_target_relative(clone, extent))
         labels["obstacle_clearance"].append(obstacle.astype(np.float32))
         labels["inter_agent_clearance"].append(pairwise.astype(np.float32))
         labels["boundary_clearance"].append(boundary.astype(np.float32))
+        labels["stopping_distance"].append(risk["stopping_distance"])
+        labels["obstacle_ttc"].append(risk["obstacle_ttc"])
+        labels["boundary_ttc"].append(risk["boundary_ttc"])
+        labels["pairwise_ttc"].append(risk["pairwise_ttc"])
+        labels["acceleration_slack"].append(_acceleration_slack_labels(final_diagnostics, defender_count))
         labels["target_visible"].append(np.asarray(clone.target_visible, dtype=np.float32))
         labels["cbf_correction"].append(np.full(defender_count, correction, dtype=np.float32))
         labels["cbf_intervention"].append(
@@ -449,6 +637,11 @@ def _empty_samples() -> dict[str, list[Any]]:
         "labels_obstacle_clearance": [],
         "labels_boundary_clearance": [],
         "labels_inter_agent_clearance": [],
+        "labels_stopping_distance": [],
+        "labels_obstacle_ttc": [],
+        "labels_boundary_ttc": [],
+        "labels_pairwise_ttc": [],
+        "labels_acceleration_slack": [],
         "labels_target_visible": [],
         "labels_cbf_correction": [],
         "labels_cbf_intervention": [],
@@ -502,6 +695,11 @@ def _append_samples(
             ("obstacle_clearance", "labels_obstacle_clearance"),
             ("boundary_clearance", "labels_boundary_clearance"),
             ("inter_agent_clearance", "labels_inter_agent_clearance"),
+            ("stopping_distance", "labels_stopping_distance"),
+            ("obstacle_ttc", "labels_obstacle_ttc"),
+            ("boundary_ttc", "labels_boundary_ttc"),
+            ("pairwise_ttc", "labels_pairwise_ttc"),
+            ("acceleration_slack", "labels_acceleration_slack"),
             ("target_visible", "labels_target_visible"),
             ("cbf_correction", "labels_cbf_correction"),
             ("cbf_intervention", "labels_cbf_intervention"),
@@ -543,6 +741,7 @@ def _append_boundary_shadow_samples(
     inputs = np.stack(observation_history[-8:], axis=0)
     past_actions = np.stack(executed_action_history[-7:], axis=0)
     action_chunk, boundary = _boundary_shadow_rollout(env)
+    boundary_ttc = _boundary_shadow_ttc(env, action_chunk)
     for agent in range(inputs.shape[1]):
         samples["inputs"].append(inputs[:, agent].copy())
         samples["action_history"].append(
@@ -555,6 +754,11 @@ def _append_boundary_shadow_samples(
             ("labels_obstacle_clearance", zeros.copy()),
             ("labels_boundary_clearance", boundary[:, agent]),
             ("labels_inter_agent_clearance", zeros.copy()),
+            ("labels_stopping_distance", np.full(max(HORIZON_STEPS), float(np.linalg.norm(action_chunk[0, agent]) ** 2 / max(2.0 * float(env.agents["defender_max_acceleration"]), 1e-12)), dtype=np.float32)),
+            ("labels_obstacle_ttc", zeros.copy()),
+            ("labels_boundary_ttc", boundary_ttc[:, agent]),
+            ("labels_pairwise_ttc", zeros.copy()),
+            ("labels_acceleration_slack", zeros.copy()),
             ("labels_target_visible", zeros.copy()),
             ("labels_cbf_correction", zeros.copy()),
             ("labels_cbf_intervention", zeros.copy()),
@@ -970,6 +1174,21 @@ def main() -> int:
         writer.add_scalar(
             "Archive/branch_failure_within_horizon_fraction",
             float(np.mean(arrays["earliest_failure_step"][runtime_mask] <= max(HORIZON_STEPS))),
+            0,
+        )
+        writer.add_scalar(
+            "Archive/negative_boundary_ttc_fraction",
+            float(np.mean(arrays["labels_boundary_ttc"].min(axis=1) < TTC_CLIP_SECONDS)),
+            0,
+        )
+        writer.add_scalar(
+            "Archive/negative_pairwise_ttc_fraction",
+            float(np.mean(arrays["labels_pairwise_ttc"].min(axis=1) < TTC_CLIP_SECONDS)),
+            0,
+        )
+        writer.add_scalar(
+            "Archive/negative_acceleration_slack_fraction",
+            float(np.mean(arrays["labels_acceleration_slack"].min(axis=1) < 0.0)),
             0,
         )
         writer.add_scalar(
