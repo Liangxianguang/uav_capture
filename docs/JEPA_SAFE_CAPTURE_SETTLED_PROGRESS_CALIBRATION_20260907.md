@@ -1,8 +1,8 @@
 # Settled Progress Calibration Audit
 
-**Date:** 2026-09-07  
-**Scope:** development-only offline audit; one-step CBF counterfactual labels  
-**Locked test:** not opened  
+**Date:** 2026-09-07
+**Scope:** development-only offline audit; one-step CBF counterfactual labels
+**Locked test:** not opened
 **Online contract:** unchanged
 
 ## Result
