@@ -658,46 +658,65 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
     remain evaluator outputs; none emits a control action.
     """
 
-    def __init__(self, *args: Any, ttc_clip_seconds: float = 10.0, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        ttc_clip_seconds: float = 10.0,
+        pairwise_pooling: bool = False,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         if ttc_clip_seconds <= 0.0:
             raise ValueError("ttc_clip_seconds must be positive")
         self.ttc_clip_seconds = float(ttc_clip_seconds)
+        self.pairwise_pooling = bool(pairwise_pooling)
+        risk_input_dim = self.latent_dim
+        if self.pairwise_pooling:
+            # The 63-D public observation stores three teammate-relative
+            # position vectors followed by three relative velocity vectors at
+            # indices [15:33]. Pool these local interaction features only for
+            # risk heads; legacy route-JEPA heads keep their original inputs.
+            self.pairwise_feature_encoder = nn.Sequential(
+                nn.Linear(18, self.hidden_dim),
+                nn.LayerNorm(self.hidden_dim),
+                nn.SiLU(),
+            )
+            risk_input_dim += self.hidden_dim
         self.stopping_distance_decoder = nn.Sequential(
-            nn.LayerNorm(self.latent_dim),
-            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.LayerNorm(risk_input_dim),
+            nn.Linear(risk_input_dim, self.hidden_dim),
             nn.SiLU(),
             nn.Linear(self.hidden_dim, 1),
         )
         self.obstacle_ttc_decoder = nn.Sequential(
-            nn.LayerNorm(self.latent_dim),
-            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.LayerNorm(risk_input_dim),
+            nn.Linear(risk_input_dim, self.hidden_dim),
             nn.SiLU(),
             nn.Linear(self.hidden_dim, 1),
         )
         self.boundary_ttc_decoder = nn.Sequential(
-            nn.LayerNorm(self.latent_dim),
-            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.LayerNorm(risk_input_dim),
+            nn.Linear(risk_input_dim, self.hidden_dim),
             nn.SiLU(),
             nn.Linear(self.hidden_dim, 1),
         )
         self.pairwise_ttc_risk_decoder = nn.Sequential(
-            nn.LayerNorm(self.latent_dim),
-            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.LayerNorm(risk_input_dim),
+            nn.Linear(risk_input_dim, self.hidden_dim),
             nn.SiLU(),
             nn.Linear(self.hidden_dim, 1),
         )
         self.acceleration_slack_decoder = nn.Sequential(
-            nn.LayerNorm(self.latent_dim),
-            nn.Linear(self.latent_dim, self.hidden_dim),
+            nn.LayerNorm(risk_input_dim),
+            nn.Linear(risk_input_dim, self.hidden_dim),
             nn.SiLU(),
             nn.Linear(self.hidden_dim, 1),
         )
         self.risk_hazard_decoders = nn.ModuleDict(
             {
                 name: nn.Sequential(
-                    nn.LayerNorm(self.latent_dim),
-                    nn.Linear(self.latent_dim, self.hidden_dim),
+                    nn.LayerNorm(risk_input_dim),
+                    nn.Linear(risk_input_dim, self.hidden_dim),
                     nn.SiLU(),
                     nn.Linear(self.hidden_dim, 3),
                 )
@@ -707,8 +726,8 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
         self.risk_quantile_decoders = nn.ModuleDict(
             {
                 name: nn.Sequential(
-                    nn.LayerNorm(self.latent_dim),
-                    nn.Linear(self.latent_dim, self.hidden_dim),
+                    nn.LayerNorm(risk_input_dim),
+                    nn.Linear(risk_input_dim, self.hidden_dim),
                     nn.SiLU(),
                     nn.Linear(self.hidden_dim, 1),
                 )
@@ -716,36 +735,74 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
             }
         )
 
-    def hard_negative_auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+    def _pairwise_context(self, inputs: torch.Tensor, latent: torch.Tensor) -> torch.Tensor | None:
+        if not self.pairwise_pooling:
+            return None
+        if inputs.ndim != 3 or inputs.shape[-1] < 33:
+            raise ValueError("Pairwise pooling requires [batch, history, >=33] observations.")
+        local_interactions = inputs[:, -1, 15:33]
+        context = self.pairwise_feature_encoder(local_interactions)
+        return context.unsqueeze(1).expand(-1, latent.shape[1], -1)
+
+    def hard_negative_auxiliary_predictions(
+        self,
+        latent: torch.Tensor,
+        pairwise_context: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
         if latent.ndim != 3 or latent.shape[1:] != (self.horizon_count, self.latent_dim):
             raise ValueError(
                 "Expected predicted latent shaped "
                 f"[batch, {self.horizon_count}, {self.latent_dim}], got {tuple(latent.shape)}."
             )
+        risk_features = latent if pairwise_context is None else torch.cat([latent, pairwise_context], dim=-1)
         return {
-            "stopping_distance": F.softplus(self.stopping_distance_decoder(latent).squeeze(-1)),
+            "stopping_distance": F.softplus(self.stopping_distance_decoder(risk_features).squeeze(-1)),
             "obstacle_ttc": self.ttc_clip_seconds
-            * torch.sigmoid(self.obstacle_ttc_decoder(latent).squeeze(-1)),
+            * torch.sigmoid(self.obstacle_ttc_decoder(risk_features).squeeze(-1)),
             "boundary_ttc": self.ttc_clip_seconds
-            * torch.sigmoid(self.boundary_ttc_decoder(latent).squeeze(-1)),
+            * torch.sigmoid(self.boundary_ttc_decoder(risk_features).squeeze(-1)),
             "pairwise_ttc_risk": self.ttc_clip_seconds
-            * torch.sigmoid(self.pairwise_ttc_risk_decoder(latent).squeeze(-1)),
-            "acceleration_slack": self.acceleration_slack_decoder(latent).squeeze(-1),
-            "obstacle_ttc_hazard_logits": self.risk_hazard_decoders["obstacle_ttc"](latent),
-            "boundary_ttc_hazard_logits": self.risk_hazard_decoders["boundary_ttc"](latent),
-            "pairwise_ttc_hazard_logits": self.risk_hazard_decoders["pairwise_ttc"](latent),
+            * torch.sigmoid(self.pairwise_ttc_risk_decoder(risk_features).squeeze(-1)),
+            "acceleration_slack": self.acceleration_slack_decoder(risk_features).squeeze(-1),
+            "obstacle_ttc_hazard_logits": self.risk_hazard_decoders["obstacle_ttc"](risk_features),
+            "boundary_ttc_hazard_logits": self.risk_hazard_decoders["boundary_ttc"](risk_features),
+            "pairwise_ttc_hazard_logits": self.risk_hazard_decoders["pairwise_ttc"](risk_features),
             "obstacle_ttc_lower_quantile": self.ttc_clip_seconds
-            * torch.sigmoid(self.risk_quantile_decoders["obstacle_ttc"](latent).squeeze(-1)),
+            * torch.sigmoid(self.risk_quantile_decoders["obstacle_ttc"](risk_features).squeeze(-1)),
             "boundary_ttc_lower_quantile": self.ttc_clip_seconds
-            * torch.sigmoid(self.risk_quantile_decoders["boundary_ttc"](latent).squeeze(-1)),
+            * torch.sigmoid(self.risk_quantile_decoders["boundary_ttc"](risk_features).squeeze(-1)),
             "pairwise_ttc_lower_quantile": self.ttc_clip_seconds
-            * torch.sigmoid(self.risk_quantile_decoders["pairwise_ttc"](latent).squeeze(-1)),
+            * torch.sigmoid(self.risk_quantile_decoders["pairwise_ttc"](risk_features).squeeze(-1)),
         }
 
-    def auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
+    def auxiliary_predictions(
+        self,
+        latent: torch.Tensor,
+        pairwise_context: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
         values = super().auxiliary_predictions(latent)
-        values.update(self.hard_negative_auxiliary_predictions(latent))
+        values.update(self.hard_negative_auxiliary_predictions(latent, pairwise_context))
         return values
+
+    def forward_multitask(
+        self,
+        inputs: torch.Tensor,
+        actions: torch.Tensor | None = None,
+        route_chunks: torch.Tensor | None = None,
+        route_candidate_indices: torch.Tensor | None = None,
+        route_side_indices: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        mean, log_variance, latent = self.forward(
+            inputs,
+            actions,
+            route_chunks,
+            route_candidate_indices,
+            route_side_indices,
+        )
+        return mean, log_variance, latent, self.auxiliary_predictions(
+            latent,
+            self._pairwise_context(inputs, latent),
+        )
 
 
 def build_action_conditioned_predictor(

@@ -126,6 +126,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quantile-loss-weight", type=float, default=0.50)
     parser.add_argument("--quantile", type=float, default=0.10)
     parser.add_argument(
+        "--pairwise-pooling",
+        action="store_true",
+        help="Append an explicit latest-frame relative-teammate pooling block to risk heads.",
+    )
+    parser.add_argument(
         "--head-only",
         action="store_true",
         help="Freeze shared JEPA and legacy route heads; optimize only v2 hard-negative risk heads.",
@@ -675,6 +680,7 @@ def main() -> None:
         "route_chunk_length": 3,
         "route_candidate_count": 12,
         "route_side_count": 12,
+        "pairwise_pooling": bool(args.pairwise_pooling),
     }
     model = build_action_conditioned_predictor(MODEL_TYPE, model_config).to(device)
     if not isinstance(model, InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor):
@@ -705,6 +711,7 @@ def main() -> None:
                 "acceleration_slack_decoder.",
                 "risk_hazard_decoders.",
                 "risk_quantile_decoders.",
+                "pairwise_feature_encoder.",
             ))
         }
         if set(missing) != expected_missing or unexpected:
@@ -719,6 +726,7 @@ def main() -> None:
             "acceleration_slack_decoder.",
             "risk_hazard_decoders.",
             "risk_quantile_decoders.",
+            "pairwise_feature_encoder.",
         )
         for name, parameter in model.named_parameters():
             parameter.requires_grad = name.startswith(trainable_prefixes)
