@@ -210,6 +210,26 @@ def test_ranker_preserves_candidate_generation_rejection_reasons() -> None:
     assert result.trace.valid_mask[1] is False
 
 
+def test_ranker_uses_verified_alternative_when_nominal_prefilter_fails() -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 0.8
+    batch = _batch(actions, valid=np.array([False, True, True, True, True], dtype=bool))
+    batch = SafeCaptureCandidateBatch(
+        chunks=batch.chunks,
+        labels=batch.labels,
+        valid_mask=batch.valid_mask,
+        rejection_reasons=(("route_clearance_below_margin",), (), (), (), ()),
+    )
+
+    result = SafeCaptureJEPARanker(_FakeHistory()).rank(_observation(), batch)
+
+    assert result.execution_mode == "trusted"
+    assert result.selected_index == 1
+    assert result.trace.eligible_mask[0] is False
+    assert result.trace.eligible_mask[1] is True
+    assert result.fallback_reason == "nominal_infeasible_alternative_route"
+
+
 def test_candidate_generator_rejects_nonfinite_nominal_and_marks_dynamics_failures() -> None:
     nominal = np.array([[np.nan, 0.0, 0.0], [0.0, 0.0, 0.0]])
     try:

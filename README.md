@@ -64,6 +64,7 @@ they are not additional execution queues.
 - [Latest extended-prefilter diagnosis](docs/JEPA_SAFE_CAPTURE_EXTENDED_PREFILTER_DIAGNOSIS_20260906.md)
 - [V5 prior-observation active-search three-seed stop report](docs/JEPA_SAFE_CAPTURE_V5_PRIOR_OBSERVATION_ACTIVE_SEARCH_THREE_SEED_STOP_REPORT_20260906.md)
 - [V5 active-search paired aggregate script](scripts/aggregate_jepa_safe_capture_v5_prior_observation_active_search.py)
+- [V5 nominal-prefilter alternative-route fix](docs/JEPA_SAFE_CAPTURE_V5_NOMINAL_PREFILTER_ALTERNATIVE_ROUTE_FIX_20260907.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the

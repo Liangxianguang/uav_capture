@@ -81,8 +81,8 @@ def _canonical_manifest_sha256(path: Path) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _load_run(root: Path, variant: str, seed: int) -> dict[str, Any]:
-    path = (root / "results" / f"{PREFIX}_{variant}_seed{seed}").resolve()
+def _load_run(root: Path, variant: str, seed: int, prefix: str = PREFIX) -> dict[str, Any]:
+    path = (root / "results" / f"{prefix}_{variant}_seed{seed}").resolve()
     required = ("summary.json", "provenance.json", "episodes.csv", "scene_manifest.jsonl")
     missing = [path / name for name in required if not (path / name).is_file()]
     if missing:
@@ -214,8 +214,15 @@ def _paired(m0: Mapping[str, Any], m3: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _aggregate(root: Path) -> dict[str, Any]:
-    runs = {(seed, variant): _load_run(root, variant, seed) for seed in SEEDS for variant in ("m0", "m3")}
+def _aggregate(root: Path, *, m0_prefix: str = PREFIX, m3_prefix: str = PREFIX) -> dict[str, Any]:
+    runs = {
+        (seed, "m0"): _load_run(root, "m0", seed, m0_prefix)
+        for seed in SEEDS
+    }
+    runs.update({
+        (seed, "m3"): _load_run(root, "m3", seed, m3_prefix)
+        for seed in SEEDS
+    })
     for seed in SEEDS:
         m0, m3 = runs[(seed, "m0")], runs[(seed, "m3")]
         for key in ("protocol_sha256", "environment_config_sha256", "actor_checkpoint_sha256", "scene_manifest_sha256"):
@@ -265,6 +272,8 @@ def _aggregate(root: Path) -> dict[str, Any]:
         "stop_reason": (
             "same_manifest_and_checkpoint_replay; one M0 success regresses to M3 timeout; active-search never executed"
             if safety_gate and pooled_degraded > 0 and all_reacquisition_zero
+            else "paired gain is a same-checkpoint replay; require distinct model-seed evidence before expansion"
+            if safety_gate and pooled_delta > 0.0 and not (len(jepa_hashes) == len(SEEDS) and len(set(canonical_manifests.values())) == len(SEEDS))
             else "no stable positive paired delta under safety gate"
             if safety_gate and pooled_delta <= 0.0
             else "safety gate failed"
@@ -361,6 +370,8 @@ def main() -> None:
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tensorboard-dir", type=Path, required=True)
+    parser.add_argument("--m0-prefix", default=PREFIX, help="M0 result directory prefix under results/.")
+    parser.add_argument("--m3-prefix", default=PREFIX, help="M3 result directory prefix under results/.")
     parser.add_argument("--development-only", action="store_true", required=True)
     args = parser.parse_args()
     if not args.development_only:
@@ -368,7 +379,11 @@ def main() -> None:
     output = args.output_dir.resolve()
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(output)
-    report = _aggregate(args.project_root.resolve())
+    report = _aggregate(
+        args.project_root.resolve(),
+        m0_prefix=str(args.m0_prefix),
+        m3_prefix=str(args.m3_prefix),
+    )
     output.mkdir(parents=True, exist_ok=True)
     report["tensorboard"] = _write_tensorboard(report, args.tensorboard_dir.resolve())
     (output / "summary.json").write_text(json.dumps(report, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")

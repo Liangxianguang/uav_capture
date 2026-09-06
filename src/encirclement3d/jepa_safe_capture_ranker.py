@@ -886,10 +886,20 @@ class SafeCaptureJEPARanker:
             )
             for index in range(candidate_count)
         )
-        if not bool(valid[0]):
+        # A failed nominal geometry/CBF prefilter removes the anchor, but it
+        # does not invalidate independently verified alternatives.  This is
+        # the route-aware contract: rank eligible alternatives when they
+        # exist; reserve safe_hold for the case where no trusted candidate is
+        # available.  Ledger safe-hold states (OOD, stale, never-received)
+        # remain conservative when the nominal candidate itself is valid.
+        nominal_prefilter_failed = not bool(valid[0])
+        alternative_eligible = bool(np.any(eligible[1:]))
+        if nominal_prefilter_failed and not alternative_eligible:
             execution_mode = "safe_hold"
             fallback_reason = "nominal_infeasible"
-        elif nominal_decision.state == "safe_hold":
+        elif nominal_decision.state == "safe_hold" and not (
+            nominal_prefilter_failed and alternative_eligible
+        ):
             execution_mode = "safe_hold"
             fallback_reason = nominal_decision.fallback_reason
         elif nominal_decision.state == "fallback_nominal":
@@ -897,6 +907,8 @@ class SafeCaptureJEPARanker:
             fallback_reason = nominal_decision.fallback_reason
         else:
             # A non-trusted alternative is never allowed to displace nominal.
+            if nominal_prefilter_failed:
+                fallback_reason = "nominal_infeasible_alternative_route"
             if self.config.fixed_point_score_comparison:
                 eligible[0] = bool(
                     valid[0]
@@ -905,7 +917,7 @@ class SafeCaptureJEPARanker:
                     and score_keys[0] is not None
                 )
             else:
-                eligible[0] = True
+                eligible[0] = bool(valid[0] and nominal_decision.state == "trusted")
             trusted_indices = np.flatnonzero(eligible)
             if trusted_indices.size:
                 if self.config.fixed_point_score_comparison:
@@ -967,7 +979,7 @@ class SafeCaptureJEPARanker:
                 if best != 0:
                     if self.config.fixed_point_score_comparison:
                         best = 0 if int(score_keys[0]) <= int(score_keys[best]) + tie_units else best
-                    elif scores[0] <= scores[best] + self.config.nominal_anchor_margin_m:
+                    elif bool(eligible[0]) and scores[0] <= scores[best] + self.config.nominal_anchor_margin_m:
                         best = 0
                 if best != 0 and (
                     self.config.top_two_abstention_margin_m > 0.0
