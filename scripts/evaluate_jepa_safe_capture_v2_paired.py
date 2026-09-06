@@ -942,24 +942,33 @@ def _run_episode(
                     "route_length_m": selected_route.route_length_m,
                     "rejection_reasons": list(selected_route.rejection_reasons),
                 }
-                independent_probes = probe_independent_cbf_counterfactuals(
-                    selected_action=np.asarray(rank_result.selected_action, dtype=np.float64),
-                    nominal_action=reachable_nominal_action,
-                    safe_hold_action=np.asarray(
-                        route_runtime.route_batch.candidates[
-                            route_runtime.route_batch.labels.index("verified_safe_hold")
-                        ].action_chunk[0],
-                        dtype=np.float64,
-                    ),
-                    observation=observation,
-                    safety_filter=safety_filter,
-                    selected_route_id=selected_route.route_id,
-                )
-                independent_cbf_counterfactuals = [probe.as_dict() for probe in independent_probes]
-                independent_cbf_probe_checks += len(independent_probes)
-                independent_cbf_probe_accepted += sum(probe.accepted for probe in independent_probes)
-                independent_cbf_probe_rejected += sum(not probe.accepted for probe in independent_probes)
-                independent_cbf_probe_timeouts += sum(probe.timed_out for probe in independent_probes)
+        # Keep the three safety alternatives auditable for every CBF-enabled
+        # run, including M0 (which has no ranker) and the historical
+        # five-candidate profile.  Legacy candidates have no explicit hold
+        # entry, so use the current observed velocity, which is the same hold
+        # reference used by the CBF filter's safe_hold execution mode.
+        if safety_filter is not None:
+            selected_route_id = (
+                selected_route_metadata.get("route_id")
+                if selected_route_metadata is not None
+                else None
+            )
+            safe_hold_action = np.asarray(
+                observation["defender_velocities"], dtype=np.float64
+            )
+            independent_probes = probe_independent_cbf_counterfactuals(
+                selected_action=np.asarray(requested_action, dtype=np.float64),
+                nominal_action=reachable_nominal_action,
+                safe_hold_action=safe_hold_action,
+                observation=observation,
+                safety_filter=safety_filter,
+                selected_route_id=selected_route_id,
+            )
+            independent_cbf_counterfactuals = [probe.as_dict() for probe in independent_probes]
+            independent_cbf_probe_checks += len(independent_probes)
+            independent_cbf_probe_accepted += sum(probe.accepted for probe in independent_probes)
+            independent_cbf_probe_rejected += sum(not probe.accepted for probe in independent_probes)
+            independent_cbf_probe_timeouts += sum(probe.timed_out for probe in independent_probes)
         candidate_latencies.append((time.perf_counter_ns() - candidate_started_ns) / 1_000_000.0)
         if rank_result is not None:
             jepa_latencies.append(float(getattr(rank_result.trace, "jepa_inference_latency_ms", 0.0)))
