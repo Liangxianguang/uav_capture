@@ -247,7 +247,7 @@ CBF 不能为了提高捕获率而放松物理安全，但也不能把可恢复�
 
 ### 下一阶段：先增加“可验证候选”，再训练 JEPA
 
-- [ ] 完成 12 类候选的微场景 coverage report。
+- [x] 完成 12 类候选的微场景 coverage report；四个固定 WP1 场景全部通过，详见 [P0 route coverage report](JEPA_SAFE_CAPTURE_P0_ROUTE_COVERAGE_20260907.md)。该结果只证明候选覆盖和独立 CBF 验证，不证明 safe-capture 提升。
 - [ ] 生成含 hard negative 的 counterfactual archive。
 - [ ] 检查每个候选都能先投影、再 CBF 验证；删掉只在标签中存在、runtime 不能执行的候选。
 
