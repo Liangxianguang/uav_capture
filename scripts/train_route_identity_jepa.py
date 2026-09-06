@@ -685,17 +685,25 @@ def main() -> None:
         writer.add_scalar("Optimization/stale_epochs", stale_epochs, epoch)
         writer.flush()
     elapsed_seconds = time.perf_counter() - started
-    writer.add_hparams(
-        {
-            "seed": args.seed,
-            "epochs_requested": args.epochs,
-            "batch_size": args.batch_size,
-            "learning_rate": args.learning_rate,
-            "hidden_dim": args.hidden_dim,
-            "latent_dim": args.latent_dim,
-        },
-        {"hparam/best_validation_loss": best_validation_loss},
-    )
+    hparams = {
+        "seed": args.seed,
+        "epochs_requested": args.epochs,
+        "batch_size": args.batch_size,
+        "learning_rate": args.learning_rate,
+        "hidden_dim": args.hidden_dim,
+        "latent_dim": args.latent_dim,
+    }
+    hparam_metrics = {"hparam/best_validation_loss": best_validation_loss}
+    try:
+        writer.add_hparams(hparams, hparam_metrics)
+        hparams_write_mode = "add_hparams"
+    except (TypeError, AttributeError, ValueError) as exc:
+        # TensorBoard 2.4.1 can fail to encode add_hparams with newer
+        # protobuf containers.  Preserve the full configuration and metric as
+        # ordinary TensorBoard text/scalars so the run remains auditable.
+        hparams_write_mode = f"text_scalar_fallback:{type(exc).__name__}"
+        writer.add_text("HParams/config", json.dumps(hparams, sort_keys=True), 0)
+        writer.add_scalar("HParams/best_validation_loss", float(best_validation_loss), 0)
     writer.add_text("Training/summary", json.dumps({"stop_reason": stop_reason, "best_epoch": best_epoch}, indent=2), 0)
     writer.close()
     (args.output / "history.json").write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")
@@ -716,6 +724,7 @@ def main() -> None:
         "route_ranking_margin": args.route_ranking_margin,
         "best_epoch": best_epoch,
         "best_validation_loss": best_validation_loss,
+        "hparams_write_mode": hparams_write_mode,
         "stop_reason": stop_reason,
         "elapsed_seconds": elapsed_seconds,
         "tensorboard_logdir": str(args.tensorboard_logdir.resolve()),
