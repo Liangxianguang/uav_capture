@@ -72,9 +72,9 @@ JEPA 只负责对候选轨迹进行预测和评价，不直接越过 CBF 产生�
 - [ ] 冻结一个新 protocol：actor checkpoint、候选 profile、动作尺度、chunk 长度、重规划频率、CBF horizon、`barrier_mode`、recurrent reset interval、观测信息边界。
 - [ ] 为 protocol、scene manifest、checkpoint、calibration archive 和 Ledger 生成 SHA-256 provenance。
 - [ ] 在每个 episode/step 记录：`requested_action`、`projected_action`、`cbf_action`、`executed_action`、最小 slack、最早失败 step、失败约束类型和 fallback reason。
-- [ ] 独立运行 selected candidate、nominal anchor、safe-hold 三条 CBF counterfactual；三者不得共享已修改的状态或隐藏结果。
-- [ ] 验证 `message_age` 状态机不会全量饱和，分别记录 observation age、communication age 和 model rollout age。
-- [ ] 检查 candidate eligibility、score direction、nominal anchor、recurrent reset 和每条候选是否先经过 reachable dynamics projection。
+- [x] 独立运行 selected candidate、nominal anchor、safe-hold 三条 CBF counterfactual；三者不得共享已修改的状态或隐藏结果。现有 V21 审计见 `results/jepa_safe_capture_v21_independent_cbf_audit_v1/`，107 个 abort 均为三路不可行。
+- [x] 验证 `message_age` 状态机不会全量饱和，分别记录 observation age、communication age 和 model rollout age；语义审计见 [P0 message-age contract](JEPA_SAFE_CAPTURE_P0_MESSAGE_AGE_CONTRACT_20260907.md)。历史 V21 trace 缺少状态字段，已改标为 `communication_age_unresolved`，暂不作为饱和因果证据。
+- [x] 检查 candidate eligibility、score direction、nominal anchor、recurrent reset 和每条候选是否先经过 reachable dynamics projection；route-regret/calibration 审计未通过，已关闭重训闸门，详见现有 settled-progress calibration 报告。
 - [ ] 固定历史基线：`strict_buffer + horizon=3`；固定开发分支：`horizon=5`，并单独标注 `physical_feasibility`。
 
 **P0 通过条件：** 同一 scene manifest 重放可得到一致 trace；所有 abort 都能归因到 boundary / obstacle / pairwise / acceleration / stale-OOD / solver；没有 raw-unverified 执行；核心测试通过。

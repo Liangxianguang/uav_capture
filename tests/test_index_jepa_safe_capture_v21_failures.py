@@ -51,7 +51,25 @@ def test_message_age_saturation_is_distinct_from_stale_target_observation() -> N
     )
     assert primary == "timeout"
     assert "stale_observation" not in labels
+    assert "communication_age_saturated" not in labels
+    assert "communication_age_unresolved" in labels
+
+
+def test_explicit_message_age_state_can_prove_saturation() -> None:
+    trace = _trace(message_age=60)
+    trace[0]["observation"]["message_received"] = [True, True, True, True]
+    trace[0]["observation"]["message_age_state"] = ["saturated"] * 4
+    summary = summarize_trace(trace)
+    assert summary["message_age_semantics"] == "explicit_or_received_inferred"
+    assert summary["message_age_saturated_rows"] == 1
+    primary, labels = classify_failure(
+        {"cooperative_safe_capture": "False", "termination_reason": "timeout"},
+        summary,
+        None,
+    )
+    assert primary == "timeout"
     assert "communication_age_saturated" in labels
+    assert "communication_age_unresolved" not in labels
 
 
 def test_classify_failure_prioritizes_cbf_abort() -> None:

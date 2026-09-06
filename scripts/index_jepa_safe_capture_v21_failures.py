@@ -48,6 +48,7 @@ LABEL_ORDER = (
     "low_credit_or_nominal_fallback",
     "stale_observation",
     "communication_age_saturated",
+    "communication_age_unresolved",
     "visibility_degraded",
     "candidate_oscillation",
     "clearance_prediction_gap",
@@ -112,6 +113,19 @@ def _mean(values: Iterable[Any]) -> float | None:
 def _percentile(values: Iterable[Any], quantile: float) -> float | None:
     numbers = _numbers(values)
     return float(np.quantile(numbers, quantile)) if numbers else None
+
+
+def _message_age_state_from_numeric(age: Any, received: Any) -> str:
+    """Infer a semantic age state when the receipt bit is available."""
+
+    if not _bool(received):
+        return "never_received"
+    numeric = _finite(age)
+    if numeric is None or numeric <= 0.0:
+        return "fresh" if numeric is not None else "unknown"
+    if numeric >= MESSAGE_AGE_SATURATION_LIMIT:
+        return "saturated"
+    return "delayed"
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -246,6 +260,11 @@ def summarize_trace(trace: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     observed_visibility: list[float] = []
     observation_ages: list[float] = []
     message_ages: list[float] = []
+    message_age_states: Counter[str] = Counter()
+    message_age_state_rows = 0
+    message_age_legacy_numeric_rows = 0
+    message_age_saturated_rows = 0
+    message_age_unresolved_rows = 0
     for row in trace:
         ranking = row.get("candidate_ranking")
         if isinstance(ranking, Mapping):
@@ -300,6 +319,28 @@ def summarize_trace(trace: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 values = observation.get(source)
                 if isinstance(values, list):
                     destination.extend(_numbers(values))
+            states = observation.get("message_age_state")
+            received = observation.get("message_received")
+            ages = observation.get("message_age_steps")
+            if isinstance(states, list):
+                normalized = [str(value) for value in states]
+                message_age_states.update(normalized)
+                message_age_state_rows += 1
+                message_age_saturated_rows += int("saturated" in normalized)
+            elif isinstance(received, list) and isinstance(ages, list) and len(received) == len(ages):
+                # Newer traces may carry the receipt bit before the explicit
+                # state field. Infer only the semantic distinction needed for
+                # this audit; the numeric compatibility feature remains intact.
+                inferred = [_message_age_state_from_numeric(age, seen) for seen, age in zip(received, ages)]
+                message_age_states.update(inferred)
+                message_age_state_rows += 1
+                message_age_saturated_rows += int("saturated" in inferred)
+            elif isinstance(ages, list) and _numbers(ages):
+                # Historical V21 traces did not preserve receipt semantics.
+                # A numeric ceiling alone cannot distinguish never-received
+                # from a genuinely saturated received stream.
+                message_age_legacy_numeric_rows += 1
+                message_age_unresolved_rows += int(max(_numbers(ages)) >= MESSAGE_AGE_SATURATION_LIMIT)
     switches = sum(left != right for left, right in zip(selected, selected[1:]))
     non_nominal = sum(index != 0 for index in selected)
     gap_count = min(len(predicted_clearance), len(observed_clearance))
@@ -331,6 +372,14 @@ def summarize_trace(trace: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "observed_visibility_mean": _mean(observed_visibility),
         "observation_age_max_steps": max(observation_ages) if observation_ages else None,
         "message_age_max_steps": max(message_ages) if message_ages else None,
+        "message_age_state_counts": dict(sorted(message_age_states.items())),
+        "message_age_state_rows": message_age_state_rows,
+        "message_age_legacy_numeric_rows": message_age_legacy_numeric_rows,
+        "message_age_saturated_rows": message_age_saturated_rows,
+        "message_age_unresolved_rows": message_age_unresolved_rows,
+        "message_age_semantics": (
+            "explicit_or_received_inferred" if message_age_state_rows else "legacy_numeric_only"
+        ),
     }
 
 
@@ -391,8 +440,10 @@ def classify_failure(
         labels.append("low_credit_or_nominal_fallback")
     if (trace_summary.get("observation_age_max_steps") or 0.0) > OBSERVATION_STALE_LIMIT:
         labels.append("stale_observation")
-    if (trace_summary.get("message_age_max_steps") or 0.0) >= MESSAGE_AGE_SATURATION_LIMIT:
+    if int(trace_summary.get("message_age_saturated_rows") or 0) > 0:
         labels.append("communication_age_saturated")
+    elif int(trace_summary.get("message_age_unresolved_rows") or 0) > 0:
+        labels.append("communication_age_unresolved")
     if trace_summary.get("observed_visibility_mean") is not None and trace_summary["observed_visibility_mean"] < VISIBILITY_DEGRADED_LIMIT:
         labels.append("visibility_degraded")
     if float(trace_summary.get("candidate_switch_rate") or 0.0) > OSCILLATION_RATE_LIMIT:
@@ -520,6 +571,14 @@ def build_index(
         "safe_capture_rate": float(len(safe) / len(rows)),
         "primary_cause_counts": dict(Counter(row["primary_cause"] for row in failures)),
         "diagnostic_label_counts": dict(Counter(label for row in failures for label in row["diagnostic_labels"])),
+        "message_age_semantics_counts": dict(Counter(row["message_age_semantics"] for row in rows)),
+        "message_age_state_counts": dict(Counter(
+            state
+            for row in rows
+            for state, count in row["message_age_state_counts"].items()
+            for _ in range(int(count))
+        )),
+        "message_age_unresolved_rows": int(sum(row["message_age_unresolved_rows"] for row in rows)),
         "by_variant": by_variant,
         "by_observation_condition": by_condition,
         "manifest_sha256_by_seed": {str(seed): next(iter(values)) for seed, values in manifests_by_seed.items()},
@@ -558,6 +617,7 @@ def write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         "cbf_timeout_steps_trace", "cbf_controlled_abort_steps_trace", "cbf_correction_mean_mps", "cbf_correction_p95_mps",
         "cbf_latency_p95_ms", "predicted_clearance_mean_m", "observed_clearance_mean_m", "clearance_prediction_gap_mean_m",
         "clearance_overoptimism_max_m", "observed_visibility_mean", "observation_age_max_steps", "message_age_max_steps",
+        "message_age_state_counts", "message_age_semantics", "message_age_saturated_rows", "message_age_unresolved_rows",
         "settled_row_count", "settled_count", "settled_selected_not_best_count", "settled_high_credit_failure_count",
         "source_manifest_sha256", "source_summary_sha256", "source_provenance_sha256",
     ]
@@ -585,6 +645,9 @@ def write_tensorboard(logdir: Path, report: Mapping[str, Any]) -> dict[str, Any]
         writer.add_scalar("Episodes/safe_capture", report["safe_capture_count"], 0)
         writer.add_scalar("Episodes/failure", report["failure_count"], 0)
         writer.add_scalar("Episodes/safe_capture_rate", report["safe_capture_rate"], 0)
+        writer.add_scalar("Communication/age_unresolved_rows", report["message_age_unresolved_rows"], 0)
+        for state, count in sorted(report["message_age_state_counts"].items()):
+            writer.add_scalar(f"Communication/state/{state}", count, 0)
         for cause, count in sorted(report["primary_cause_counts"].items()):
             writer.add_scalar(f"Failure/primary/{cause}", count, 0)
         for label, count in sorted(report["diagnostic_label_counts"].items()):
@@ -608,6 +671,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         "",
         f"Runs: `{report['run_count']}`; episodes: `{report['episode_count']}`; safe capture: `{report['safe_capture_count']}/{report['episode_count']}` (`{report['safe_capture_rate']:.1%}`).",
         f"Safety hard gate: `{report['safety_hard_gate']}`; raw unverified executed steps: `{report['raw_unverified_executed_steps']}`.",
+        f"Message-age semantics: `{json.dumps(report['message_age_semantics_counts'], sort_keys=True)}`; unresolved legacy ceiling rows: `{report['message_age_unresolved_rows']}`.",
         "",
         "## Primary Causes",
         "",
@@ -619,13 +683,17 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     lines.extend(["", "## Diagnostic Labels", "", "| Label | Failed episodes carrying label |", "|---|---:|"])
     for label, count in sorted(report["diagnostic_label_counts"].items(), key=lambda item: (-item[1], item[0])):
         lines.append(f"| `{label}` | {count} |")
-    lines.extend(["", "## By Variant", "", "| Variant | Episodes | Safe capture | Failures | Rank mismatch | High-credit failure | Communication saturated | Fallback | CBF abort |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
+    lines.extend(["", "## By Variant", "", "| Variant | Episodes | Safe capture | Failures | Rank mismatch | High-credit failure | Communication saturated | Communication unresolved | Fallback | CBF abort |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"])
     for variant, values in report["by_variant"].items():
         communication_saturated = sum(
             1 for row in report["rows"]
             if row["variant"] == variant and not row["safe_capture"] and "communication_age_saturated" in row["diagnostic_labels"]
         )
-        lines.append(f"| `{variant}` | {values['episodes']} | {values['safe_capture_count']}/{values['episodes']} ({values['safe_capture_rate']:.1%}) | {values['failure_count']} | {values['settled_rank_mismatch_episode_count']} | {values['high_credit_failure_count']} | {communication_saturated} | {values['fallback_episode_count']} | {values['cbf_abort_episode_count']} |")
+        communication_unresolved = sum(
+            1 for row in report["rows"]
+            if row["variant"] == variant and not row["safe_capture"] and "communication_age_unresolved" in row["diagnostic_labels"]
+        )
+        lines.append(f"| `{variant}` | {values['episodes']} | {values['safe_capture_count']}/{values['episodes']} ({values['safe_capture_rate']:.1%}) | {values['failure_count']} | {values['settled_rank_mismatch_episode_count']} | {values['high_credit_failure_count']} | {communication_saturated} | {communication_unresolved} | {values['fallback_episode_count']} | {values['cbf_abort_episode_count']} |")
     lines.extend([
         "",
         "## Provenance",
@@ -638,7 +706,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         "",
         "## Hard-Replay Selection",
         "",
-        "Prioritize failed episodes carrying `candidate_capture_regression`, `high_credit_failure`, `cbf_controlled_abort`, `stale_observation`, `communication_age_saturated`, or `candidate_oscillation`. Replays must remain deterministic and write a new train-only archive if they are later used for training.",
+        "Prioritize failed episodes carrying `candidate_capture_regression`, `high_credit_failure`, `cbf_controlled_abort`, `stale_observation`, `communication_age_saturated`, `communication_age_unresolved`, or `candidate_oscillation`. Replays must remain deterministic and write a new train-only archive if they are later used for training.",
         "",
         "## Interpretation",
         "",
