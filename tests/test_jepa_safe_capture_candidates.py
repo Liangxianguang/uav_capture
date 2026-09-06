@@ -329,6 +329,25 @@ def test_ranker_follows_action_and_executes_only_first_step() -> None:
     assert result.trace.candidate_rejection_reasons == ((), (), (), (), ())
 
 
+def test_ranker_records_public_escape_progress_and_switch_cost() -> None:
+    actions = np.zeros((5, 2, 3), dtype=np.float64)
+    actions[1, :, 0] = 1.0
+    ranker = SafeCaptureJEPARanker(
+        _FakeHistory(),
+        config=SafeCaptureRankerConfig(
+            target_escape_alignment_weight=1.0,
+            route_switch_penalty_m=0.25,
+        ),
+    )
+    result = ranker.rank(_observation(), _batch(actions), previous_selected_index=0)
+    assert result.trace.target_escape_progress_m[1] > result.trace.target_escape_progress_m[0]
+    assert result.trace.route_switch_cost_m[1] == pytest.approx(0.25)
+    assert result.trace.route_switch_cost_m[0] == pytest.approx(0.0)
+    serialized = result.trace.as_dict()
+    assert "target_escape_progress_m" in serialized
+    assert "route_switch_cost_m" in serialized
+
+
 @pytest.mark.parametrize(
     ("fault", "expected_field"),
     (

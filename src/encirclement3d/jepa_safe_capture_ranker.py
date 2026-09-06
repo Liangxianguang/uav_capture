@@ -67,6 +67,12 @@ class SafeCaptureRankerConfig:
     visibility_weight: float = 0.25
     cbf_risk_weight: float = 0.75
     action_change_weight: float = 0.05
+    # Public-observation task signal.  This is deliberately disabled in the
+    # historical score; a new protocol must opt in and record the value.
+    target_escape_alignment_weight: float = 0.0
+    # Penalize changing route identity at every replan.  The penalty is a
+    # ranking cost only; it never suppresses a safety fallback or CBF check.
+    route_switch_penalty_m: float = 0.0
     nominal_anchor_margin_m: float = 1e-6
     # The tolerance is fixed before a paired block so CPU/CUDA score roundoff
     # cannot change a near-tied candidate decision.
@@ -142,6 +148,8 @@ class SafeCaptureRankerConfig:
             self.visibility_weight,
             self.cbf_risk_weight,
             self.action_change_weight,
+            self.target_escape_alignment_weight,
+            self.route_switch_penalty_m,
         )
         if any(float(weight) < 0.0 for weight in weights):
             raise ValueError("Ranker weights must be non-negative.")
@@ -193,6 +201,8 @@ class SafeCaptureRankingTrace:
     minimum_candidate_separation_m: float = 0.0
     predicted_boundary_clearance_m: tuple[float, ...] = ()
     predicted_route_progress_m: tuple[float, ...] = ()
+    target_escape_progress_m: tuple[float, ...] = ()
+    route_switch_cost_m: tuple[float, ...] = ()
     # Runtime diagnostics are intentionally separate from ranking decisions.
     # They are measured at inference time and must never affect selection.
     jepa_inference_latency_ms: float = 0.0
@@ -248,6 +258,8 @@ class SafeCaptureRankingTrace:
             "minimum_candidate_separation_m": float(self.minimum_candidate_separation_m),
             "predicted_boundary_clearance_m": _json_float_tuple(self.predicted_boundary_clearance_m),
             "predicted_route_progress_m": _json_float_tuple(self.predicted_route_progress_m),
+            "target_escape_progress_m": _json_float_tuple(self.target_escape_progress_m),
+            "route_switch_cost_m": _json_float_tuple(self.route_switch_cost_m),
             "jepa_inference_latency_ms": float(self.jepa_inference_latency_ms),
             "ledger_route_latency_ms": float(self.ledger_route_latency_ms),
             "ranker_compute_latency_ms": float(self.ranker_compute_latency_ms),
@@ -614,6 +626,8 @@ class SafeCaptureJEPARanker:
         visibility_cost = np.full(candidate_count, np.inf, dtype=np.float64)
         cbf_risk_cost = np.full(candidate_count, np.inf, dtype=np.float64)
         action_change_cost = np.full(candidate_count, np.inf, dtype=np.float64)
+        target_escape_progress = np.full(candidate_count, np.nan, dtype=np.float64)
+        route_switch_cost = np.full(candidate_count, np.nan, dtype=np.float64)
         min_clearance = np.full(candidate_count, np.nan, dtype=np.float64)
         raw_min_clearance = np.full(candidate_count, np.nan, dtype=np.float64)
         calibration_offset = np.full(candidate_count, np.nan, dtype=np.float64)
@@ -708,6 +722,20 @@ class SafeCaptureJEPARanker:
             distances = np.linalg.norm(predicted_target - future_defenders, axis=2)
             raw_target_cost = np.mean(distances, axis=1)
             separation = _candidate_specific_separation(raw_target_cost)
+            belief_positions = np.asarray(observation.get("target_belief_positions"), dtype=np.float64)
+            belief_velocities = np.asarray(observation.get("target_belief_velocities"), dtype=np.float64)
+            if (
+                belief_positions.shape == positions.shape
+                and belief_velocities.shape == positions.shape
+                and np.isfinite(belief_positions).all()
+                and np.isfinite(belief_velocities).all()
+            ):
+                relative_target = np.mean(belief_positions, axis=0) - np.mean(positions, axis=0)
+                escape_vector = relative_target + self.config.horizon_seconds * np.mean(belief_velocities, axis=0)
+                escape_norm = float(np.linalg.norm(escape_vector))
+                escape_direction = escape_vector / escape_norm if escape_norm > 1e-9 else np.zeros(3, dtype=np.float64)
+            else:
+                escape_direction = np.zeros(3, dtype=np.float64)
             for local, candidate_index in enumerate(valid_indices):
                 min_obstacle = float(np.min(obstacle[local]))
                 min_inter = float(np.min(inter_agent[local]))
@@ -751,6 +779,16 @@ class SafeCaptureJEPARanker:
                 visibility_cost[candidate_index] = 1.0 - visibility[candidate_index]
                 cbf_risk_cost[candidate_index] = cbf_risk[candidate_index]
                 action_change_cost[candidate_index] = float(np.mean(np.linalg.norm(chunks[candidate_index, 0] - reference, axis=1)))
+                target_escape_progress[candidate_index] = float(
+                    np.dot(np.mean(chunks[candidate_index, 0], axis=0), escape_direction)
+                    * self.config.horizon_seconds
+                )
+                route_switch_cost[candidate_index] = float(
+                    self.config.route_switch_penalty_m
+                    if previous_selected_index is not None
+                    and int(candidate_index) != int(previous_selected_index)
+                    else 0.0
+                )
                 ledger_started_ns = perf_counter_ns()
                 decisions[candidate_index] = self._decision(
                     base_context,
@@ -770,6 +808,8 @@ class SafeCaptureJEPARanker:
                     + self.config.cbf_risk_weight * cbf_risk_cost[candidate_index]
                     + self.config.action_change_weight * action_change_cost[candidate_index]
                     - self.config.route_progress_weight * route_progress[candidate_index]
+                    - self.config.target_escape_alignment_weight * target_escape_progress[candidate_index]
+                    + route_switch_cost[candidate_index]
                 )
 
         nominal_decision = decisions[0]
@@ -1114,6 +1154,14 @@ class SafeCaptureJEPARanker:
             predicted_route_progress_m=tuple(
                 float(value) if np.isfinite(value) else float("nan")
                 for value in route_progress
+            ),
+            target_escape_progress_m=tuple(
+                float(value) if np.isfinite(value) else float("nan")
+                for value in target_escape_progress
+            ),
+            route_switch_cost_m=tuple(
+                float(value) if np.isfinite(value) else float("nan")
+                for value in route_switch_cost
             ),
             jepa_inference_latency_ms=float(jepa_latency_ms),
             ledger_route_latency_ms=float(ledger_latency_ms),

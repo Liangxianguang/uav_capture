@@ -455,6 +455,8 @@ def _ranker_config(
         "cautious_reacquisition_labels",
         "cautious_reacquisition_max_steps",
         "cautious_reacquisition_requires_prior_observation",
+        "target_escape_alignment_weight",
+        "route_switch_penalty_m",
         "ranking_device",
         "actor_device",
         # Protocol metadata for the calibrated v12 clearance transform.  The
@@ -2192,6 +2194,8 @@ def main() -> None:
             "top_two_abstention_margin_m": float(ranker_config.top_two_abstention_margin_m),
             "minimum_predicted_clearance_m": float(ranker_config.minimum_predicted_clearance_m),
             "candidate_hysteresis_margin_m": float(ranker_config.candidate_hysteresis_margin_m),
+            "target_escape_alignment_weight": float(ranker_config.target_escape_alignment_weight),
+            "route_switch_penalty_m": float(ranker_config.route_switch_penalty_m),
             "minimum_hold_steps": int(ranker_config.minimum_hold_steps),
             "cautious_reacquisition_enabled": bool(ranker_config.cautious_reacquisition_enabled),
             "cautious_reacquisition_labels": list(ranker_config.cautious_reacquisition_labels),
