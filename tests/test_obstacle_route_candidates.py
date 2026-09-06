@@ -273,3 +273,42 @@ def test_route_goal_falls_back_to_defender_centroid_without_any_belief() -> None
 
     nominal = batch.candidates[batch.labels.index("nominal")]
     np.testing.assert_allclose(nominal.waypoints[-1], observation["defender_positions"].mean(axis=0))
+
+
+def test_opt_in_visibility_search_moves_toward_public_world_interior() -> None:
+    observation = _observation([_cylinder((0.0, 0.0))])
+    observation["target_belief_positions"] = np.zeros((4, 3), dtype=np.float64)
+    observation["target_observation_received"] = np.zeros(4, dtype=bool)
+    observation["target_observation_age_state"] = ("never_received",) * 4
+    batch = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+        config=ObstacleRouteConfig(
+            visibility_search_enabled=True,
+            visibility_search_offset_m=1.5,
+        ),
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+
+    route = batch.candidates[batch.labels.index("visibility_hold")]
+    assert route.side == "visibility_search"
+    assert route.valid
+    assert np.linalg.norm(route.action_chunk[0]) > 1e-9
+    assert batch.route_contract["visibility_search_enabled"] is True
+    assert batch.route_contract["visibility_search_mode"] == "lateral_interior_scan_v1"
+
+
+def test_visibility_hold_remains_stationary_without_search_opt_in() -> None:
+    observation = _observation([_cylinder((0.0, 0.0))])
+    observation["target_belief_positions"] = np.zeros((4, 3), dtype=np.float64)
+    observation["target_observation_received"] = np.zeros(4, dtype=bool)
+    observation["target_observation_age_state"] = ("never_received",) * 4
+    batch = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+
+    route = batch.candidates[batch.labels.index("visibility_hold")]
+    np.testing.assert_allclose(route.action_chunk, 0.0, atol=1e-12)
+    assert route.side == "visibility_hold"

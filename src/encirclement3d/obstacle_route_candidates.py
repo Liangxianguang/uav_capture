@@ -181,6 +181,13 @@ class ObstacleRouteConfig:
     world_lower: tuple[float, float, float] | None = None
     world_upper: tuple[float, float, float] | None = None
     corridor_samples: int = 65
+    # The historical visibility_hold route is stationary when no target has
+    # ever been observed.  This opt-in development contract keeps its route
+    # identity index but gives it a bounded, public-observation-only search
+    # waypoint.  It is disabled by default for historical replay parity.
+    visibility_search_enabled: bool = False
+    visibility_search_offset_m: float = 1.5
+    visibility_search_mode: str = "lateral_interior_scan_v1"
 
     def __post_init__(self) -> None:
         if self.chunk_length_steps < 3:
@@ -195,6 +202,10 @@ class ObstacleRouteConfig:
             raise ValueError("nominal_speed_mps must be positive.")
         if self.corridor_samples < 3:
             raise ValueError("corridor_samples must be at least three.")
+        if not np.isfinite(self.visibility_search_offset_m) or self.visibility_search_offset_m <= 0.0:
+            raise ValueError("visibility_search_offset_m must be positive and finite.")
+        if not str(self.visibility_search_mode).strip():
+            raise ValueError("visibility_search_mode must be non-empty.")
         for name, bounds in (("world_lower", self.world_lower), ("world_upper", self.world_upper)):
             if bounds is not None:
                 array = _as_finite_vector(bounds, (3,), name)
@@ -233,6 +244,9 @@ class ObstacleRouteConfig:
             "world_lower": None if self.world_lower is None else list(self.world_lower),
             "world_upper": None if self.world_upper is None else list(self.world_upper),
             "corridor_samples": int(self.corridor_samples),
+            "visibility_search_enabled": bool(self.visibility_search_enabled),
+            "visibility_search_offset_m": float(self.visibility_search_offset_m),
+            "visibility_search_mode": str(self.visibility_search_mode),
         }
 
 
@@ -368,7 +382,7 @@ def _belief_consensus(
     beliefs: np.ndarray,
     belief_velocities: np.ndarray,
     observation: Mapping[str, Any],
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, bool]:
     """Aggregate only initialized target beliefs from the public observation.
 
     The environment represents a never-received belief as a finite zero vector
@@ -394,8 +408,62 @@ def _belief_consensus(
         if received.shape != (defender_count,):
             raise ValueError("target_observation_received must have one entry per defender.")
     if not np.any(received):
-        return positions.mean(axis=0), np.zeros(3, dtype=np.float64)
-    return beliefs[received].mean(axis=0), belief_velocities[received].mean(axis=0)
+        return positions.mean(axis=0), np.zeros(3, dtype=np.float64), False
+    return beliefs[received].mean(axis=0), belief_velocities[received].mean(axis=0), True
+
+
+def _active_search_goal(
+    centroid: np.ndarray,
+    *,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    obstacles: Sequence[ObstacleGeometry],
+    forward_xy: np.ndarray,
+    left_xy: np.ndarray,
+    config: ObstacleRouteConfig,
+) -> np.ndarray:
+    """Choose a short search displacement using only public geometry.
+
+    The first direction points toward the finite world interior.  The two
+    lateral alternatives make the scan useful when that direction is blocked
+    by a public obstacle; the final opposite direction is a bounded fallback.
+    This is a proposal only and remains subject to reachable projection and
+    the downstream Joint CBF probes.
+    """
+
+    centroid = _as_finite_vector(centroid, (3,), "centroid")
+    if np.isfinite(lower[:2]).all() and np.isfinite(upper[:2]).all():
+        world_center = 0.5 * (lower[:2] + upper[:2])
+        inward = _unit_xy(world_center - centroid[:2], fallback=-np.asarray(forward_xy, dtype=np.float64))
+    else:
+        inward = _unit_xy(-np.asarray(forward_xy, dtype=np.float64), fallback=np.array([-1.0, 0.0]))
+    lateral = _unit_xy(left_xy, fallback=np.array([0.0, 1.0]))
+    directions = (inward, lateral, -lateral, -inward)
+    radius = float(config.visibility_search_offset_m)
+    for direction in directions:
+        goal = centroid.copy()
+        goal[:2] += radius * direction
+        if np.isfinite(lower).all():
+            goal = np.maximum(goal, lower + config.vehicle_radius_m + config.obstacle_margin_m)
+        if np.isfinite(upper).all():
+            goal = np.minimum(goal, upper - config.vehicle_radius_m - config.obstacle_margin_m)
+        if np.linalg.norm(goal[:2] - centroid[:2]) <= 1e-9:
+            continue
+        if all(
+            obstacle.clearance(goal, vehicle_radius_m=config.vehicle_radius_m)
+            >= config.obstacle_margin_m - 1e-9
+            for obstacle in obstacles
+        ):
+            return goal
+    # If every public endpoint is blocked, retain a deterministic bounded
+    # proposal.  Geometry validity and CBF verification will reject it.
+    goal = centroid.copy()
+    goal[:2] += radius * inward
+    if np.isfinite(lower).all():
+        goal = np.maximum(goal, lower + config.vehicle_radius_m + config.obstacle_margin_m)
+    if np.isfinite(upper).all():
+        goal = np.minimum(goal, upper - config.vehicle_radius_m - config.obstacle_margin_m)
+    return goal
 
 
 def _segment_points(start: np.ndarray, end: np.ndarray, count: int) -> np.ndarray:
@@ -564,6 +632,7 @@ def _route_waypoints(
     lower: np.ndarray,
     upper: np.ndarray,
     config: ObstacleRouteConfig,
+    visibility_search_goal: np.ndarray | None = None,
 ) -> tuple[np.ndarray, str, tuple[str, ...], int | None, str | None]:
     """Create a route corridor and geometric pre-check reasons."""
 
@@ -642,6 +711,8 @@ def _route_waypoints(
     if label == "safe_intercept":
         return np.stack([target]), "intercept", (), obstacle_id, obstacle_shape
     if label == "visibility_hold":
+        if visibility_search_goal is not None:
+            return np.stack([visibility_search_goal]), "visibility_search", (), obstacle_id, obstacle_shape
         return np.stack([centroid + 0.25 * (target - centroid)]), "visibility_hold", (), obstacle_id, obstacle_shape
     raise ValueError(f"Unknown route label: {label!r}.")
 
@@ -766,7 +837,7 @@ def make_obstacle_route_candidates(
     obstacles = parse_obstacles(observation)
     lower, upper = _observation_bounds(observation, settings)
     centroid = positions.mean(axis=0)
-    belief_center, belief_velocity = _belief_consensus(
+    belief_center, belief_velocity, belief_received = _belief_consensus(
         positions,
         beliefs,
         belief_velocities,
@@ -777,6 +848,19 @@ def make_obstacle_route_candidates(
     forward_xy = _unit_xy(forward[:2])
     left_xy = np.array([-forward_xy[1], forward_xy[0]], dtype=np.float64)
     principal = _principal_obstacle(centroid, target, obstacles, settings)
+    visibility_search_goal = (
+        _active_search_goal(
+            centroid,
+            lower=lower,
+            upper=upper,
+            obstacles=obstacles,
+            forward_xy=forward_xy,
+            left_xy=left_xy,
+            config=settings,
+        )
+        if settings.visibility_search_enabled and not belief_received
+        else None
+    )
 
     candidates: list[ObstacleRouteCandidate] = []
     for label in ROUTE_LABELS:
@@ -792,6 +876,7 @@ def make_obstacle_route_candidates(
             lower=lower,
             upper=upper,
             config=settings,
+            visibility_search_goal=visibility_search_goal,
         )
         if label in {"left_detour", "right_detour"} and principal is not None:
             side_direction = left_xy if label == "left_detour" else -left_xy

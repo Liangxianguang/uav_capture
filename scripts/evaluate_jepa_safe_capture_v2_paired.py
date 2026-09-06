@@ -729,6 +729,9 @@ def _run_episode(
     proactive_braking_clearance_m: float | None = None,
     cbf_anticipatory_horizon_steps: int | None = None,
     route_corridor_samples: int = 65,
+    visibility_search_enabled: bool = False,
+    visibility_search_offset_m: float = 1.5,
+    visibility_search_mode: str = "lateral_interior_scan_v1",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     episode_index = int(manifest_item["episode_index"])
     spec = dict(manifest_item["spec"])
@@ -959,6 +962,9 @@ def _run_episode(
                         world_lower=tuple(float(value) for value in env.lower),
                         world_upper=tuple(float(value) for value in env.upper),
                         corridor_samples=int(route_corridor_samples),
+                        visibility_search_enabled=bool(visibility_search_enabled),
+                        visibility_search_offset_m=float(visibility_search_offset_m),
+                        visibility_search_mode=str(visibility_search_mode),
                     ),
                     previous_action=previous_action,
                 )
@@ -1980,6 +1986,13 @@ def main() -> None:
     candidate_contract = protocol.get("candidate_contract", {})
     if not isinstance(candidate_contract, Mapping):
         raise ValueError("candidate_contract protocol section must be a mapping.")
+    visibility_search_enabled = bool(candidate_contract.get("visibility_search_enabled", False))
+    visibility_search_offset_m = float(candidate_contract.get("visibility_search_offset_m", 1.5))
+    visibility_search_mode = str(candidate_contract.get("visibility_search_mode", "lateral_interior_scan_v1"))
+    if not np.isfinite(visibility_search_offset_m) or visibility_search_offset_m <= 0.0:
+        raise ValueError("candidate_contract.visibility_search_offset_m must be positive and finite.")
+    if not visibility_search_mode.strip():
+        raise ValueError("candidate_contract.visibility_search_mode must be non-empty.")
     action_comparison_quantum_mps = float(candidate_contract.get("action_comparison_quantum_mps", 0.0))
     if not np.isfinite(action_comparison_quantum_mps) or action_comparison_quantum_mps < 0.0:
         raise ValueError("candidate_contract.action_comparison_quantum_mps must be finite and non-negative.")
@@ -2109,6 +2122,9 @@ def main() -> None:
             candidate_cbf_prefilter=args.candidate_cbf_prefilter,
             cbf_anticipatory_horizon_steps=args.cbf_horizon,
             route_corridor_samples=args.route_corridor_samples,
+            visibility_search_enabled=visibility_search_enabled,
+            visibility_search_offset_m=visibility_search_offset_m,
+            visibility_search_mode=visibility_search_mode,
         )
         row["training_seed"] = int(args.training_seed)
         row["scene_hash"] = item["scene_hash"]
@@ -2166,6 +2182,9 @@ def main() -> None:
             "execute_first_step_then_replan": True,
             "project_to_reachable_dynamics": True,
             "route_corridor_samples": int(args.route_corridor_samples),
+            "visibility_search_enabled": visibility_search_enabled,
+            "visibility_search_offset_m": visibility_search_offset_m,
+            "visibility_search_mode": visibility_search_mode,
             "score_tie_tolerance_m": 5e-4,
             "score_comparison_quantum_m": float(ranker_config.score_comparison_quantum_m),
             "score_comparison_safety_band_m": float(ranker_config.score_comparison_safety_band_m),
