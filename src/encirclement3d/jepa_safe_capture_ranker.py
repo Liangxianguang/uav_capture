@@ -727,18 +727,23 @@ class SafeCaptureJEPARanker:
         selected_index = 0
         eligibility_reasons = tuple(
             tuple(
-                reason
-                for reason, applies in (
-                    ("fallback_only_candidate", bool(fallback_only[index])),
-                    (
-                        "insufficient_candidate_separation",
-                        index != 0
-                        and bool(valid[index])
-                        and np.isfinite(candidate_separation[index])
-                        and not bool(separation_gate[index]),
-                    ),
+                dict.fromkeys(
+                    tuple(str(reason) for reason in candidate_batch.rejection_reasons[index])
+                    + tuple(
+                        reason
+                        for reason, applies in (
+                            ("fallback_only_candidate", bool(fallback_only[index])),
+                            (
+                                "insufficient_candidate_separation",
+                                index != 0
+                                and bool(valid[index])
+                                and np.isfinite(candidate_separation[index])
+                                and not bool(separation_gate[index]),
+                            ),
+                        )
+                        if applies
+                    )
                 )
-                if applies
             )
             for index in range(candidate_count)
         )

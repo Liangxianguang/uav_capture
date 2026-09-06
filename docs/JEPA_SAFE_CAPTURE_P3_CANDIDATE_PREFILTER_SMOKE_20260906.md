@@ -49,6 +49,23 @@ at every control cycle.
 No safety contract was relaxed: CBF margins, stale/OOD/non-finite gates, and
 `controlled_abort` are unchanged; no raw-unverified action was executed.
 
+## Earliest-abort audit
+
+The five A1 abort cycles were `episode_0000/step 32`,
+`episode_0001/step 37`, `episode_0002/step 35`, `episode_0004/step 13`, and
+`episode_0007/step 49`. At each cycle all 12 probes returned
+`solver_status=solver_failure` (zero probe timeouts), so the prefilter exposed
+an already infeasible CBF state rather than creating a new unsafe action. The
+execution-time CBF then followed the existing `safe_hold -> nominal ->
+controlled_abort` path. The corresponding A1 run without prefilter had the
+same five abort episode indices and steps, but selected a different candidate
+before the final CBF abort. This is evidence that the prefilter is diagnostic,
+not the cause of the aborts.
+
+The ranker trace now preserves `cbf_infeasible` and `cbf_timeout` rejection
+reasons in `candidate_eligibility_reasons`, so future failure indexes can
+distinguish candidate-generation invalidity from JEPA score eligibility.
+
 ## Artifacts
 
 - A1 output: `results/jepa_safe_capture_v3_extended_prefilter_a1_seed20260911/`

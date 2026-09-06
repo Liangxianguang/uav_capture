@@ -195,6 +195,21 @@ def test_verified_safe_hold_is_fallback_only_and_cannot_win_task_ranking() -> No
     assert result.trace.candidate_eligibility_reasons[hold_index] == ("fallback_only_candidate",)
 
 
+def test_ranker_preserves_candidate_generation_rejection_reasons() -> None:
+    nominal = np.array([[0.5, 0.0, 0.0], [0.4, 0.0, 0.0]], dtype=np.float64)
+    batch = make_safe_capture_candidate_chunks(nominal, _observation(), config=SafeCaptureCandidateConfig())
+    rejected = SafeCaptureCandidateBatch(
+        chunks=batch.chunks,
+        labels=batch.labels,
+        valid_mask=np.array([True, False, True, True, True], dtype=bool),
+        rejection_reasons=((), ("cbf_infeasible",), (), (), ()),
+    )
+    result = SafeCaptureJEPARanker(_FakeHistory()).rank(_observation(), rejected)
+
+    assert "cbf_infeasible" in result.trace.candidate_eligibility_reasons[1]
+    assert result.trace.valid_mask[1] is False
+
+
 def test_candidate_generator_rejects_nonfinite_nominal_and_marks_dynamics_failures() -> None:
     nominal = np.array([[np.nan, 0.0, 0.0], [0.0, 0.0, 0.0]])
     try:
