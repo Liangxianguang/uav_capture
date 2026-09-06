@@ -693,6 +693,28 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
             nn.SiLU(),
             nn.Linear(self.hidden_dim, 1),
         )
+        self.risk_hazard_decoders = nn.ModuleDict(
+            {
+                name: nn.Sequential(
+                    nn.LayerNorm(self.latent_dim),
+                    nn.Linear(self.latent_dim, self.hidden_dim),
+                    nn.SiLU(),
+                    nn.Linear(self.hidden_dim, 3),
+                )
+                for name in ("obstacle_ttc", "boundary_ttc", "pairwise_ttc")
+            }
+        )
+        self.risk_quantile_decoders = nn.ModuleDict(
+            {
+                name: nn.Sequential(
+                    nn.LayerNorm(self.latent_dim),
+                    nn.Linear(self.latent_dim, self.hidden_dim),
+                    nn.SiLU(),
+                    nn.Linear(self.hidden_dim, 1),
+                )
+                for name in ("obstacle_ttc", "boundary_ttc", "pairwise_ttc")
+            }
+        )
 
     def hard_negative_auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:
         if latent.ndim != 3 or latent.shape[1:] != (self.horizon_count, self.latent_dim):
@@ -709,6 +731,15 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
             "pairwise_ttc_risk": self.ttc_clip_seconds
             * torch.sigmoid(self.pairwise_ttc_risk_decoder(latent).squeeze(-1)),
             "acceleration_slack": self.acceleration_slack_decoder(latent).squeeze(-1),
+            "obstacle_ttc_hazard_logits": self.risk_hazard_decoders["obstacle_ttc"](latent),
+            "boundary_ttc_hazard_logits": self.risk_hazard_decoders["boundary_ttc"](latent),
+            "pairwise_ttc_hazard_logits": self.risk_hazard_decoders["pairwise_ttc"](latent),
+            "obstacle_ttc_lower_quantile": self.ttc_clip_seconds
+            * torch.sigmoid(self.risk_quantile_decoders["obstacle_ttc"](latent).squeeze(-1)),
+            "boundary_ttc_lower_quantile": self.ttc_clip_seconds
+            * torch.sigmoid(self.risk_quantile_decoders["boundary_ttc"](latent).squeeze(-1)),
+            "pairwise_ttc_lower_quantile": self.ttc_clip_seconds
+            * torch.sigmoid(self.risk_quantile_decoders["pairwise_ttc"](latent).squeeze(-1)),
         }
 
     def auxiliary_predictions(self, latent: torch.Tensor) -> dict[str, torch.Tensor]:

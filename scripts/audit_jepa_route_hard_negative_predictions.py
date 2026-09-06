@@ -29,6 +29,11 @@ RISK_HEADS = {
     "pairwise_ttc_risk": "labels_pairwise_ttc",
     "acceleration_slack": "labels_acceleration_slack",
 }
+HAZARD_HEADS = {
+    "obstacle_ttc": "labels_obstacle_ttc",
+    "boundary_ttc": "labels_boundary_ttc",
+    "pairwise_ttc": "labels_pairwise_ttc",
+}
 
 
 def _sha256(path: Path) -> str:
@@ -114,6 +119,48 @@ def audit_split(model: torch.nn.Module, dataset: Path, metadata: Path, split: st
                 report["heads"][head][f"risk_lt_{threshold:g}_brier"] = float(
                     np.mean((predicted_risk.astype(np.float64) - true_risk.astype(np.float64)) ** 2)
                 )
+    for head, label in HAZARD_HEADS.items():
+        target = tensors[label].numpy()
+        logits = auxiliary[f"{head}_hazard_logits"].detach().cpu().numpy()
+        probabilities = 1.0 / (1.0 + np.exp(-logits))
+        head_report: dict[str, Any] = {}
+        for band_index, threshold in enumerate((0.5, 1.0, 2.0)):
+            measured = np.isfinite(target)
+            positive = measured & (target <= threshold)
+            predicted_positive = measured & (probabilities[..., band_index] >= 0.5)
+            true_positive = predicted_positive & positive
+            positives = int(positive.sum())
+            predicted_count = int(predicted_positive.sum())
+            head_report[f"hazard_lt_{threshold:g}_recall"] = (
+                float(true_positive.sum() / positives) if positives else None
+            )
+            head_report[f"hazard_lt_{threshold:g}_precision"] = (
+                float(true_positive.sum() / predicted_count) if predicted_count else None
+            )
+            head_report[f"hazard_lt_{threshold:g}_brier"] = float(
+                np.mean((probabilities[..., band_index] - positive.astype(np.float64)) ** 2)
+            )
+        sweep: dict[str, dict[str, float | None]] = {}
+        for cutoff in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+            cutoff_report: dict[str, float | None] = {}
+            for band_index, threshold in enumerate((0.5, 1.0, 2.0)):
+                measured = np.isfinite(target)
+                positive = measured & (target <= threshold)
+                predicted_positive = measured & (probabilities[..., band_index] >= cutoff)
+                true_positive = predicted_positive & positive
+                positives = int(positive.sum())
+                predicted_count = int(predicted_positive.sum())
+                cutoff_report[f"recall_lt_{threshold:g}"] = (
+                    float(true_positive.sum() / positives) if positives else None
+                )
+                cutoff_report[f"precision_lt_{threshold:g}"] = (
+                    float(true_positive.sum() / predicted_count) if predicted_count else None
+                )
+            sweep[f"{cutoff:g}"] = cutoff_report
+        head_report["threshold_sweep"] = sweep
+        report["heads"][f"{head}_hazard"] = head_report
+        quantile_prediction = auxiliary[f"{head}_lower_quantile"].detach().cpu().numpy()
+        report["heads"][f"{head}_lower_quantile"] = _head_metrics(quantile_prediction, target)
     report["archive_metadata_dataset_version"] = archive_metadata.get("dataset_version")
     report["archive_metadata_split"] = archive_metadata.get("split")
     return report
@@ -167,10 +214,23 @@ def main() -> int:
         for report in reports:
             split = report["split"]
             for head, metrics in report["heads"].items():
-                writer.add_scalar(f"Prediction/{head}/mae/{split}", metrics["mae"], 0)
-                writer.add_scalar(f"Prediction/{head}/rmse/{split}", metrics["rmse"], 0)
-                if metrics["correlation"] is not None:
-                    writer.add_scalar(f"Prediction/{head}/correlation/{split}", metrics["correlation"], 0)
+                if "mae" in metrics:
+                    writer.add_scalar(f"Prediction/{head}/mae/{split}", metrics["mae"], 0)
+                    writer.add_scalar(f"Prediction/{head}/rmse/{split}", metrics["rmse"], 0)
+                    if metrics["correlation"] is not None:
+                        writer.add_scalar(f"Prediction/{head}/correlation/{split}", metrics["correlation"], 0)
+                for metric_name, metric_value in metrics.items():
+                    if metric_name.startswith("hazard_") and metric_value is not None:
+                        writer.add_scalar(f"Prediction/{head}/{metric_name}/{split}", metric_value, 0)
+                if head.endswith("_hazard"):
+                    for cutoff, cutoff_metrics in metrics.get("threshold_sweep", {}).items():
+                        for metric_name, metric_value in cutoff_metrics.items():
+                            if metric_value is not None:
+                                writer.add_scalar(
+                                    f"Prediction/{head}/{metric_name}/cutoff_{cutoff}/{split}",
+                                    metric_value,
+                                    0,
+                                )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

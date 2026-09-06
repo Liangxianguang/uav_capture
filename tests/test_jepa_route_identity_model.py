@@ -82,11 +82,17 @@ def test_hard_negative_model_exposes_finite_risk_heads_and_factory_contract():
         "boundary_ttc",
         "pairwise_ttc_risk",
         "acceleration_slack",
+        "obstacle_ttc_lower_quantile",
+        "boundary_ttc_lower_quantile",
+        "pairwise_ttc_lower_quantile",
     ):
         assert auxiliary[name].shape == (2, 5)
         assert torch.isfinite(auxiliary[name]).all()
     assert torch.all(auxiliary["stopping_distance"] >= 0.0)
     assert torch.all((auxiliary["obstacle_ttc"] >= 0.0) & (auxiliary["obstacle_ttc"] <= 10.0))
+    for name in ("obstacle_ttc_hazard_logits", "boundary_ttc_hazard_logits", "pairwise_ttc_hazard_logits"):
+        assert auxiliary[name].shape == (2, 5, 3)
+        assert torch.isfinite(auxiliary[name]).all()
 
 
 def test_factory_and_runtime_history_forward_route_chunks():

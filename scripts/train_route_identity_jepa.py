@@ -121,6 +121,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--boundary-ttc-loss-weight", type=float, default=0.50)
     parser.add_argument("--pairwise-ttc-loss-weight", type=float, default=0.50)
     parser.add_argument("--acceleration-slack-loss-weight", type=float, default=0.50)
+    parser.add_argument("--hazard-loss-weight", type=float, default=1.0)
+    parser.add_argument("--hazard-positive-weight", type=float, default=4.0)
+    parser.add_argument("--quantile-loss-weight", type=float, default=0.50)
+    parser.add_argument("--quantile", type=float, default=0.10)
     parser.add_argument(
         "--head-only",
         action="store_true",
@@ -377,6 +381,8 @@ def _losses(
     *,
     route_ranking_horizon_index: int,
     route_ranking_margin: float,
+    hazard_positive_weight: float,
+    quantile: float,
 ) -> dict[str, torch.Tensor]:
     mean, log_variance, latent, auxiliary = model.forward_multitask(
         batch["inputs"],
@@ -413,6 +419,41 @@ def _losses(
     pairwise_ttc_mse = F.smooth_l1_loss(
         auxiliary["pairwise_ttc_risk"] / 10.0, batch["labels_pairwise_ttc"] / 10.0
     )
+    if hazard_positive_weight <= 0.0 or not 0.0 < quantile < 1.0:
+        raise ValueError("hazard_positive_weight must be positive and quantile must be in (0,1)")
+    hazard_loss_terms: list[torch.Tensor] = []
+    quantile_loss_terms: list[torch.Tensor] = []
+    hazard_metrics: dict[str, torch.Tensor] = {}
+    for risk_name, label_name in (
+        ("obstacle_ttc", "labels_obstacle_ttc"),
+        ("boundary_ttc", "labels_boundary_ttc"),
+        ("pairwise_ttc", "labels_pairwise_ttc"),
+    ):
+        target_ttc = batch[label_name]
+        measured = torch.isfinite(target_ttc) & (target_ttc >= 0.0)
+        target_bands = torch.stack(
+            [(target_ttc <= threshold).float() for threshold in (0.5, 1.0, 2.0)], dim=-1
+        )
+        logits = auxiliary[f"{risk_name}_hazard_logits"]
+        pos_weight = torch.full((3,), float(hazard_positive_weight), device=logits.device)
+        hazard_element = F.binary_cross_entropy_with_logits(
+            logits, target_bands, pos_weight=pos_weight, reduction="none"
+        )
+        hazard_element = hazard_element * measured.unsqueeze(-1)
+        hazard_loss_terms.append(hazard_element.sum() / measured.sum().clamp_min(1.0) / 3.0)
+        probability = torch.sigmoid(logits)
+        for band_index, threshold in enumerate((0.5, 1.0, 2.0)):
+            positive = measured & (target_ttc <= threshold)
+            predicted_positive = measured & (probability[..., band_index] >= 0.5)
+            true_positive = predicted_positive & positive
+            hazard_metrics[f"{risk_name}_hazard_recall_{threshold:g}"] = (
+                true_positive.sum().float() / positive.sum().clamp_min(1).float()
+            )
+        error = target_ttc / 10.0 - auxiliary[f"{risk_name}_lower_quantile"] / 10.0
+        pinball = torch.maximum(float(quantile) * error, (float(quantile) - 1.0) * error)
+        quantile_loss_terms.append((pinball * measured).sum() / measured.sum().clamp_min(1.0))
+    hazard_loss = torch.stack(hazard_loss_terms).mean()
+    quantile_loss = torch.stack(quantile_loss_terms).mean()
     slack_target = batch["labels_acceleration_slack"]
     slack_mask = slack_target != -1.0
     if bool(slack_mask.any()):
@@ -468,6 +509,8 @@ def _losses(
         + weights["boundary_ttc"] * boundary_ttc_mse
         + weights["pairwise_ttc"] * pairwise_ttc_mse
         + weights["acceleration_slack"] * acceleration_slack_mse
+        + weights["hazard"] * hazard_loss
+        + weights["quantile"] * quantile_loss
     )
     return {
         "loss": loss,
@@ -489,6 +532,8 @@ def _losses(
         "boundary_ttc_mse": boundary_ttc_mse,
         "pairwise_ttc_mse": pairwise_ttc_mse,
         "acceleration_slack_mse": acceleration_slack_mse,
+        "hazard_loss": hazard_loss,
+        "quantile_loss": quantile_loss,
         "route_progress_mse": progress_mse,
         "cbf_feasibility_bce": feasibility_bce,
         "cbf_feasibility_brier": F.mse_loss(feasibility_probability, batch["labels_cbf_feasible"]),
@@ -503,6 +548,7 @@ def _losses(
         "route_progress_pairwise_accuracy": route_ranking_accuracy,
         "route_progress_ranking_groups": route_ranking_groups,
         "target_one_std_coverage": (torch.abs(mean - target) <= torch.exp(0.5 * log_variance)).float().mean(),
+        **hazard_metrics,
     }
 
 
@@ -530,6 +576,8 @@ def run_epoch(
     *,
     route_ranking_horizon_index: int,
     route_ranking_margin: float,
+    hazard_positive_weight: float,
+    quantile: float,
 ) -> dict[str, float]:
     training = optimizer is not None
     model.train(training)
@@ -544,6 +592,8 @@ def run_epoch(
                 weights,
                 route_ranking_horizon_index=route_ranking_horizon_index,
                 route_ranking_margin=route_ranking_margin,
+                hazard_positive_weight=hazard_positive_weight,
+                quantile=quantile,
             )
             if training:
                 optimizer.zero_grad(set_to_none=True)
@@ -653,6 +703,8 @@ def main() -> None:
                 "boundary_ttc_decoder.",
                 "pairwise_ttc_risk_decoder.",
                 "acceleration_slack_decoder.",
+                "risk_hazard_decoders.",
+                "risk_quantile_decoders.",
             ))
         }
         if set(missing) != expected_missing or unexpected:
@@ -665,6 +717,8 @@ def main() -> None:
             "boundary_ttc_decoder.",
             "pairwise_ttc_risk_decoder.",
             "acceleration_slack_decoder.",
+            "risk_hazard_decoders.",
+            "risk_quantile_decoders.",
         )
         for name, parameter in model.named_parameters():
             parameter.requires_grad = name.startswith(trainable_prefixes)
@@ -688,6 +742,8 @@ def main() -> None:
         "boundary_ttc": float(args.boundary_ttc_loss_weight),
         "pairwise_ttc": float(args.pairwise_ttc_loss_weight),
         "acceleration_slack": float(args.acceleration_slack_loss_weight),
+        "hazard": float(args.hazard_loss_weight),
+        "quantile": float(args.quantile_loss_weight),
     }
     if any(value < 0.0 for value in weights.values()):
         raise ValueError("All task weights must be non-negative.")
@@ -731,6 +787,8 @@ def main() -> None:
             weights,
             route_ranking_horizon_index=args.route_ranking_horizon_index,
             route_ranking_margin=args.route_ranking_margin,
+            hazard_positive_weight=args.hazard_positive_weight,
+            quantile=args.quantile,
         )
         with torch.no_grad():
             validation_metrics = run_epoch(
@@ -741,6 +799,8 @@ def main() -> None:
                 weights,
                 route_ranking_horizon_index=args.route_ranking_horizon_index,
                 route_ranking_margin=args.route_ranking_margin,
+                hazard_positive_weight=args.hazard_positive_weight,
+                quantile=args.quantile,
             )
         record: dict[str, float | int] = {"epoch": epoch}
         for name, value in train_metrics.items():
