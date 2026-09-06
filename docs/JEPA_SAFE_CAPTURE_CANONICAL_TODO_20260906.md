@@ -215,7 +215,7 @@ JEPA 是轨迹评价器，不直接输出最终控制动作；但候选路线生
 
 ## 9. WP5：CBF 执行合同
 
-- [ ] 对 selected candidate、nominal、safe-hold 分别进行独立 CBF counterfactual。
+- [x] 在当前 V21 development rerun 中对 selected candidate、nominal、safe-hold 分别进行独立 CBF counterfactual；107 个 abort 的三路结果见 [V21 independent CBF audit](JEPA_SAFE_CAPTURE_V21_INDEPENDENT_CBF_AUDIT_20260906.md)。
 - [ ] prefilter 使用固定 horizon 的多步 rollout，报告最小 slack 和 earliest failure。
 - [ ] 最终执行边界仍只有 Joint CBF；任何 JEPA score 不能替代 CBF。
 - [ ] 每个周期只执行第一步，执行后重新读取观测并重规划。
