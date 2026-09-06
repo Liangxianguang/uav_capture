@@ -63,6 +63,8 @@ The same collector was run on disjoint protocol seed blocks with the same frozen
 
 Validation contains both positive and negative route-feasibility labels (`1080` branches remain valid through the recorded horizon and `312` fail within it), both boundary-clearance classes through runtime plus offline shadow rows, both visibility values, and both route-geometry classes. Train, validation and calibration episode seeds are disjoint by protocol construction. Each run has its own TensorBoard event file and provenance metadata.
 
+The read-only label audit `results/jepa_safe_capture_p3_hard_negative_archive_label_audit_20260907.json` passed for all three splits: all five risk heads are finite, TTC ranges are `[0,10]`, stopping distance is non-negative, visibility is binary, the failure/CBF-feasibility labels agree, and no runtime row has negative boundary clearance. Negative boundary clearance appears only in the explicitly offline boundary-shadow rows. The `-1.0` acceleration-slack value is tracked as an unknown/failed-diagnostics sentinel rather than a measured physical slack.
+
 ## 5. Interpretation
 
 The archive now contains the intended learning signal: first-step feasibility is not the bottleneck, while a substantial fraction of branches fail later in the horizon. This supports training stopping-distance/TTC/feasibility auxiliary heads and earlier braking or route switching.
