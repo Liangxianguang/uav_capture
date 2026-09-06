@@ -11,6 +11,8 @@
 - **P0 L0 recovery：已通过开发闸门。** 同一 recovery actor 在三个独立场景 seed、24 个 L0 open episode 上达到 `24/24 safe_capture`，所有安全硬门通过；结果见 [P0 report](JEPA_SAFE_CAPTURE_P0_L0_RECOVERY_THREE_SCENE_SEEDS_20260906.md)。这不是三训练 checkpoint 结论。
 - **P2 route-aware runtime：已暂停扩大。** `obstacle_route_v1` 最新 smoke 为 `0/2 safe_capture`，虽无安全违规，但出现一次 controlled abort 和一次 timeout；结果见 [route gate stop report](JEPA_SAFE_CAPTURE_P2_ROUTE_GATE_STOP_20260906.md)。
 - **当前唯一允许的下一步：** actor-matched counterfactual、route ranking/CBF failure replay 和标签/校准审计；在通过固定微场景 gate 前，不扩大 route 多 seed、40/60 episode 或新模型规模。
+- **WP1 fixed micro-scene gate：已通过。** Corridor sampling `65/17/9` 在 `central_single`、左右封锁和 `wall_single_gap` 四个公开观测场景上保持相同的 valid/CBF-verified 路线集合；独立 4097 点复核的 geometry false accept 为 0。详见 [WP1 route sampling and paired replay report](JEPA_SAFE_CAPTURE_WP1_ROUTE_SAMPLING_AND_PAIRED_REPLAY_20260906.md)。
+- **WP1 bounded runtime replay：已完成但不扩大。** 同一三场景 manifest 上 M0 为 `1/3`、M3 为 `2/3`，安全硬门均为 0；M3 的一个 timeout 由 Ledger `safe_hold` 过度拒绝触发。M1 去 Ledger 诊断在同一场景为 `1/1`，因此下一步是 stale/OOD Ledger 路由审计，不是降低 CBF 或立即重训。
 
 ## 0. 最终目标和当前判断
 
