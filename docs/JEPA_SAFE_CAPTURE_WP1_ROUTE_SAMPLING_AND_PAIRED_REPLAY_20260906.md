@@ -111,16 +111,20 @@ M3 timed out after 250 steps without a safety violation. The trace shows:
 - CBF candidate probes and independent selected/nominal/safe-hold probes were
   feasible, with no solver timeout or infeasibility.
 
-The M1 diagnostic on the same episode uses the same actor, route candidates,
-JEPA checkpoint, CBF contract, and sampling density but no Ledger. It reaches
-`1/1 safe_capture` with all hard safety gates at zero. This isolates the
-current capability loss to Ledger stale/OOD over-abstention rather than a
-geometry false accept, JEPA route ranking failure, or CBF safety failure.
+The M1 diagnostic uses the same actor, route candidates, JEPA checkpoint, CBF
+contract, sampling density, and three-scene manifest but no Ledger. It reaches
+`3/3 safe_capture`; specifically, episode `646102` reaches safe capture with
+all UAV safety hard gates at zero. One separate M1 episode (`646103`) has a
+target-boundary diagnostic, which is reported separately from the UAV safety
+hard gate and does not affect the `646102` attribution. This isolates the
+current capability loss in episode `646102` to Ledger stale/OOD
+over-abstention rather than a geometry false accept, JEPA route ranking
+failure, or CBF safety failure.
 
 Artifact:
 
-- [M1 no-Ledger diagnostic](../results/wp1_route_failure_m1_noledger_episode646102/summary.json)
-- [M1 TensorBoard](../results/wp1_route_failure_m1_noledger_episode646102_tensorboard)
+- [M1 no-Ledger three-scene diagnostic](../results/wp1_route_replay_m1_noledger_samples9_seed20260911/summary.json)
+- [M1 TensorBoard](../results/wp1_route_replay_m1_noledger_samples9_seed20260911_tensorboard)
 
 This does **not** authorize disabling stale/OOD gates. The correct follow-up
 is to distinguish target-prediction staleness from public geometry and
