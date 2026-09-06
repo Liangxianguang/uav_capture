@@ -83,7 +83,9 @@ Run summaries:
 ## Stop rule and next permitted work
 
 No additional training or scene expansion is authorized by this result. The
-next bounded task is an offline route-regret audit for episode `650102`:
+The completed bounded route-ranking audit is recorded in
+[JEPA_SAFE_CAPTURE_DISTINCT_SEED_ROUTE_RANKING_AUDIT_20260907.md](JEPA_SAFE_CAPTURE_DISTINCT_SEED_ROUTE_RANKING_AUDIT_20260907.md).
+The next permitted task is an offline route-regret audit for episode `650102`:
 
 1. compare selected route, score argmin, and settled-best route;
 2. separate JEPA target-progress error from visibility and Ledger routing;
