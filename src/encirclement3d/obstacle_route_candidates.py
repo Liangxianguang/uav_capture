@@ -104,7 +104,6 @@ class ObstacleGeometry:
             if np.any(half <= 0.0):
                 raise ValueError("half_extents_xy must be positive and finite.")
             object.__setattr__(self, "half_extents_xy", half)
-
     @property
     def horizontal_half_extents(self) -> np.ndarray:
         if self.half_extents_xy is not None:
@@ -364,6 +363,41 @@ def _observation_bounds(observation: Mapping[str, Any], config: ObstacleRouteCon
     return lower, upper
 
 
+def _belief_consensus(
+    positions: np.ndarray,
+    beliefs: np.ndarray,
+    belief_velocities: np.ndarray,
+    observation: Mapping[str, Any],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Aggregate only initialized target beliefs from the public observation.
+
+    The environment represents a never-received belief as a finite zero vector
+    for compatibility with the frozen actor.  Treating those zeros as target
+    measurements pulls the route goal toward the origin whenever only a subset
+    of defenders can see the target.  This helper keeps the route layer causal:
+    received beliefs are averaged, while an entirely uninitialized belief
+    falls back to the defender centroid and zero target velocity.
+    """
+
+    defender_count = int(positions.shape[0])
+    received_value = observation.get("target_observation_received")
+    states_value = observation.get("target_observation_age_state")
+    if received_value is None:
+        if states_value is None:
+            received = np.ones(defender_count, dtype=bool)
+        else:
+            if not isinstance(states_value, (list, tuple)) or len(states_value) != defender_count:
+                raise ValueError("target_observation_age_state must have one entry per defender.")
+            received = np.asarray([str(state) != "never_received" for state in states_value], dtype=bool)
+    else:
+        received = np.asarray(received_value, dtype=bool)
+        if received.shape != (defender_count,):
+            raise ValueError("target_observation_received must have one entry per defender.")
+    if not np.any(received):
+        return positions.mean(axis=0), np.zeros(3, dtype=np.float64)
+    return beliefs[received].mean(axis=0), belief_velocities[received].mean(axis=0)
+
+
 def _segment_points(start: np.ndarray, end: np.ndarray, count: int) -> np.ndarray:
     fractions = np.linspace(0.0, 1.0, int(count), dtype=np.float64)[:, None]
     return start[None, :] + fractions * (end - start)[None, :]
@@ -612,6 +646,49 @@ def _route_waypoints(
     raise ValueError(f"Unknown route label: {label!r}.")
 
 
+def _repair_lateral_detour_waypoints(
+    waypoints: np.ndarray,
+    side_xy: np.ndarray,
+    obstacles: Sequence[ObstacleGeometry],
+    *,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    config: ObstacleRouteConfig,
+) -> np.ndarray:
+    """Shift a lateral corridor until all public obstacles have clearance.
+
+    A principal-obstacle bypass can still intersect a second obstacle on the
+    same side.  The route layer therefore searches a bounded family of
+    parallel corridors.  This changes only the proposal geometry; every
+    resulting first action is still projected and independently CBF-checked.
+    """
+
+    if not obstacles or waypoints.shape[0] < 2:
+        return waypoints
+    side = np.array([float(side_xy[0]), float(side_xy[1]), 0.0], dtype=np.float64)
+    side_norm = float(np.linalg.norm(side))
+    if side_norm <= 1e-12:
+        return waypoints
+    side /= side_norm
+    maximum_extra = max(4.0, 8.0 * float(config.route_buffer_m + config.clearance_margin_m))
+    for extra in np.linspace(0.0, maximum_extra, 49, dtype=np.float64):
+        candidate = np.asarray(waypoints, dtype=np.float64).copy()
+        candidate[:-1] += side[None, :] * float(extra)
+        if np.isfinite(lower).all() and np.any(candidate < lower[None, :] + config.vehicle_radius_m - 1e-9):
+            continue
+        if np.isfinite(upper).all() and np.any(candidate > upper[None, :] - config.vehicle_radius_m + 1e-9):
+            continue
+        clearance = route_min_clearance(
+            candidate,
+            obstacles,
+            vehicle_radius_m=config.vehicle_radius_m,
+            samples=config.corridor_samples,
+        )
+        if clearance >= config.obstacle_margin_m - 1e-9:
+            return candidate
+    return waypoints
+
+
 def _actions_from_waypoints(
     positions: np.ndarray,
     waypoints: np.ndarray,
@@ -689,7 +766,13 @@ def make_obstacle_route_candidates(
     obstacles = parse_obstacles(observation)
     lower, upper = _observation_bounds(observation, settings)
     centroid = positions.mean(axis=0)
-    target = beliefs.mean(axis=0) + settings.dt_seconds * settings.chunk_length_steps * belief_velocities.mean(axis=0)
+    belief_center, belief_velocity = _belief_consensus(
+        positions,
+        beliefs,
+        belief_velocities,
+        observation,
+    )
+    target = belief_center + settings.dt_seconds * settings.chunk_length_steps * belief_velocity
     forward = _unit(target - centroid, np.array([1.0, 0.0, 0.0]))
     forward_xy = _unit_xy(forward[:2])
     left_xy = np.array([-forward_xy[1], forward_xy[0]], dtype=np.float64)
@@ -710,6 +793,16 @@ def make_obstacle_route_candidates(
             upper=upper,
             config=settings,
         )
+        if label in {"left_detour", "right_detour"} and principal is not None:
+            side_direction = left_xy if label == "left_detour" else -left_xy
+            waypoints = _repair_lateral_detour_waypoints(
+                waypoints,
+                side_direction,
+                obstacles,
+                lower=lower,
+                upper=upper,
+                config=settings,
+            )
         if label == "nominal":
             raw_chunk = np.repeat(nominal[None, :, :], settings.chunk_length_steps, axis=0)
         elif label == "braking":

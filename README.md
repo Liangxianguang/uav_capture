@@ -49,6 +49,7 @@ The current implementation work is governed by the single canonical plan:
 - [Canonical obstacle-conditioned JEPA safe-capture TODO](docs/JEPA_SAFE_CAPTURE_CANONICAL_TODO_20260906.md)
 - [Plan index and superseded-document policy](docs/JEPA_SAFE_CAPTURE_PLAN_INDEX_20260906.md)
 - [WP1 obstacle-conditioned route audit](docs/JEPA_SAFE_CAPTURE_WP1_OBSTACLE_ROUTE_AUDIT_20260906.md)
+- [WP2 obstacle-route runtime smoke](docs/JEPA_SAFE_CAPTURE_WP2_ROUTE_RUNTIME_SMOKE_20260906.md)
 
 The dated TODO/PLAN/ROADMAP files listed below are historical reference only;
 they are not additional execution queues.

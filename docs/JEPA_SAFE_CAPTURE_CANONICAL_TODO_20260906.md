@@ -1,6 +1,6 @@
 # Obstacle-Conditioned JEPA Safe-Capture: Canonical TODO
 
-**状态：** 唯一执行入口，development-only；WP1/WP2 几何路线审计已通过，runtime 接入和 JEPA 重训仍未完成
+**状态：** 唯一执行入口，development-only；WP1/WP2 几何路线与 runtime smoke 已完成，route-bound JEPA 重训仍未完成
 
 **日期：** 2026-09-06
 
@@ -145,7 +145,7 @@ JEPA 是轨迹评价器，不直接输出最终控制动作；但候选路线生
 
 ### WP1/WP2 完成边界
 
-路线层已通过离线确定性审计，但尚未接入 JEPA ranker、reliability ledger 或完整滚动重规划 evaluator。下一阶段必须先做 runtime candidate adapter 和独立 CBF counterfactual，不能把本审计结果写成 safe-capture 提升。
+路线层已通过离线确定性审计，并已接入 JEPA ranker、reliability ledger、独立 CBF counterfactual 和滚动重规划 evaluator。runtime smoke 证据见 [WP2 route runtime smoke](JEPA_SAFE_CAPTURE_WP2_ROUTE_RUNTIME_SMOKE_20260906.md)。该 smoke 仍是开发验证，不能写成 safe-capture 提升；下一阶段必须先按失败 trace 建立 route-identity counterfactual archive 和新的 route-bound calibration ledger。
 
 ## 7. WP3：重新定义 JEPA 评价目标并生成数据
 

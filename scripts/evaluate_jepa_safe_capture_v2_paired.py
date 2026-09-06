@@ -46,6 +46,16 @@ from encirclement3d.jepa_safe_capture_ranker import (  # noqa: E402
     SafeCaptureRankerConfig,
 )
 from encirclement3d.observation_encoding import policy_observations  # noqa: E402
+from encirclement3d.obstacle_route_candidates import (  # noqa: E402
+    ROUTE_LABELS,
+    ObstacleRouteConfig,
+    make_obstacle_route_candidates,
+)
+from encirclement3d.obstacle_route_runtime import (  # noqa: E402
+    ObstacleRouteRuntimeBatch,
+    probe_independent_cbf_counterfactuals,
+    probe_route_batch_with_cbf,
+)
 from encirclement3d.prediction import (  # noqa: E402
     InteractionAwareActionConditionedSafeCaptureJEPAPredictor,
     build_action_conditioned_predictor,
@@ -72,6 +82,7 @@ from evaluate_random_central_mixed_obstacles import (  # noqa: E402
 
 
 VARIANTS = ("m0", "m1", "m2", "m3", "a1", "a2", "a3")
+RUNTIME_CANDIDATE_PROFILES = ("legacy", "extended_v1", "obstacle_route_v1")
 TRAINING_SEEDS = (20260911, 20260912, 20260913)
 DEFAULT_PROTOCOL = PROJECT_ROOT / "configs" / "central_random_mixed_obstacle_s3_protocol.yaml"
 DEFAULT_ENVIRONMENT_CONFIG = PROJECT_ROOT / "configs" / "capture_radius_pursuit_central_v4_flee.yaml"
@@ -213,6 +224,14 @@ def _raw_unverified_executed(
     return fallback_mode not in {"safe_hold", "nominal_cbf", "controlled_abort"}
 
 
+def _candidate_labels_for_runtime_profile(profile: str) -> tuple[str, ...]:
+    """Resolve historical profiles and the new geometry-conditioned profile."""
+
+    if str(profile) == "obstacle_route_v1":
+        return tuple(ROUTE_LABELS)
+    return candidate_labels_for_profile(profile)
+
+
 def _prefilter_candidate_batch_with_cbf(
     candidate_batch: SafeCaptureCandidateBatch,
     safety_filter: JointCBFQPSafetyFilter,
@@ -298,9 +317,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--jepa-history-length", type=int, default=8)
     parser.add_argument(
         "--candidate-profile",
-        choices=("legacy", "extended_v1"),
+        choices=RUNTIME_CANDIDATE_PROFILES,
         default="legacy",
-        help="Frozen candidate construction profile; legacy preserves the five-candidate contract.",
+        help=(
+            "Candidate construction profile; legacy/extended_v1 preserve historical contracts, "
+            "obstacle_route_v1 uses public obstacle geometry and requires CBF prefiltering."
+        ),
     )
     parser.add_argument(
         "--candidate-cbf-prefilter",
@@ -695,8 +717,11 @@ def _run_episode(
     previous_action = np.asarray(env.defender_velocities, dtype=np.float64).copy()
     previous_selected_index: int | None = None
     hold_steps_remaining = 0
-    candidate_labels = candidate_labels_for_profile(candidate_profile)
-    candidate_config = SafeCaptureCandidateConfig(
+    route_profile = str(candidate_profile) == "obstacle_route_v1"
+    if route_profile and not candidate_cbf_prefilter:
+        raise ValueError("obstacle_route_v1 requires --candidate-cbf-prefilter.")
+    candidate_labels = _candidate_labels_for_runtime_profile(candidate_profile)
+    candidate_config = None if route_profile else SafeCaptureCandidateConfig(
         candidate_count=len(candidate_labels),
         candidate_profile=candidate_profile,
         chunk_length_steps=3,
@@ -746,6 +771,19 @@ def _run_episode(
     candidate_cbf_prefilter_checks = 0
     candidate_cbf_prefilter_rejections = 0
     candidate_cbf_prefilter_timeouts = 0
+    route_candidate_generated = 0
+    route_geometry_valid = 0
+    route_geometry_invalid = 0
+    route_cbf_probe_accepted = 0
+    route_cbf_probe_rejected = 0
+    route_side_counts: dict[str, int] = {}
+    selected_route_ids: list[str] = []
+    selected_route_labels: list[str] = []
+    selected_route_sides: list[str] = []
+    independent_cbf_probe_checks = 0
+    independent_cbf_probe_accepted = 0
+    independent_cbf_probe_rejected = 0
+    independent_cbf_probe_timeouts = 0
     rank_fallback_steps = 0
     safe_hold_steps = 0
     target_collision = False
@@ -787,15 +825,68 @@ def _run_episode(
         }
         queue_ages.append(queue_age_steps)
         candidate_started_ns = time.perf_counter_ns()
+        route_runtime: ObstacleRouteRuntimeBatch | None = None
+        independent_cbf_counterfactuals: list[dict[str, Any]] = []
+        selected_route_metadata: dict[str, Any] | None = None
         if ranker is not None and candidate_history is not None:
-            batch = make_safe_capture_candidate_chunks(
-                reachable_nominal_action,
-                observation,
-                config=candidate_config,
-                previous_action=previous_action,
-            )
             candidate_cbf_diagnostics: list[Any | None] = []
-            if candidate_cbf_prefilter:
+            if route_profile:
+                route_batch = make_obstacle_route_candidates(
+                    reachable_nominal_action,
+                    observation,
+                    config=ObstacleRouteConfig(
+                        chunk_length_steps=3,
+                        dt_seconds=float(env.dt),
+                        max_speed_mps=float(env.agents["defender_max_speed"]),
+                        max_acceleration_mps2=float(env.agents["defender_max_acceleration"]),
+                        max_action_change_mps=float(env.agents["defender_max_acceleration"]) * float(env.dt),
+                        vehicle_radius_m=float(env.agents["drone_radius"]),
+                        obstacle_margin_m=float(safety_filter.obstacle_margin_m),
+                        route_buffer_m=0.75,
+                        nominal_speed_mps=min(2.0, float(env.agents["defender_max_speed"])),
+                        project_to_reachable_dynamics=True,
+                        world_lower=tuple(float(value) for value in env.lower),
+                        world_upper=tuple(float(value) for value in env.upper),
+                    ),
+                    previous_action=previous_action,
+                )
+                route_runtime = probe_route_batch_with_cbf(route_batch, safety_filter, observation)
+                batch = route_runtime.candidate_batch
+                candidate_cbf_diagnostics = [
+                    None if probe is None else probe.as_dict()
+                    for probe in route_runtime.cbf_counterfactuals
+                ]
+                route_candidate_generated += len(route_batch.candidates)
+                route_geometry_valid += int(np.count_nonzero(route_batch.valid_mask))
+                route_geometry_invalid += int(len(route_batch.valid_mask) - np.count_nonzero(route_batch.valid_mask))
+                for route in route_batch.candidates:
+                    route_side_counts[route.side] = route_side_counts.get(route.side, 0) + 1
+                route_cbf_probe_accepted += sum(
+                    probe is not None and probe.accepted for probe in route_runtime.cbf_counterfactuals
+                )
+                route_cbf_probe_rejected += sum(
+                    probe is not None and not probe.accepted for probe in route_runtime.cbf_counterfactuals
+                )
+                candidate_cbf_prefilter_checks += sum(
+                    diagnostic is not None for diagnostic in candidate_cbf_diagnostics
+                )
+                candidate_cbf_prefilter_rejections += sum(
+                    diagnostic is not None
+                    and not bool(diagnostic.get("accepted", False))
+                    for diagnostic in candidate_cbf_diagnostics
+                )
+                candidate_cbf_prefilter_timeouts += sum(
+                    diagnostic is not None and bool(diagnostic.get("timed_out", False))
+                    for diagnostic in candidate_cbf_diagnostics
+                )
+            else:
+                batch = make_safe_capture_candidate_chunks(
+                    reachable_nominal_action,
+                    observation,
+                    config=candidate_config,
+                    previous_action=previous_action,
+                )
+            if candidate_cbf_prefilter and not route_profile:
                 batch, candidate_cbf_diagnostics = _prefilter_candidate_batch_with_cbf(
                     batch,
                     safety_filter,
@@ -836,6 +927,39 @@ def _run_episode(
             else:
                 previous_selected_index = 0
                 hold_steps_remaining = 0
+            if route_runtime is not None:
+                selected_route = route_runtime.route_batch.candidates[int(rank_result.selected_index)]
+                selected_route_ids.append(selected_route.route_id)
+                selected_route_labels.append(selected_route.label)
+                selected_route_sides.append(selected_route.side)
+                selected_route_metadata = {
+                    "route_id": selected_route.route_id,
+                    "label": selected_route.label,
+                    "side": selected_route.side,
+                    "obstacle_id": selected_route.obstacle_id,
+                    "obstacle_shape": selected_route.obstacle_shape,
+                    "minimum_geometric_clearance_m": selected_route.minimum_geometric_clearance_m,
+                    "route_length_m": selected_route.route_length_m,
+                    "rejection_reasons": list(selected_route.rejection_reasons),
+                }
+                independent_probes = probe_independent_cbf_counterfactuals(
+                    selected_action=np.asarray(rank_result.selected_action, dtype=np.float64),
+                    nominal_action=reachable_nominal_action,
+                    safe_hold_action=np.asarray(
+                        route_runtime.route_batch.candidates[
+                            route_runtime.route_batch.labels.index("verified_safe_hold")
+                        ].action_chunk[0],
+                        dtype=np.float64,
+                    ),
+                    observation=observation,
+                    safety_filter=safety_filter,
+                    selected_route_id=selected_route.route_id,
+                )
+                independent_cbf_counterfactuals = [probe.as_dict() for probe in independent_probes]
+                independent_cbf_probe_checks += len(independent_probes)
+                independent_cbf_probe_accepted += sum(probe.accepted for probe in independent_probes)
+                independent_cbf_probe_rejected += sum(not probe.accepted for probe in independent_probes)
+                independent_cbf_probe_timeouts += sum(probe.timed_out for probe in independent_probes)
         candidate_latencies.append((time.perf_counter_ns() - candidate_started_ns) / 1_000_000.0)
         if rank_result is not None:
             jepa_latencies.append(float(getattr(rank_result.trace, "jepa_inference_latency_ms", 0.0)))
@@ -949,6 +1073,9 @@ def _run_episode(
                 "target_clearance_m": target_clearance,
                 "candidate_ranking": rank_result.trace if rank_result is not None else None,
                 "candidate_cbf_prefilter": candidate_cbf_diagnostics if rank_result is not None else [],
+                "route_runtime": route_runtime.as_dict() if route_runtime is not None else None,
+                "selected_route": selected_route_metadata,
+                "independent_cbf_counterfactuals": independent_cbf_counterfactuals,
                 "cbf": diagnostics,
             }
         )
@@ -1069,6 +1196,20 @@ def _run_episode(
         "candidate_cbf_prefilter_accepted": (
             candidate_cbf_prefilter_checks - candidate_cbf_prefilter_rejections
         ),
+        "route_profile": candidate_profile if route_profile else None,
+        "route_candidate_generated": route_candidate_generated,
+        "route_geometry_valid": route_geometry_valid,
+        "route_geometry_invalid": route_geometry_invalid,
+        "route_cbf_probe_accepted": route_cbf_probe_accepted,
+        "route_cbf_probe_rejected": route_cbf_probe_rejected,
+        "route_side_counts": dict(sorted(route_side_counts.items())),
+        "selected_route_ids": selected_route_ids,
+        "selected_route_labels": selected_route_labels,
+        "selected_route_sides": selected_route_sides,
+        "independent_cbf_probe_checks": independent_cbf_probe_checks,
+        "independent_cbf_probe_accepted": independent_cbf_probe_accepted,
+        "independent_cbf_probe_rejected": independent_cbf_probe_rejected,
+        "independent_cbf_probe_timeouts": independent_cbf_probe_timeouts,
         "cbf_mean_solve_latency_ms": float(np.mean(cbf_latencies)) if cbf_latencies else 0.0,
         "cbf_p95_solve_latency_ms": float(np.percentile(cbf_latencies, 95)) if cbf_latencies else 0.0,
         "mean_cbf_action_correction_norm": float(np.mean(cbf_corrections)) if cbf_corrections else 0.0,
@@ -1206,6 +1347,15 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "candidate_cbf_prefilter_rejections": count("candidate_cbf_prefilter_rejections"),
         "candidate_cbf_prefilter_timeouts": count("candidate_cbf_prefilter_timeouts"),
         "candidate_cbf_prefilter_accepted": count("candidate_cbf_prefilter_accepted"),
+        "route_candidate_generated": count("route_candidate_generated"),
+        "route_geometry_valid": count("route_geometry_valid"),
+        "route_geometry_invalid": count("route_geometry_invalid"),
+        "route_cbf_probe_accepted": count("route_cbf_probe_accepted"),
+        "route_cbf_probe_rejected": count("route_cbf_probe_rejected"),
+        "independent_cbf_probe_checks": count("independent_cbf_probe_checks"),
+        "independent_cbf_probe_accepted": count("independent_cbf_probe_accepted"),
+        "independent_cbf_probe_rejected": count("independent_cbf_probe_rejected"),
+        "independent_cbf_probe_timeouts": count("independent_cbf_probe_timeouts"),
         "transit_success_rate": rate("transit_success"),
         "mean_capture_time_seconds": float(np.mean(capture_times)) if capture_times else None,
         "mean_min_clearance_m": float(np.mean([float(row["min_clearance_m"]) for row in rows])),
@@ -1298,6 +1448,31 @@ def _write_tensorboard(
                 float(row.get("candidate_cbf_prefilter_accepted", 0)),
                 index,
             )
+            writer.add_scalar("Route/candidate_generated", float(row.get("route_candidate_generated", 0)), index)
+            writer.add_scalar("Route/geometry_valid", float(row.get("route_geometry_valid", 0)), index)
+            writer.add_scalar("Route/geometry_invalid", float(row.get("route_geometry_invalid", 0)), index)
+            writer.add_scalar("Route/cbf_probe_accepted", float(row.get("route_cbf_probe_accepted", 0)), index)
+            writer.add_scalar("Route/cbf_probe_rejected", float(row.get("route_cbf_probe_rejected", 0)), index)
+            writer.add_scalar(
+                "Route/independent_cbf_probe_checks",
+                float(row.get("independent_cbf_probe_checks", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "Route/independent_cbf_probe_accepted",
+                float(row.get("independent_cbf_probe_accepted", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "Route/independent_cbf_probe_rejected",
+                float(row.get("independent_cbf_probe_rejected", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "Route/independent_cbf_probe_timeouts",
+                float(row.get("independent_cbf_probe_timeouts", 0)),
+                index,
+            )
             writer.add_scalar("Fallback/rank_steps", float(row["rank_fallback_steps"]), index)
             writer.add_scalar("Fallback/safe_hold_steps", float(row["safe_hold_steps"]), index)
             writer.add_scalar("Ranking/selected_candidate_mean_index", float(row["selected_candidate_mean_index"] or 0.0), index)
@@ -1363,6 +1538,31 @@ def _write_tensorboard(
         writer.add_scalar(
             "Aggregate/CandidateCBF/accepted",
             float(summary.get("candidate_cbf_prefilter_accepted", 0)),
+            0,
+        )
+        writer.add_scalar("Aggregate/Route/candidate_generated", float(summary.get("route_candidate_generated", 0)), 0)
+        writer.add_scalar("Aggregate/Route/geometry_valid", float(summary.get("route_geometry_valid", 0)), 0)
+        writer.add_scalar("Aggregate/Route/geometry_invalid", float(summary.get("route_geometry_invalid", 0)), 0)
+        writer.add_scalar("Aggregate/Route/cbf_probe_accepted", float(summary.get("route_cbf_probe_accepted", 0)), 0)
+        writer.add_scalar("Aggregate/Route/cbf_probe_rejected", float(summary.get("route_cbf_probe_rejected", 0)), 0)
+        writer.add_scalar(
+            "Aggregate/Route/independent_cbf_probe_checks",
+            float(summary.get("independent_cbf_probe_checks", 0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Route/independent_cbf_probe_accepted",
+            float(summary.get("independent_cbf_probe_accepted", 0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Route/independent_cbf_probe_rejected",
+            float(summary.get("independent_cbf_probe_rejected", 0)),
+            0,
+        )
+        writer.add_scalar(
+            "Aggregate/Route/independent_cbf_probe_timeouts",
+            float(summary.get("independent_cbf_probe_timeouts", 0)),
             0,
         )
         writer.add_scalar("Aggregate/p95_cbf_latency_ms", float(summary["max_cbf_p95_solve_latency_ms"]), 0)
@@ -1444,6 +1644,10 @@ def main() -> None:
     contract = _variant_contract(args.variant)
     if args.candidate_cbf_prefilter and not contract["use_cbf"]:
         raise ValueError("--candidate-cbf-prefilter requires a CBF-enabled variant.")
+    if args.candidate_profile == "obstacle_route_v1" and not contract["use_jepa"]:
+        raise ValueError("obstacle_route_v1 requires a JEPA-enabled variant.")
+    if args.candidate_profile == "obstacle_route_v1" and not args.candidate_cbf_prefilter:
+        raise ValueError("obstacle_route_v1 requires --candidate-cbf-prefilter.")
     protocol_path = args.protocol.resolve()
     environment_config = args.environment_config.resolve()
     actor_checkpoint = args.actor_checkpoint.resolve()
@@ -1627,9 +1831,10 @@ def main() -> None:
         "split": args.split,
         "episodes": int(args.episodes),
         "candidate_contract": {
-            "candidate_count": len(candidate_labels_for_profile(args.candidate_profile)),
+            "candidate_count": len(_candidate_labels_for_runtime_profile(args.candidate_profile)),
             "candidate_profile": args.candidate_profile,
             "candidate_cbf_prefilter": bool(args.candidate_cbf_prefilter),
+            "route_profile_requires_cbf_prefilter": args.candidate_profile == "obstacle_route_v1",
             "chunk_length_steps": 3,
             "perturbation_mps": float(args.jepa_perturbation_mps),
             "zero_perturbation_identity_bypass": requires_zero_perturbation_identity_bypass(

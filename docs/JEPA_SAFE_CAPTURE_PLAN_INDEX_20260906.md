@@ -4,6 +4,7 @@
 
 - [JEPA_SAFE_CAPTURE_CANONICAL_TODO_20260906.md](JEPA_SAFE_CAPTURE_CANONICAL_TODO_20260906.md)
 - [WP1 obstacle-route audit](JEPA_SAFE_CAPTURE_WP1_OBSTACLE_ROUTE_AUDIT_20260906.md)
+- [WP2 route runtime smoke](JEPA_SAFE_CAPTURE_WP2_ROUTE_RUNTIME_SMOKE_20260906.md)
 
 此前按 V2/V3/V4/V5/V11/V20/V21、WP、P、T 或日期拆分的 TODO、PLAN、ROADMAP 和 EXECUTION 文件均为历史参考，状态为 `superseded / reference-only`，不得作为新的执行指令。它们保留在仓库中，是为了保留当时的实验假设、失败诊断和可复现命令。
 

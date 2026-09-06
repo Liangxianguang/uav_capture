@@ -109,10 +109,10 @@ def test_central_obstacle_generates_distinct_left_right_and_upper_routes() -> No
     assert right.minimum_geometric_clearance_m >= 0.35 - 1e-8
 
 
-def test_left_blocked_scene_rejects_left_route_but_keeps_right_route() -> None:
+def test_left_blocked_scene_shifts_left_route_and_keeps_right_route() -> None:
     # The second cylinder is outside the nominal belief corridor, but blocks
-    # the left (+y) bypass corridor.  The route generator must use both public
-    # obstacle records when checking the proposed route.
+    # the first left (+y) bypass corridor.  The route generator must use both
+    # public obstacle records and search a farther parallel corridor.
     observation = _observation([_cylinder((0.0, 0.0)), _cylinder((0.0, 3.5))])
     batch = make_obstacle_route_candidates(
         np.zeros((4, 3), dtype=np.float64),
@@ -123,14 +123,14 @@ def test_left_blocked_scene_rejects_left_route_but_keeps_right_route() -> None:
     right = batch.candidates[batch.labels.index("right_detour")]
 
     assert left.obstacle_id == right.obstacle_id == 0
-    assert not left.geometric_feasible
-    assert "route_clearance_below_margin" in left.rejection_reasons
+    assert left.geometric_feasible and left.valid
+    assert left.waypoints[1, 1] > 4.5
     assert right.geometric_feasible
     assert right.valid
     assert not np.allclose(left.waypoints, right.waypoints)
 
 
-def test_right_blocked_scene_changes_feasible_side() -> None:
+def test_right_blocked_scene_shifts_right_route_and_keeps_left_route() -> None:
     observation = _observation([_cylinder((0.0, 0.0)), _cylinder((0.0, -3.5))])
     batch = make_obstacle_route_candidates(
         np.zeros((4, 3), dtype=np.float64),
@@ -141,8 +141,24 @@ def test_right_blocked_scene_changes_feasible_side() -> None:
     right = batch.candidates[batch.labels.index("right_detour")]
 
     assert left.geometric_feasible and left.valid
-    assert not right.geometric_feasible
-    assert "route_clearance_below_margin" in right.rejection_reasons
+    assert right.geometric_feasible and right.valid
+    assert right.waypoints[1, 1] < -4.5
+
+
+def test_lateral_route_shifts_away_from_a_second_obstacle_on_the_same_side() -> None:
+    # The principal cylinder blocks the direct corridor.  A second cylinder
+    # sits near the initial left bypass, so the planner must search a farther
+    # parallel corridor instead of giving up on the whole side.
+    observation = _observation([_cylinder((0.0, 0.0)), _cylinder((0.0, 2.2))])
+    batch = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+    left = batch.candidates[batch.labels.index("left_detour")]
+    assert left.valid
+    assert left.waypoints[1, 1] > 3.0
+    assert left.minimum_geometric_clearance_m >= 0.35 - 1e-8
 
 
 def test_obstacle_record_sorting_does_not_change_route_geometry_or_actions() -> None:
@@ -224,3 +240,36 @@ def test_malformed_public_obstacle_is_rejected_without_hidden_state_fallback() -
     observation = _observation([{"shape": "cylinder"}])
     with pytest.raises(ValueError, match="missing center_xy"):
         make_obstacle_route_candidates(np.zeros((4, 3)), observation)
+
+
+def test_route_goal_ignores_never_received_zero_beliefs() -> None:
+    observation = _observation([_cylinder((0.0, 0.0))])
+    observation["target_belief_positions"] = np.array(
+        [[-6.0, 0.0, 4.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+        dtype=np.float64,
+    )
+    observation["target_observation_received"] = np.array([True, False, False, False], dtype=bool)
+    observation["target_observation_age_state"] = ("fresh", "never_received", "never_received", "never_received")
+    batch = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+
+    nominal = batch.candidates[batch.labels.index("nominal")]
+    assert nominal.waypoints[-1, 0] == pytest.approx(-6.0)
+
+
+def test_route_goal_falls_back_to_defender_centroid_without_any_belief() -> None:
+    observation = _observation([_cylinder((0.0, 0.0))])
+    observation["target_belief_positions"] = np.zeros((4, 3), dtype=np.float64)
+    observation["target_observation_received"] = np.zeros(4, dtype=bool)
+    observation["target_observation_age_state"] = ("never_received",) * 4
+    batch = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+
+    nominal = batch.candidates[batch.labels.index("nominal")]
+    np.testing.assert_allclose(nominal.waypoints[-1], observation["defender_positions"].mean(axis=0))
