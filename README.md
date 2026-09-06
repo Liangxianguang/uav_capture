@@ -44,55 +44,23 @@ improvement.
 
 The V4 locked-test report is the current formal benchmark result:
 
+The current implementation work is governed by the single canonical plan:
+
+- [Canonical obstacle-conditioned JEPA safe-capture TODO](docs/JEPA_SAFE_CAPTURE_CANONICAL_TODO_20260906.md)
+- [Plan index and superseded-document policy](docs/JEPA_SAFE_CAPTURE_PLAN_INDEX_20260906.md)
+- [WP1 obstacle-conditioned route audit](docs/JEPA_SAFE_CAPTURE_WP1_OBSTACLE_ROUTE_AUDIT_20260906.md)
+
+The dated TODO/PLAN/ROADMAP files listed below are historical reference only;
+they are not additional execution queues.
+
 - [V4 locked-test report](CENTRAL_V4_LOCKED_TEST_REPORT.md)
 - [V4 locked-test summary](CENTRAL_V4_LOCKED_TEST_SUMMARY.json)
 - [V4 visualisation audit](CENTRAL_V4_VISUALIZATION_REPORT.md)
 - [V4 archive-faithful RTX 5050 reproduction](docs/CENTRAL_V4_ARCHIVE_FAITHFUL_REPRODUCTION_20260830.md)
 - [V5 development status](CENTRAL_V5_EXACT_REACTIVE_DEVELOPMENT_STATUS.md)
-- [JEPA safe-capture v2 P7 full development report (historical pre-tie3)](docs/JEPA_SAFE_CAPTURE_P7_FULL_DEVELOPMENT_REPORT_20260904.md)
-- [JEPA safe-capture P7 之后下一阶段详细目标计划书](docs/JEPA_SAFE_CAPTURE_NEXT_PHASE_TODOLIST_20260904.md)
-- [JEPA safe-capture 当前执行版下一步 TODO 与验收计划](docs/JEPA_SAFE_CAPTURE_NEXT_TODO_PLAN_20260904.md)
-- [JEPA safe-capture v11 corrected-frame 下一步详细 TODO 与验收计划](docs/JEPA_SAFE_CAPTURE_V11_CORRECTED_FRAME_NEXT_TODO_PLAN_20260904.md)
-- [JEPA safe-capture v11 hard-replay 下一步执行版 TODO 计划书（当前入口）](docs/JEPA_SAFE_CAPTURE_NEXT_EXECUTION_TODO_20260905.md)
-- [JEPA safe-capture v20 CPU deterministic 下一步详细 TODO 计划书（最新执行入口）](docs/JEPA_SAFE_CAPTURE_NEXT_TODO_PLAN_20260905_V2.md)
-- [JEPA safe-capture v20 seed 20260911 CPU/CUDA replay 归档](docs/JEPA_SAFE_CAPTURE_V20_SEED20260911_DEVICE_REPLAY_20260905.md)
-- [JEPA safe-capture 当前下一步执行 TODO 计划（V21 smoke 之后）](docs/JEPA_SAFE_CAPTURE_CURRENT_NEXT_TODO_PLAN_20260905.md)
-- [JEPA safe-capture V21 之后详细 TODO 与目标计划书（当前执行入口）](docs/JEPA_SAFE_CAPTURE_NEXT_DETAILED_TODO_PLAN_20260905.md)
-- [JEPA safe-capture V21 三 seed settled ranking aggregate](docs/JEPA_SAFE_CAPTURE_V21_SETTLED_RANKING_AGGREGATE_20260905.md)
-- [JEPA safe-capture V21 失败索引与确定性重放报告](docs/JEPA_SAFE_CAPTURE_V21_FAILURE_INDEX_REPLAY_20260905.md)
-- [JEPA safe-capture L0-L3 数据集阶段报告](docs/JEPA_SAFE_CAPTURE_DATASET_STAGE_REPORT_20260905.md)
-- [JEPA safe-capture L0-L3 R2 完整闭环报告](docs/JEPA_SAFE_CAPTURE_L0_L3_R2_FULL_CLOSED_LOOP_REPORT_20260906.md)
-- [JEPA safe-capture L0-L3 R2 产物与 TensorBoard 审计](docs/JEPA_SAFE_CAPTURE_L0_L3_R2_ARTIFACT_AUDIT_20260906.md)
-- [JEPA safe-capture 阶段性完成与证据总结](docs/JEPA_SAFE_CAPTURE_STAGE_COMPLETION_20260906.md)
-- [JEPA safe-capture WP4 age-fix rolling/CBF 审计报告](docs/JEPA_SAFE_CAPTURE_WP4_AGEFIX_ROLLING_AUDIT_20260906.md)
-- [JEPA safe-capture V5 当前下一阶段详细 TODO 计划（P2 之后）](docs/JEPA_SAFE_CAPTURE_V5_NEXT_TODO_PLAN_20260904.md)
-- [JEPA safe-capture V5 P2 v9 三 seed paired smoke 报告](docs/JEPA_SAFE_CAPTURE_V5_P2_V9_SMOKE_20260904.md)
-- [JEPA safe-capture P11 之后下一步详细 TODO 与目标计划书](docs/JEPA_SAFE_CAPTURE_NEXT_DETAILED_TODO_20260904.md)
-- [JEPA safe-capture P12 clearance-floor sensitivity 与 temporal ledger audit](docs/JEPA_SAFE_CAPTURE_P12_FLOOR015_SENSITIVITY_20260904.md)
-- [JEPA safe-capture T2 settled counterfactual ranking audit](docs/JEPA_SAFE_CAPTURE_T2_SETTLED_COUNTERFACTUAL_20260904.md)
-- [JEPA safe-capture T3 reliability ledger alignment audit](docs/JEPA_SAFE_CAPTURE_T3_LEDGER_ALIGNMENT_20260904.md)
-- [JEPA safe-capture 当前主 TODO 与目标计划书（T3 证据缺口修复版）](docs/JEPA_SAFE_CAPTURE_CURRENT_MASTER_TODO_20260904.md)
-- [JEPA safe-capture 下一阶段实施 TODO 与验收计划（当前入口）](docs/JEPA_SAFE_CAPTURE_NEXT_IMPLEMENTATION_TODO_20260904.md)
-- [JEPA safe-capture tie2 后下一步详细执行计划](docs/JEPA_SAFE_CAPTURE_NEXT_EXECUTION_PLAN_20260904.md)
-- [JEPA safe-capture WP7 tie3 完整开发实验归档](docs/JEPA_SAFE_CAPTURE_WP7_TIE3_FINAL_DEVELOPMENT_20260904.md)
-- [JEPA safe-capture WP8 tie3 配对失败重放归档](docs/JEPA_SAFE_CAPTURE_WP8_TIE3_FAILURE_REPLAY_20260904.md)
-- [JEPA safe-capture P9 CBF Jacobian 可靠性修复归档](docs/JEPA_SAFE_CAPTURE_P9_CBF_JACOBIAN_20260904.md)
-- [JEPA safe-capture P11 Candidate Rank Mismatch 审计归档](docs/JEPA_SAFE_CAPTURE_P11_RANK_MISMATCH_20260904.md)
-- [JEPA safe-capture 系统详细 TODO、实验与验收计划书](docs/JEPA_SAFE_CAPTURE_SYSTEM_DETAILED_TODO_PLAN_20260904.md)
-- [JEPA safe-capture WP0 baseline freeze report](docs/JEPA_SAFE_CAPTURE_WP0_BASELINE_FREEZE_20260904.md)
-- [JEPA safe-capture WP1 failure index and causal replay audit](docs/JEPA_SAFE_CAPTURE_WP1_FAILURE_REPLAY_20260904.md)
-- [JEPA safe-capture WP6 smoke boundary semantics audit](docs/JEPA_SAFE_CAPTURE_WP6_SMOKE_SAFETY_AUDIT_20260904.md)
-- [JEPA safe-capture WP6 boundary-fixed smoke report](docs/JEPA_SAFE_CAPTURE_WP6_SMOKE_BOUNDARYFIXED_20260904.md)
-- [JEPA safe-capture WP2 hard-context weighted training report](docs/JEPA_SAFE_CAPTURE_WP2_HARD_CONTEXT_TRAINING_20260904.md)
-- [JEPA safe-capture WP2 held-out prediction aggregate](docs/JEPA_SAFE_CAPTURE_WP2_HARD_CONTEXT_PREDICTION_20260904.md)
-- [JEPA safe-capture WP3 v3 reliability-ledger aggregate](docs/JEPA_SAFE_CAPTURE_WP3_LEDGER_V3_20260904.md)
-- [E1-prime feasibility rejection report](E1_PRIME_RULE_EXPERT_FEASIBILITY_REJECTION_REPORT.md)
-- [E1-prime feasibility aggregate](E1_PRIME_RULE_EXPERT_FEASIBILITY_REPORT.md)
-- [最新围捕拦截模型候选与 JEPA 研究备忘录](docs/LATEST_MODEL_CANDIDATES_FOR_PURSUIT_INTERCEPTION_20260902.md)
-- [JEPA safe-capture v2 当前执行计划](docs/JEPA_SAFE_CAPTURE_V2_NEXT_EXECUTION_PLAN_20260903.md)
-- [JEPA + Reliability Ledger + CBF 系统总 TodoList](docs/JEPA_SAFE_CAPTURE_SYSTEM_MASTER_TODO_20260903.md)
-- [JEPA safe-capture 下一步执行 TODO 计划](docs/JEPA_SAFE_CAPTURE_NEXT_STEP_TODOLIST_20260903.md)
-- [JEPA safe-capture v2 P5 联合 CBF-QP 审计](docs/JEPA_SAFE_CAPTURE_P5_CBF_QP_AUDIT_20260903.md)
+- [V21 full-loop paired comparison](docs/JEPA_SAFE_CAPTURE_V21_FULL_LOOP_SINGLE_PAIRED_COMPARE_20260905.md)
+- [V21 failure index and deterministic replay](docs/JEPA_SAFE_CAPTURE_V21_FAILURE_INDEX_REPLAY_20260905.md)
+- [Latest extended-prefilter diagnosis](docs/JEPA_SAFE_CAPTURE_EXTENDED_PREFILTER_DIAGNOSIS_20260906.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the
