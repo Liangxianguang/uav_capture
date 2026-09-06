@@ -1,7 +1,7 @@
 # JEPA Safe-Capture Extended Prefilter Diagnosis
 
-Date: 2026-09-06  
-Scope: development-only; `locked_test_opened=false`  
+Date: 2026-09-06
+Scope: development-only; `locked_test_opened=false`
 Hardware: NVIDIA GeForce RTX 5050, CUDA 13.0, PyTorch 2.9.1+cu130
 
 ## Executive conclusion
