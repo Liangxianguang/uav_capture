@@ -135,6 +135,7 @@ class DistributedMinimaxMPC:
         self._route_age = 0
         self._phase = "approach"
         self._tangent_age = 0
+        self._active_obstacle_id: int | None = None
 
     @property
     def route_id(self) -> str | None:
@@ -146,6 +147,7 @@ class DistributedMinimaxMPC:
         self._route_age = 0
         self._phase = "approach"
         self._tangent_age = 0
+        self._active_obstacle_id = None
 
     def _belief(self, observation: Mapping[str, Any], defender_count: int) -> tuple[np.ndarray, np.ndarray]:
         positions = _finite_array(observation.get("defender_positions"), (defender_count, 3), "defender_positions")
@@ -373,6 +375,7 @@ class DistributedMinimaxMPC:
             self._route_id = None
             self._route_side = None
             self._route_age = 0
+            self._active_obstacle_id = None
             return DNMPCDecision(
                 selected_index=None,
                 selected_route_id=None,
@@ -413,13 +416,36 @@ class DistributedMinimaxMPC:
             selected_index = min(boundary_rescue_indices, key=lambda index: float(scores[index]))
             reason = "boundary_rescue_priority"
         else:
+            current_obstacle_id = (
+                getattr(candidates[current_index], "obstacle_id", None)
+                if current_index is not None
+                else None
+            )
+            best_obstacle_id = getattr(candidates[best_index], "obstacle_id", None)
+            obstacle_changed = (
+                current_index is not None
+                and current_obstacle_id != best_obstacle_id
+                # A transition between a geometry route and the nominal route
+                # is still governed by normal hysteresis.  Only a genuine
+                # change from one identified obstacle to another bypasses the
+                # hold window.
+                and current_obstacle_id is not None
+                and best_obstacle_id is not None
+            )
+            if obstacle_changed:
+                # Route hysteresis is useful while following one obstacle, but
+                # must not keep a stale route after the active obstacle changes.
+                selected_index = best_index
+                reason = "active_obstacle_change"
             tangent_indices = [
                 int(index)
                 for index in valid_indices
                 if self._route_phase(candidates[int(index)]).startswith("tangent_")
                 and str(getattr(candidates[int(index)], "side", "")) == self._route_side
             ]
-            if current_phase.startswith("tangent_") and int(self._tangent_age) < int(self.config.tangent_route_hold_steps):
+            if reason == "active_obstacle_change":
+                pass
+            elif current_phase.startswith("tangent_") and int(self._tangent_age) < int(self.config.tangent_route_hold_steps):
                 if current_index is not None and self._route_phase(candidates[current_index]).startswith("tangent_"):
                     selected_index = int(current_index)
                     reason = "tangent_side_hold"
@@ -444,6 +470,8 @@ class DistributedMinimaxMPC:
             self._route_age += 1
         self._route_id = str(selected.route_id)
         self._route_side = str(getattr(selected, "side", ""))
+        selected_obstacle_id = getattr(selected, "obstacle_id", None)
+        self._active_obstacle_id = None if selected_obstacle_id is None else int(selected_obstacle_id)
         selected_phase = self._route_phase(selected)
         if selected_phase.startswith("tangent_"):
             self._tangent_age = self._tangent_age + 1 if self._phase == selected_phase and not switched else 0
@@ -470,7 +498,7 @@ class DistributedMinimaxMPC:
             local_agent_costs=tuple(local_rows),
             escape_hypotheses=tuple(tuple(float(value) for value in row) for row in hypotheses),
             route_phase=self._route_phase(selected),
-            active_obstacle_id=getattr(selected, "obstacle_id", None),
+            active_obstacle_id=self._active_obstacle_id,
             terminal_progress_costs=tuple(float(value) for value in terminal_progress),
             stopping_distance_costs=tuple(float(value) for value in stopping_distance),
             route_confidence=route_confidence,

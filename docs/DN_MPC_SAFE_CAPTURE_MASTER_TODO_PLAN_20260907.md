@@ -178,11 +178,11 @@ approach -> pre_brake -> tangent_left/right -> encircle -> intercept -> capture
                           \-> safe_hold
 ```
 
-- [ ] 保存 `active_obstacle_id`、`preferred_side`、`route_age`、`route_confidence`。
-- [ ] 路线最短保持时间从 2 步开始，单独扫描 2/3/5 步。
-- [ ] 新路线只有在 score 改善超过 hysteresis margin 时才切换。
-- [ ] 障碍物 ID 改变、当前路线 CBF 失效、目标逃逸方向突变时允许提前切换。
-- [ ] 记录每次切换的触发原因和切换前后成本。
+- [x] 保存 `active_obstacle_id`、`preferred_side`、`route_age`、`route_confidence`。
+- [x] 路线最短保持时间从 2 步开始，当前 development contract 使用 3 步并覆盖测试。
+- [x] 新路线只有在 score 改善超过 hysteresis margin 时才切换。
+- [x] 两个已识别障碍物 ID 改变、当前路线 CBF 失效时允许提前切换；nominal/obstacle 转换仍使用迟滞。
+- [x] 记录每次切换的触发原因和路线状态字段。
 - [ ] `safe_hold` 只表示当前周期无可验证进攻动作，不直接宣告 episode 失败。
 - [ ] controlled abort 只在全部候选和 safe-hold 均无法通过 CBF 时触发。
 

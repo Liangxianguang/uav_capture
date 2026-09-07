@@ -79,6 +79,26 @@ locked-test claims. S2 passes the planner-only gate for these slices. The
 route-switch count rises with obstacle complexity, so the next review should
 inspect route identity/side persistence before any JEPA integration.
 
+## P3 route-state audit
+
+The planner state contract now persists `active_obstacle_id` in addition to
+route ID, preferred side, route age, route phase, and route confidence. A
+genuine change between two identified obstacles bypasses the route hold window
+with reason `active_obstacle_change`; transitions between an obstacle route and
+the nominal route remain under normal hysteresis to avoid route thrashing.
+
+The first broader implementation was rejected during the G5 regression: it
+treated nominal/obstacle transitions as obstacle changes, increasing route
+switches from `75` to `111` and producing one target-boundary diagnostic. That
+variant was not committed. The narrowed rule restored G5 to `4/4`, `75`
+switches, zero target-boundary diagnostics, and zero defender safety events;
+the L1 replay remained `8/8` with `129` switches and zero safety events.
+
+The state rule is covered by `test_dn_mpc_switches_when_active_obstacle_changes`
+and the broader DN-MPC/route runtime regression (`23 passed`). This is a
+planner-contract improvement only; CBF margins, stale/OOD gates, controlled
+abort, and raw-unverified restrictions are unchanged.
+
 ## Artifact inventory
 
 The inventory was collected before cleanup so that deletion did not erase

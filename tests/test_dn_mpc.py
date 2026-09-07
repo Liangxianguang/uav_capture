@@ -117,3 +117,31 @@ def test_dn_mpc_prioritizes_boundary_rescue_over_route_hysteresis() -> None:
     )
     assert decision.selected_route_id == "boundary_rescue:none"
     assert decision.reason == "boundary_rescue_priority"
+
+
+def test_dn_mpc_switches_when_active_obstacle_changes() -> None:
+    old_action = np.array([[[-1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]], dtype=np.float64)
+    new_action = np.array([[[2.0, 0.0, 0.0], [2.0, 0.0, 0.0]]], dtype=np.float64)
+    old = _candidate("left_detour:0", old_action, side="left")
+    old.label = "left_detour"
+    old.obstacle_id = 0
+    new = _candidate("right_detour:1", new_action, side="right")
+    new.label = "right_detour"
+    new.obstacle_id = 1
+    planner = DistributedMinimaxMPC(
+        DNMPCConfig(minimum_hold_steps=50, switch_improvement_m=100.0, tangent_route_hold_steps=50)
+    )
+    planner._route_id = old.route_id
+    planner._route_side = "left"
+    planner._route_age = 1
+    planner._phase = "tangent_left"
+    planner._tangent_age = 1
+    planner._active_obstacle_id = 0
+    decision = planner.plan(
+        SimpleNamespace(candidates=(old, new)),
+        _observation(),
+        previous_action=np.zeros((2, 3), dtype=np.float64),
+    )
+    assert decision.selected_route_id == "right_detour:1"
+    assert decision.reason == "active_obstacle_change"
+    assert decision.active_obstacle_id == 1
