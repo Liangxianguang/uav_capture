@@ -112,6 +112,44 @@ def _pairwise_ttc(position: np.ndarray, velocity: np.ndarray) -> np.ndarray:
     return np.clip(results, 0.0, TTC_CLIP_SECONDS)
 
 
+def _candidate_chunk_distances(
+    positions: np.ndarray,
+    observed_velocity: np.ndarray,
+    current_velocity: np.ndarray,
+    route_action_chunk: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Project pairwise geometry through the public, reachable action chunk.
+
+    The teammate absolute velocity is reconstructed from the current public
+    relative-velocity block and the focal current velocity.  The candidate
+    focal velocity follows each projected chunk step and holds its final value
+    after the chunk.  No simulator state or future target/teammate truth is
+    consulted; this is an offline observability feature only.
+    """
+
+    if route_action_chunk.shape[1] <= 0:
+        raise ValueError("route_action_chunk must contain at least one step")
+    max_horizon = max(PROJECTION_HORIZONS)
+    steps = int(math.ceil(max_horizon / DT_SECONDS))
+    teammate_velocity = observed_velocity + current_velocity[:, None, :]
+    projected = np.asarray(positions, dtype=np.float64).copy()
+    traces: list[np.ndarray] = []
+    for step in range(steps):
+        chunk_index = min(step, route_action_chunk.shape[1] - 1)
+        focal_velocity = np.asarray(route_action_chunk[:, chunk_index, :], dtype=np.float64)
+        relative_velocity = teammate_velocity - focal_velocity[:, None, :]
+        projected = projected + relative_velocity * DT_SECONDS
+        traces.append(np.linalg.norm(projected, axis=2))
+    trace = np.stack(traces, axis=1)
+    features: dict[str, np.ndarray] = {}
+    for horizon in PROJECTION_HORIZONS:
+        end = min(int(math.ceil(horizon / DT_SECONDS)), trace.shape[1])
+        window = trace[:, :end, :]
+        features[f"candidate_chunk_min_distance_{horizon:g}s"] = np.min(window, axis=(1, 2))
+        features[f"candidate_chunk_endpoint_distance_{horizon:g}s"] = np.min(trace[:, end - 1, :], axis=1)
+    return features
+
+
 def _features(inputs: np.ndarray, route_action_chunk: np.ndarray) -> dict[str, np.ndarray]:
     if inputs.ndim != 3 or inputs.shape[1:] != (8, 63):
         raise ValueError(f"Expected inputs [N,8,63], got {inputs.shape}")
@@ -132,6 +170,12 @@ def _features(inputs: np.ndarray, route_action_chunk: np.ndarray) -> dict[str, n
         -np.sum(positions * candidate_relative_velocity, axis=2)
         / np.maximum(np.linalg.norm(positions, axis=2), 1e-9),
     )
+    chunk_distances = _candidate_chunk_distances(
+        positions,
+        observed_velocity,
+        current_velocity,
+        route_action_chunk,
+    )
     distances = {}
     for horizon in PROJECTION_HORIZONS:
         projected = positions + candidate_relative_velocity * float(horizon)
@@ -146,6 +190,7 @@ def _features(inputs: np.ndarray, route_action_chunk: np.ndarray) -> dict[str, n
         "candidate_max_closing_speed_mps": np.max(closing_speed, axis=1),
         "candidate_mean_closing_speed_mps": np.mean(closing_speed, axis=1),
         "candidate_topology_edge_delta": distances["candidate_topology_edges_1s"] - current_edges,
+        **chunk_distances,
         **distances,
     }
 
@@ -206,6 +251,12 @@ def _split_result(split: str, arrays: dict[str, np.ndarray]) -> dict[str, Any]:
         "candidate_min_distance_0.3s": "low",
         "candidate_min_distance_0.5s": "low",
         "candidate_min_distance_1s": "low",
+        "candidate_chunk_min_distance_0.3s": "low",
+        "candidate_chunk_min_distance_0.5s": "low",
+        "candidate_chunk_min_distance_1s": "low",
+        "candidate_chunk_endpoint_distance_0.3s": "low",
+        "candidate_chunk_endpoint_distance_0.5s": "low",
+        "candidate_chunk_endpoint_distance_1s": "low",
         "candidate_topology_edges_0.3s": "high",
         "candidate_topology_edges_0.5s": "high",
         "candidate_topology_edges_1s": "high",
@@ -296,7 +347,8 @@ def main() -> int:
             "pairwise_gate_recall_target": 0.80,
             "pairwise_gate_precision_target": 0.50,
             "pairwise_gate_passed": bool(gate_passed),
-            "stop_full_jepa_training": True,
+            "jepa_training_authorized": bool(gate_passed),
+            "stop_full_jepa_training": not bool(gate_passed),
             "stop_new_ledger": True,
             "stop_closed_loop": True,
             "interpretation": "diagnostic action-conditioned observability only; CBF remains the sole safety filter",
