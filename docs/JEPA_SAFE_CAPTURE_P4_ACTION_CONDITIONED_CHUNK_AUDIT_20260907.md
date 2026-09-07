@@ -1,7 +1,7 @@
 # Action-Conditioned Chunk Pairwise Audit
 
-**日期：** 2026-09-07  
-**状态：** development-only offline diagnostic  
+**日期：** 2026-09-07
+**状态：** development-only offline diagnostic
 **Locked test：** not opened
 
 ## 1. 目的与边界
