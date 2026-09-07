@@ -69,6 +69,7 @@ they are not additional execution queues.
 - [Distinct-seed route-ranking audit](docs/JEPA_SAFE_CAPTURE_DISTINCT_SEED_ROUTE_RANKING_AUDIT_20260907.md)
 - [Route-recovery tangent ablation and acceptance decision](docs/JEPA_ROUTE_RECOVERY_TANGENT_ABLATION_20260907.md)
 - [Route-identity hard-negative training result](docs/JEPA_ROUTE_IDENTITY_HARD_NEGATIVE_TRAIN20_RESULT_20260907.md)
+- [DN-MPC + JEPA + CBF new-direction TODO plan](docs/DN_MPC_JEPA_SAFE_CAPTURE_NEW_DIRECTION_TODO_20260907.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the
