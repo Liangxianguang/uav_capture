@@ -1,0 +1,42 @@
+protocol_name: dn_mpc_jepa_safe_capture_p18_training
+protocol_version: 1
+phase: development_only
+locked_test_opened: false
+source_stability_gate: P18
+
+train_archive:
+  dataset: results/dn_mpc_jepa_safe_capture_dev/p17_route_train8_paired/route_identity_counterfactual.npz
+  metadata: results/dn_mpc_jepa_safe_capture_dev/p17_route_train8_paired/metadata.json
+validation_archive:
+  dataset: results/dn_mpc_jepa_safe_capture_dev/p17_route_validation8/route_identity_counterfactual.npz
+  metadata: results/dn_mpc_jepa_safe_capture_dev/p17_route_validation8/metadata.json
+
+model:
+  type: interaction_aware_action_conditioned_jepa_route_identity_hard_negative_v2
+  route_interaction: teammate_relative_action_chunk
+  pairwise_pooling: true
+  pairwise_relational: false
+  hidden_dim: 128
+  latent_dim: 64
+  num_layers: 1
+
+optimization:
+  seed: 181801
+  epochs: 20
+  batch_size: 512
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  patience: 5
+  min_delta: 0.00001
+  device: cuda
+
+safety_contract:
+  cbf_margin_changed: false
+  stale_ood_nonfinite_gates_changed: false
+  controlled_abort_preserved: true
+  raw_unverified_execution_allowed: false
+  online_route_override: false
+
+tensorboard:
+  required: true
+  logdir: results/dn_mpc_jepa_safe_capture_tensorboard/p18_route_jepa_train_seed181801

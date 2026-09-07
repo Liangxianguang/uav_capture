@@ -1,0 +1,27 @@
+protocol_name: dn_mpc_pairwise_source_stability_v1
+protocol_version: 1
+phase: development_only
+locked_test_opened: false
+metric_type: model_independent_source_stability
+
+comparison:
+  calibration_bundle: p16_multisource_calibration
+  validation_bundle: p17_multisource_validation
+  required_roles: [virtual_probe, route_outcomes]
+  minimum_rows_per_role: 1000
+  absolute_delta_thresholds:
+    strict_margin_cell_rate: 0.05
+    strict_margin_row_rate: 0.10
+    branch_failure_row_rate: 0.05
+    cbf_infeasible_cell_rate: 0.10
+
+promotion_contract:
+  gate_is_model_independent: true
+  does_not_claim_model_calibration: true
+  online_training_authorized_by_this_file: false
+  locked_test_opened: false
+  raw_unverified_execution_allowed: false
+
+tensorboard:
+  required: true
+  namespace: P18
