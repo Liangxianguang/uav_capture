@@ -93,3 +93,25 @@ def test_counterfactual_contract_requires_selected_trace() -> None:
     assert report["verified_safe_hold_counterfactual_present"] is True
     assert report["selected_counterfactual_present"] is False
     assert report["independent_selected_nominal_safe_hold_contract"] is False
+
+
+def test_counterfactual_contract_accepts_complete_independent_trace_groups() -> None:
+    tensors = {
+        "sample_type": torch.zeros(4),
+        "route_candidate_index": torch.tensor([0, 1, 11, 2]),
+        "scenario_index": torch.tensor([0, 0, 0, 0]),
+        "time_index": torch.tensor([7, 7, 7, 7]),
+        "labels_cbf_feasible": torch.ones(4, 5),
+        "labels_cbf_min_slack": torch.ones(4, 5),
+        "labels_cbf_correction": torch.zeros(4, 5),
+        "labels_cbf_intervention": torch.zeros(4, 5),
+        "selected_candidate_index": torch.tensor([1, 1, 1, 1]),
+        "independent_cbf_trace_present": torch.ones(4),
+        "selected_cbf_feasible": torch.ones(4),
+        "nominal_cbf_feasible": torch.ones(4),
+        "safe_hold_cbf_feasible": torch.ones(4),
+    }
+    report = _counterfactual_contract({"validation": tensors}, {"validation": {}})
+    assert report["selected_counterfactual_present"] is True
+    assert report["independent_selected_nominal_safe_hold_contract"] is True
+    assert report["per_split"]["validation"]["runtime_trace_missing_group_count"] == 0

@@ -75,6 +75,28 @@ REQUIRED_ARRAYS = (
     "scenario_index",
     "time_index",
 )
+OPTIONAL_TRACE_ARRAYS = (
+    "selected_candidate_index",
+    "independent_cbf_trace_present",
+    "selected_cbf_feasible",
+    "selected_cbf_verified_feasible",
+    "selected_cbf_infeasible",
+    "selected_cbf_timed_out",
+    "selected_cbf_correction",
+    "selected_cbf_min_slack",
+    "nominal_cbf_feasible",
+    "nominal_cbf_verified_feasible",
+    "nominal_cbf_infeasible",
+    "nominal_cbf_timed_out",
+    "nominal_cbf_correction",
+    "nominal_cbf_min_slack",
+    "safe_hold_cbf_feasible",
+    "safe_hold_cbf_verified_feasible",
+    "safe_hold_cbf_infeasible",
+    "safe_hold_cbf_timed_out",
+    "safe_hold_cbf_correction",
+    "safe_hold_cbf_min_slack",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -226,7 +248,11 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
         missing = (set(REQUIRED_ARRAYS) - {interaction_field, "route_pairwise_relative_action_chunk"}).difference(archive_files)
         if missing:
             raise ValueError(f"{path} is missing route arrays: {sorted(missing)}")
-        arrays = {name: np.asarray(archive[name]) for name in REQUIRED_ARRAYS if name in archive_files}
+        arrays = {
+            name: np.asarray(archive[name])
+            for name in (*REQUIRED_ARRAYS, *OPTIONAL_TRACE_ARRAYS)
+            if name in archive_files
+        }
         if interaction_field not in arrays:
             arrays[interaction_field] = np.zeros_like(arrays["route_action_chunk"], dtype=np.float32)
             metadata["interaction_action_conditioned_route_chunk"] = False
@@ -289,7 +315,14 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
         for name, value in arrays.items()
         if name not in {"route_candidate_index", "route_side_index", "scenario_index", "time_index"}
     }
-    for name in ("route_candidate_index", "route_side_index", "scenario_index", "time_index"):
+    for name in (
+        "route_candidate_index",
+        "route_side_index",
+        "scenario_index",
+        "time_index",
+        "selected_candidate_index",
+        "independent_cbf_trace_present",
+    ):
         values = arrays[name]
         if values.shape != (samples,) or not np.isfinite(values).all():
             raise ValueError(f"{name} must be finite with shape [N].")

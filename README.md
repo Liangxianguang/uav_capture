@@ -94,6 +94,8 @@ they are not additional execution queues.
 - [DN-MPC P23 listwise route-progress audit](docs/DN_MPC_P23_LISTWISE_ROUTE_PROGRESS_AUDIT_20260908.md)
 - [DN-MPC P24 listwise temperature-0.005 candidate-ranking audit](docs/DN_MPC_P24_LISTWISE_TEMP005_CANDIDATE_RANKING_AUDIT_20260908.md)
 - [DN-MPC P24 listwise temperature-0.005 route-progress audit](docs/DN_MPC_P24_LISTWISE_TEMP005_ROUTE_PROGRESS_AUDIT_20260908.md)
+- [DN-MPC P25 traceable counterfactual archive audit](docs/DN_MPC_P25_TRACEABLE_COUNTERFACTUAL_ARCHIVE_AUDIT_20260908.md)
+- [DN-MPC P25 traceable route-progress audit](docs/DN_MPC_P25_TRACEABLE_ROUTE_PROGRESS_AUDIT_20260908.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the

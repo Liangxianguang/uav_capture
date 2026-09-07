@@ -366,31 +366,70 @@ def _rank_split(
 def _counterfactual_contract(tensors_by_split: dict[str, dict[str, torch.Tensor]], metadata_by_split: dict[str, dict[str, Any]]) -> dict[str, Any]:
     required_arrays = {"labels_cbf_feasible", "labels_cbf_min_slack", "labels_cbf_correction", "labels_cbf_intervention"}
     per_split: dict[str, Any] = {}
-    selected_present = False
+    selected_present = True
     nominal_present = True
     safe_hold_present = True
+    trace_fields = {
+        "selected_candidate_index",
+        "independent_cbf_trace_present",
+        "selected_cbf_feasible",
+        "nominal_cbf_feasible",
+        "safe_hold_cbf_feasible",
+    }
     for split, tensors in tensors_by_split.items():
         candidate = tensors["route_candidate_index"].numpy()
         sample_type = tensors["sample_type"].numpy()
         runtime = sample_type == 0
         nominal_rows = int(np.sum(runtime & (candidate == 0)))
         safe_hold_rows = int(np.sum(runtime & (candidate == 11)))
+        trace_available = trace_fields.issubset(tensors)
+        trace_mask = (
+            runtime
+            & (tensors.get("independent_cbf_trace_present", torch.zeros_like(tensors["sample_type"])).numpy() > 0)
+        ) if trace_available else np.zeros_like(runtime, dtype=bool)
+        if trace_available and "scenario_index" in tensors and "time_index" in tensors:
+            runtime_keys = {
+                (int(scenario), int(time_index))
+                for scenario, time_index in zip(
+                    tensors["scenario_index"].numpy()[runtime], tensors["time_index"].numpy()[runtime]
+                )
+            }
+            trace_keys = {
+                (int(scenario), int(time_index))
+                for scenario, time_index in zip(
+                    tensors["scenario_index"].numpy()[trace_mask], tensors["time_index"].numpy()[trace_mask]
+                )
+            }
+        else:
+            runtime_keys = set()
+            trace_keys = set()
+        trace_rows = int(np.sum(trace_mask))
+        missing_trace_groups = len(runtime_keys - trace_keys) if trace_available else None
         per_split[split] = {
             "required_cbf_arrays_present": required_arrays.issubset(tensors),
             "runtime_nominal_rows": nominal_rows,
             "runtime_verified_safe_hold_rows": safe_hold_rows,
-            "selected_candidate_index_field_present": False,
-            "independent_selected_counterfactual_present": False,
+            "selected_candidate_index_field_present": "selected_candidate_index" in tensors,
+            "independent_selected_counterfactual_present": bool(trace_available and trace_rows > 0),
+            "independent_trace_rows": trace_rows,
+            "runtime_trace_group_count": len(trace_keys),
+            "runtime_trace_missing_group_count": missing_trace_groups,
         }
         nominal_present &= nominal_rows > 0
         safe_hold_present &= safe_hold_rows > 0
+        selected_present &= bool(
+            trace_available
+            and trace_rows > 0
+            and missing_trace_groups is not None
+            and missing_trace_groups == 0
+        )
     return {
         "nominal_counterfactual_present": nominal_present,
         "verified_safe_hold_counterfactual_present": safe_hold_present,
         "selected_counterfactual_present": selected_present,
         "independent_selected_nominal_safe_hold_contract": bool(selected_present and nominal_present and safe_hold_present),
         "per_split": per_split,
-        "reason_selected_missing": "P17 archives contain candidate rows but no per-step selected candidate and independent selected-CBF trace.",
+        "reason_selected_missing": None if selected_present else "Archive lacks per-step selected candidate and independent selected/nominal/safe-hold CBF trace.",
     }
 
 

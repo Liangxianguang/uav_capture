@@ -43,6 +43,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from encirclement3d.cbf_qp import JointCBFQPSafetyFilter  # noqa: E402
+from encirclement3d.dn_mpc import DNMPCConfig, DistributedMinimaxMPC  # noqa: E402
 from encirclement3d.observation_encoding import policy_observations  # noqa: E402
 from encirclement3d.obstacle_route_candidates import (  # noqa: E402
     ROUTE_LABELS,
@@ -52,6 +53,10 @@ from encirclement3d.obstacle_route_candidates import (  # noqa: E402
 )
 from encirclement3d.pursuit_controllers import DynamicEncirclementController  # noqa: E402
 from encirclement3d.pursuit_env import CaptureRadiusPursuit3DEnv  # noqa: E402
+from encirclement3d.obstacle_route_runtime import (  # noqa: E402
+    probe_independent_cbf_counterfactuals,
+    probe_route_batch_with_cbf,
+)
 from encirclement3d.showcase import (  # noqa: E402
     prepare_showcase_episode,
     random_central_mixed_obstacle_scenario,
@@ -108,6 +113,14 @@ def parse_args() -> argparse.Namespace:
         "--interaction-hard-negatives",
         action="store_true",
         help="Add offline-only pairwise interaction transition branches to each sampled state.",
+    )
+    parser.add_argument(
+        "--independent-cbf-traces",
+        action="store_true",
+        help=(
+            "Record read-only selected/nominal/safe-hold CBF counterfactuals "
+            "for the P25 traceability contract."
+        ),
     )
     parser.add_argument("--dataset-version", default=DATASET_VERSION)
     parser.add_argument(
@@ -788,7 +801,64 @@ def _empty_samples() -> dict[str, list[Any]]:
         "earliest_failure_step": [],
         "branch_terminated": [],
         "sample_type": [],
+        "selected_candidate_index": [],
+        "independent_cbf_trace_present": [],
+        "selected_cbf_feasible": [],
+        "selected_cbf_verified_feasible": [],
+        "selected_cbf_infeasible": [],
+        "selected_cbf_timed_out": [],
+        "selected_cbf_correction": [],
+        "selected_cbf_min_slack": [],
+        "nominal_cbf_feasible": [],
+        "nominal_cbf_verified_feasible": [],
+        "nominal_cbf_infeasible": [],
+        "nominal_cbf_timed_out": [],
+        "nominal_cbf_correction": [],
+        "nominal_cbf_min_slack": [],
+        "safe_hold_cbf_feasible": [],
+        "safe_hold_cbf_verified_feasible": [],
+        "safe_hold_cbf_infeasible": [],
+        "safe_hold_cbf_timed_out": [],
+        "safe_hold_cbf_correction": [],
+        "safe_hold_cbf_min_slack": [],
     }
+
+
+def _append_independent_trace_fields(
+    samples: dict[str, list[Any]],
+    trace: Mapping[str, Any] | None,
+    *,
+    agent: int,
+) -> None:
+    """Append one joint CBF trace, repeating its scalar diagnostics per agent."""
+
+    selected_index = -1
+    present = 0
+    values: dict[str, float] = {}
+    if trace is not None:
+        selected_index = int(trace.get("selected_candidate_index", -1))
+        probes = trace.get("probes", {})
+        if isinstance(probes, Mapping) and all(label in probes for label in ("selected", "nominal", "safe_hold")):
+            present = 1
+            for label in ("selected", "nominal", "safe_hold"):
+                probe = probes[label]
+                values[f"{label}_cbf_feasible"] = float(bool(getattr(probe, "accepted", False)))
+                values[f"{label}_cbf_verified_feasible"] = float(bool(getattr(probe, "verified_feasible", False)))
+                values[f"{label}_cbf_infeasible"] = float(bool(getattr(probe, "infeasible", True)))
+                values[f"{label}_cbf_timed_out"] = float(bool(getattr(probe, "timed_out", False)))
+                correction = float(getattr(probe, "action_correction_norm", 0.0))
+                minimum = float(getattr(probe, "minimum_constraint_value", 0.0))
+                values[f"{label}_cbf_correction"] = correction if np.isfinite(correction) else 1e6
+                values[f"{label}_cbf_min_slack"] = minimum if np.isfinite(minimum) else -1e6
+    samples["selected_candidate_index"].append(selected_index)
+    samples["independent_cbf_trace_present"].append(present)
+    for label in ("selected", "nominal", "safe_hold"):
+        samples[f"{label}_cbf_feasible"].append(float(values.get(f"{label}_cbf_feasible", 0.0)))
+        samples[f"{label}_cbf_verified_feasible"].append(float(values.get(f"{label}_cbf_verified_feasible", 0.0)))
+        samples[f"{label}_cbf_infeasible"].append(float(values.get(f"{label}_cbf_infeasible", 0.0)))
+        samples[f"{label}_cbf_timed_out"].append(float(values.get(f"{label}_cbf_timed_out", 0.0)))
+        samples[f"{label}_cbf_correction"].append(float(values.get(f"{label}_cbf_correction", 0.0)))
+        samples[f"{label}_cbf_min_slack"].append(float(values.get(f"{label}_cbf_min_slack", 0.0)))
 
 
 def _append_samples(
@@ -804,6 +874,7 @@ def _append_samples(
     time_index: int,
     action_scale: float,
     sample_type: int = 0,
+    independent_trace: Mapping[str, Any] | None = None,
 ) -> None:
     if len(observation_history) < 8 or len(executed_action_history) != len(observation_history) - 1:
         raise ValueError("Route archive histories are not causally aligned.")
@@ -864,6 +935,7 @@ def _append_samples(
         samples["earliest_failure_step"].append(int(labels["earliest_failure_step"]))
         samples["branch_terminated"].append(float(labels["branch_terminated"]))
         samples["sample_type"].append(int(sample_type))
+        _append_independent_trace_fields(samples, independent_trace, agent=agent)
 
 
 def _append_boundary_shadow_samples(
@@ -941,6 +1013,7 @@ def _append_boundary_shadow_samples(
         samples["earliest_failure_step"].append(0)
         samples["branch_terminated"].append(0.0)
         samples["sample_type"].append(1)
+        _append_independent_trace_fields(samples, None, agent=agent)
     return float(np.min(boundary))
 
 
@@ -953,6 +1026,8 @@ def _arrayize(samples: Mapping[str, list[Any]]) -> dict[str, np.ndarray]:
         "episode_seed",
         "scenario_index",
         "earliest_failure_step",
+        "selected_candidate_index",
+        "independent_cbf_trace_present",
     }
     arrays: dict[str, np.ndarray] = {}
     for key, value in samples.items():
@@ -1056,6 +1131,8 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     branch_failures = 0
     interaction_counts: Counter[str] = Counter()
     interaction_branch_failures: Counter[str] = Counter()
+    independent_trace_states = 0
+    independent_trace_selected_missing = 0
     actor_policy = None
     actor_device = None
     actor_action_scale = 5.0
@@ -1097,6 +1174,13 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         )
         observation = prepare_showcase_episode(env, scenario, seed=int(spec["episode_seed"]), record_history=False)
         controller = DynamicEncirclementController(env)
+        planner = DistributedMinimaxMPC(
+            DNMPCConfig(
+                horizon_steps=int(args.chunk_length_steps),
+                dt_seconds=float(env.dt),
+                stopping_acceleration_mps2=float(env.agents["defender_max_acceleration"]),
+            )
+        )
         if actor_checkpoint is not None and actor_policy is None:
             # Loading against the first constructed environment validates the
             # checkpoint observation/action contract before any samples are
@@ -1160,6 +1244,47 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                     config=route_config,
                     previous_action=previous_action,
                 )
+                independent_trace: dict[str, Any] | None = None
+                if args.independent_cbf_traces:
+                    # The planner only sees publicly available route geometry,
+                    # target belief and first-step CBF eligibility.  Its chosen
+                    # request is then probed independently from nominal and
+                    # safe-hold; none of these probes is executed here.
+                    route_probe = probe_route_batch_with_cbf(
+                        route_batch,
+                        safety_filter,
+                        observation,
+                        horizon_steps=1,
+                    )
+                    decision = planner.plan(
+                        route_batch,
+                        observation,
+                        previous_action=previous_action,
+                        eligible_mask=route_probe.candidate_batch.valid_mask,
+                    )
+                    selected_index = decision.selected_index
+                    if selected_index is not None:
+                        selected_action = np.asarray(
+                            route_batch.candidates[int(selected_index)].action_chunk[0],
+                            dtype=np.float64,
+                        )
+                        nominal_action = np.asarray(route_batch.candidates[0].action_chunk[0], dtype=np.float64)
+                        safe_hold_action = np.zeros_like(nominal_action)
+                        probes = probe_independent_cbf_counterfactuals(
+                            selected_action=selected_action,
+                            nominal_action=nominal_action,
+                            safe_hold_action=safe_hold_action,
+                            observation=observation,
+                            safety_filter=safety_filter,
+                            selected_route_id=str(route_batch.candidates[int(selected_index)].route_id),
+                        )
+                        independent_trace = {
+                            "selected_candidate_index": int(selected_index),
+                            "probes": {probe.label: probe for probe in probes},
+                        }
+                        independent_trace_states += 1
+                    else:
+                        independent_trace_selected_missing += 1
                 for route_index, route in enumerate(route_batch.candidates):
                     route_counts[route.label] += 1
                     geometry_total += 1
@@ -1188,6 +1313,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                         scenario_index=scenario_index,
                         time_index=time_index,
                         action_scale=5.0,
+                        independent_trace=independent_trace,
                     )
                 if args.interaction_hard_negatives:
                     # These branches are deliberately offline-only.  They use
@@ -1230,6 +1356,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                             time_index=time_index,
                             action_scale=5.0,
                             sample_type=INTERACTION_SAMPLE_TYPES[mode],
+                            independent_trace=None,
                         )
                 _append_boundary_shadow_samples(
                     samples,
@@ -1321,14 +1448,22 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         "sample_count_per_defender": int(arrays["inputs"].shape[0]),
         "array_shapes": {key: list(value.shape) for key, value in arrays.items()},
         "class_counts": class_counts,
-        "interaction_hard_negatives": {
+            "interaction_hard_negatives": {
             "enabled": bool(args.interaction_hard_negatives),
             "modes": list(INTERACTION_HARD_NEGATIVE_MODES),
             "sample_type_mapping": dict(INTERACTION_SAMPLE_TYPES),
             "offline_only": True,
             "sample_counts": dict(sorted(interaction_counts.items())),
-            "branch_failures": dict(sorted(interaction_branch_failures.items())),
-        },
+                "branch_failures": dict(sorted(interaction_branch_failures.items())),
+            },
+            "independent_cbf_trace_contract": {
+                "enabled": bool(args.independent_cbf_traces),
+                "selection_authority": "analytic_dn_mpc_over_first_step_cbf_eligible_candidates",
+                "labels": ["selected", "nominal", "safe_hold"],
+                "independent_probe_is_read_only": True,
+                "trace_states": int(independent_trace_states),
+                "selected_missing_states": int(independent_trace_selected_missing),
+            },
         "information_boundary": {
             "target_truth_used_only_for_offline_labels": True,
             "online_route_generation_uses_public_obstacles_and_target_beliefs": True,

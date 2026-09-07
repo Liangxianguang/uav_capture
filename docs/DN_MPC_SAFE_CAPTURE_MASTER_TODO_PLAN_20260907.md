@@ -477,10 +477,18 @@ DN-MPC -> nominal route planner
     pairwise 为 `88.73%`。这是有效的离线改善，但 train/calibration
     仍有 zero-eligible groups，selected CBF trace 与 OOD/disagreement
     binding 仍缺失，因此保持 offline-only。
-25. [ ] 实现 P25 traceability/calibration contract：在 train、validation、
-    calibration 三个 split 记录 selected candidate、nominal anchor 和
-    verified safe-hold 的独立 CBF counterfactual；建立 fresh OOD、rollout
-    disagreement 和 abstention calibration。P25 全部 gate 通过前不得在线
-    接入、创建 Ledger-Lite 或开展三 seed paired replay。
+25. [x] 实现 P25 traceability contract 并完成三份 8-episode archive；结果见
+    `docs/DN_MPC_P25_TRACEABLE_COUNTERFACTUAL_ARCHIVE_AUDIT_20260908.md` 和
+    `docs/DN_MPC_P25_TRACEABLE_ROUTE_PROGRESS_AUDIT_20260908.md`。validation
+    的 `172/172` runtime groups 有 selected/nominal/safe-hold 独立 CBF
+    trace；train/calibration 各有 1 个无首步 CBF-eligible route 的显式
+    abstention group。P24 在新 archive 上 validation exact top-1 为
+    `36.63%`、informative top-1 为 `80.00%`、pairwise 为 `88.73%`；
+    candidate eligibility、exact top-1 和 OOD/disagreement gate 仍失败，
+    所以保持 offline-only。
+26. [ ] P26 将无 eligible candidate 的 group 作为显式 planner-abstention
+    结果审计，不能伪造 selected route；同时基于 P25 archive hash 建立
+    fresh OOD、rollout-disagreement 和 abstention calibration。P26 gate
+    通过前不得在线接入、创建 Ledger-Lite 或进行三 seed paired replay。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**
