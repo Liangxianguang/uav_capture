@@ -87,6 +87,7 @@ they are not additional execution queues.
 - [DN-MPC P18 source stability and route-JEPA training](docs/DN_MPC_P18_SOURCE_STABILITY_AND_ROUTE_JEPA_TRAINING_20260908.md)
 - [DN-MPC P19 P18 candidate-ranking audit (stop report)](docs/DN_MPC_P19_P18_CANDIDATE_RANKING_AUDIT_20260908.md)
 - [DN-MPC P20 geometry-hold repair and re-audit](docs/DN_MPC_P20_GEOMETRY_HOLD_REPAIR_AND_REAUDIT_20260908.md)
+- [DN-MPC P20 P18 ranking re-audit](docs/DN_MPC_P20_P18_CANDIDATE_RANKING_REAUDIT_20260908.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the
