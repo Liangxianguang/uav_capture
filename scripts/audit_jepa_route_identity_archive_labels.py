@@ -52,7 +52,7 @@ def _load_metadata(path: Path) -> dict[str, Any]:
     return value
 
 
-def audit_archive(directory: Path) -> dict[str, Any]:
+def audit_archive(directory: Path, *, expected_dataset_version: str = DATASET_VERSION) -> dict[str, Any]:
     directory = directory.resolve()
     dataset_path = directory / "route_identity_counterfactual.npz"
     metadata_path = directory / "metadata.json"
@@ -60,7 +60,7 @@ def audit_archive(directory: Path) -> dict[str, Any]:
     if not dataset_path.is_file() or not metadata_path.is_file() or not provenance_path.is_file():
         raise FileNotFoundError(f"Archive is missing dataset/metadata/provenance: {directory}")
     metadata = _load_metadata(metadata_path)
-    if metadata.get("dataset_version") != DATASET_VERSION:
+    if metadata.get("dataset_version") != expected_dataset_version:
         raise ValueError(f"Unexpected dataset version in {directory}")
     split = str(metadata.get("split", ""))
     if split not in EXPECTED_SPLITS:
@@ -161,9 +161,13 @@ def audit_archive(directory: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", type=Path, action="append", required=True)
+    parser.add_argument("--dataset-version", default=DATASET_VERSION)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    reports = [audit_archive(path) for path in args.archive]
+    reports = [
+        audit_archive(path, expected_dataset_version=args.dataset_version)
+        for path in args.archive
+    ]
     by_split = {item["split"]: item for item in reports}
     if set(by_split) != set(EXPECTED_SPLITS):
         raise ValueError(f"Expected exactly train/validation/calibration archives, got {sorted(by_split)}")
@@ -180,7 +184,7 @@ def main() -> int:
     if validation["visibility_values"] != [0.0, 1.0]:
         raise ValueError("Validation visibility labels do not contain both classes")
     result = {
-        "dataset_version": DATASET_VERSION,
+        "dataset_version": args.dataset_version,
         "archives": reports,
         "seed_disjoint": True,
         "validation_class_coverage": True,
