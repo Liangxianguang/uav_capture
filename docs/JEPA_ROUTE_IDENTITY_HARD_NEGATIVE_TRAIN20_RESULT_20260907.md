@@ -93,4 +93,3 @@ sample relative teammate velocity/topology changes under each candidate action
 chunk, train or calibrate only the pairwise interaction head, and require the
 same calibration gate before any runtime use. If that targeted archive still
 fails, retain the current G5 runtime baseline and stop adding model capacity.
-
