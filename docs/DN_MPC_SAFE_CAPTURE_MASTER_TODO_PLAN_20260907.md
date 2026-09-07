@@ -71,11 +71,12 @@ DN-MPC 是规划与最坏情况排序器，不是安全证明器；JEPA 是候�
 
 ### 3.1 基线冻结
 
-- [ ] 生成 `results/dn_mpc_jepa_safe_capture_dev/baseline_manifest.json`。
-- [ ] 写入 G5 4 场景 manifest、M0/M3 manifest、环境配置、CBF 参数、capture radius、episode limit 和 seed。
-- [ ] 计算输入 archive、checkpoint、配置和代码 revision 的 SHA-256。
-- [ ] 记录当前 Python、PyTorch、CUDA、NumPy、TensorBoard 和 GPU 信息。
-- [ ] 保存一份旧基线 replay 摘要，避免新方向的场景采样悄然变化。
+- [x] 生成独立版本化 manifest：
+  `results/dn_mpc_jepa_safe_capture_dev/baseline_manifest_g5_chunk5_seed20260907.json`。
+- [x] 写入 G5 4 场景 manifest、M0/M3 manifest、环境配置、CBF 参数、capture radius、episode limit 和 seed。
+- [x] 计算输入 archive、checkpoint、配置和代码 revision 的 SHA-256。
+- [x] 记录当前 Python、PyTorch、CUDA、NumPy、TensorBoard 和 GPU 信息。
+- [x] 保存 G5 严格 chunk-5 基线 replay 摘要，避免新方向的场景采样悄然变化。
 
 ### 3.2 输出隔离
 
@@ -398,7 +399,8 @@ DN-MPC -> nominal route planner
 2. [x] 修正 DN-MPC 局部成本输出契约，完成 `22 passed` 回归。
 3. [x] 新增 `scripts/smoke_dn_mpc_route_selection.py`，使用 synthetic route batch，输出 JSON 和 TensorBoard。
 4. [x] 新增 `configs/dn_mpc_jepa_safe_capture_development.yaml`，明确 `development_only=true` 和 `locked_test_opened=false`。
-5. [ ] 完成 P0 manifest，再运行 S1：DN-MPC + CBF G5 4 场景。
+5. [x] 完成 P0 manifest；最新严格 chunk-5 G5 结果为 `4/4`，见
+   `docs/DN_MPC_P0_BASELINE_FREEZE_G5_CHUNK5_20260907.md`。
 6. [ ] 若 S1 通过，接入路线状态机并运行 L0-L1；若失败，只修 planner/接口，不训练 JEPA。
 7. [ ] S1/S2 稳定后再采集 hard-negative archive 和训练 JEPA evaluator。
 8. [ ] calibration gate 通过后才实现 Ledger-Lite；否则保留解析 DN-MPC + CBF。
