@@ -81,11 +81,15 @@ def _load_model(checkpoint_path: Path, device: torch.device) -> tuple[torch.nn.M
 
 def audit_split(model: torch.nn.Module, dataset: Path, metadata: Path, split: str, device: torch.device) -> dict[str, Any]:
     tensors, archive_metadata = load_dataset(dataset.resolve(), metadata.resolve(), split)
-    route_interaction_chunks = (
-        tensors["route_relative_action_chunk"].to(device)
-        if int(getattr(model, "route_interaction_chunk_dim", 0)) > 0
-        else None
-    )
+    route_interaction_dim = int(getattr(model, "route_interaction_chunk_dim", 0))
+    if route_interaction_dim == 9:
+        if "route_pairwise_relative_action_chunk" not in tensors:
+            raise ValueError("Pairwise relational checkpoint requires route_pairwise_relative_action_chunk")
+        route_interaction_chunks = tensors["route_pairwise_relative_action_chunk"].to(device)
+    elif route_interaction_dim > 0:
+        route_interaction_chunks = tensors["route_relative_action_chunk"].to(device)
+    else:
+        route_interaction_chunks = None
     with torch.no_grad():
         _mean, _log_variance, _latent, auxiliary = model.forward_multitask(
             tensors["inputs"].to(device),

@@ -759,6 +759,7 @@ def _empty_samples() -> dict[str, list[Any]]:
         "action_history": [],
         "route_action_chunk": [],
         "route_relative_action_chunk": [],
+        "route_pairwise_relative_action_chunk": [],
         "labels_relative": [],
         "labels_obstacle_clearance": [],
         "labels_boundary_clearance": [],
@@ -825,6 +826,12 @@ def _append_samples(
             teammate_mean = np.zeros_like(candidate_chunk[:, agent])
         samples["route_relative_action_chunk"].append(
             (candidate_chunk[:, agent] - teammate_mean).copy()
+        )
+        teammate_indices = [other for other in range(candidate_chunk.shape[1]) if other != agent]
+        samples["route_pairwise_relative_action_chunk"].append(
+            (candidate_chunk[:, agent, None, :] - candidate_chunk[:, teammate_indices, :])
+            .reshape(candidate_chunk.shape[0], -1)
+            .copy()
         )
         for source, target in (
             ("relative", "labels_relative"),
@@ -895,6 +902,12 @@ def _append_boundary_shadow_samples(
             teammate_mean = np.zeros_like(action_chunk[:, agent])
         samples["route_relative_action_chunk"].append(
             (action_chunk[:, agent] - teammate_mean).copy()
+        )
+        teammate_indices = [other for other in range(action_chunk.shape[1]) if other != agent]
+        samples["route_pairwise_relative_action_chunk"].append(
+            (action_chunk[:, agent, None, :] - action_chunk[:, teammate_indices, :])
+            .reshape(action_chunk.shape[0], -1)
+            .copy()
         )
         zeros = np.zeros(max(HORIZON_STEPS), dtype=np.float32)
         for key, value in (
@@ -1273,12 +1286,21 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         "horizon_steps": list(HORIZON_STEPS),
         "chunk_length_steps": int(args.chunk_length_steps),
         "interaction_action_conditioned_route_chunk": True,
+        "pairwise_action_conditioned_route_chunk": bool(args.interaction_hard_negatives),
         "candidate_profile": "obstacle_route_v1",
         "candidate_count": len(ROUTE_LABELS),
         "route_labels": list(ROUTE_LABELS),
         "route_side_vocab": list(ROUTE_SIDES),
         "runtime_route_sample_type": 0,
         "boundary_shadow_sample_type": 1,
+        "pairwise_action_feature_contract": {
+            "enabled": bool(args.interaction_hard_negatives),
+            "name": "route_pairwise_relative_action_chunk",
+            "definition": "candidate_action_minus_each_other_defender_action",
+            "teammate_order": "ascending_defender_index_excluding_self",
+            "feature_dim_per_step": 9,
+            "normalized_by_action_scale_in_trainer": True,
+        },
         "boundary_shadow_is_offline_only": True,
         "candidate_semantics": "geometry_conditioned_route_chunk_execute_first_step_then_replan",
         "action_history_alignment": "past_executed_actions_then_route_first_action",

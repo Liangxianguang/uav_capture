@@ -23,7 +23,14 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 FEATURE_NAME = "route_relative_action_chunk"
+PAIRWISE_FEATURE_NAME = "route_pairwise_relative_action_chunk"
 GROUP_FIELDS = ("scenario_index", "time_index", "route_candidate_index", "sample_type")
+INTERACTION_HARD_NEGATIVE_MODES = ("near_pass", "formation_crossing", "split_merge")
+INTERACTION_SAMPLE_TYPES = {
+    "near_pass": 2,
+    "formation_crossing": 3,
+    "split_merge": 4,
+}
 
 
 def _sha256(path: Path) -> str:
@@ -84,12 +91,50 @@ def _derive_feature(arrays: dict[str, np.ndarray]) -> tuple[np.ndarray, dict[str
     return feature, {str(size): count for size, count in sorted(group_sizes.items())}
 
 
+def _derive_pairwise_feature(arrays: dict[str, np.ndarray]) -> tuple[np.ndarray, dict[str, int]]:
+    """Derive per-agent action deltas to each of the other three agents."""
+
+    required = ("route_action_chunk", *GROUP_FIELDS)
+    missing = [name for name in required if name not in arrays]
+    if missing:
+        raise ValueError(f"Source archive is missing required fields: {missing}")
+    route_actions = np.asarray(arrays["route_action_chunk"], dtype=np.float32)
+    if route_actions.ndim != 3 or route_actions.shape[-1] != 3:
+        raise ValueError(f"route_action_chunk must have shape [N,H,3], got {route_actions.shape}")
+    samples, horizon, _ = route_actions.shape
+    if not np.isfinite(route_actions).all():
+        raise ValueError("route_action_chunk contains non-finite values")
+    keys = [np.asarray(arrays[name]).reshape(-1) for name in GROUP_FIELDS]
+    if any(values.shape[0] != samples for values in keys):
+        raise ValueError("Route group fields must have the same sample count")
+    groups: dict[tuple[int, int, int, int], list[int]] = defaultdict(list)
+    for index, key in enumerate(zip(*(values.tolist() for values in keys))):
+        groups[tuple(int(value) for value in key)].append(index)
+    feature = np.zeros((samples, horizon, 9), dtype=np.float32)
+    group_sizes: dict[int, int] = defaultdict(int)
+    for key, indices in groups.items():
+        if len(indices) != 4:
+            raise ValueError(f"Route group {key} has {len(indices)} rows; expected four defenders")
+        index_array = np.asarray(indices, dtype=np.int64)
+        group_actions = route_actions[index_array]
+        for local_agent, row_index in enumerate(index_array):
+            others = [other for other in range(4) if other != local_agent]
+            feature[row_index] = (
+                group_actions[local_agent][None, :, :] - group_actions[others, :, :]
+            ).transpose(1, 0, 2).reshape(horizon, 9)
+        group_sizes[len(indices)] += 1
+    if not np.isfinite(feature).all():
+        raise ValueError("Derived pairwise route interaction feature is non-finite")
+    return feature, {str(size): count for size, count in sorted(group_sizes.items())}
+
+
 def materialize(
     source_dataset: Path,
     source_metadata: Path,
     output_dir: Path,
     tensorboard_logdir: Path,
     dataset_version: str,
+    pairwise: bool = False,
 ) -> dict[str, Any]:
     source_dataset = source_dataset.resolve()
     source_metadata = source_metadata.resolve()
@@ -98,23 +143,35 @@ def materialize(
     metadata = _load_json(source_metadata)
     if metadata.get("development_only") is not True or metadata.get("locked_test_opened") is not False:
         raise ValueError("Only closed development archives may be materialized")
-    if metadata.get("interaction_action_conditioned_route_chunk") is True:
+    if metadata.get("interaction_action_conditioned_route_chunk") is True and not pairwise:
         raise ValueError("Source archive already contains the interaction-conditioned feature")
     with np.load(source_dataset) as archive:
         arrays = {name: np.asarray(archive[name]) for name in archive.files}
-    feature, group_sizes = _derive_feature(arrays)
-    arrays[FEATURE_NAME] = feature
+    if pairwise:
+        feature, group_sizes = _derive_feature(arrays)
+        pairwise_feature, pairwise_group_sizes = _derive_pairwise_feature(arrays)
+        arrays[FEATURE_NAME] = feature
+        arrays[PAIRWISE_FEATURE_NAME] = pairwise_feature
+        group_sizes = pairwise_group_sizes
+    else:
+        feature, group_sizes = _derive_feature(arrays)
+        arrays[FEATURE_NAME] = feature
     dataset_path = output_dir / "route_identity_counterfactual.npz"
     np.savez_compressed(dataset_path, **arrays)
     output_metadata = dict(metadata)
     output_metadata["dataset_version"] = str(dataset_version)
     output_metadata["interaction_action_conditioned_route_chunk"] = True
+    output_metadata["pairwise_action_conditioned_route_chunk"] = bool(pairwise)
     output_metadata["array_shapes"] = {
         name: list(value.shape) for name, value in arrays.items()
     }
     output_metadata["derived_feature_contract"] = {
-        "name": FEATURE_NAME,
-        "definition": "candidate_action_minus_mean_of_other_three_defenders_in_same_route_state",
+        "name": PAIRWISE_FEATURE_NAME if pairwise else FEATURE_NAME,
+        "definition": (
+            "candidate_action_minus_each_other_defender_action_in_same_route_state"
+            if pairwise
+            else "candidate_action_minus_mean_of_other_three_defenders_in_same_route_state"
+        ),
         "source_field": "route_action_chunk",
         "group_fields": list(GROUP_FIELDS),
         "defender_count": 4,
@@ -193,6 +250,25 @@ def materialize(
         writer.add_scalar("Archive/route_interaction_group_count", float(sum(group_sizes.values())), 0)
         writer.add_scalar("Archive/route_interaction_feature_abs_mean", float(np.abs(feature).mean()), 0)
         writer.add_scalar("Archive/route_interaction_feature_max_abs", float(np.abs(feature).max()), 0)
+        interaction_contract = metadata.get("interaction_hard_negatives", {})
+        for index, mode in enumerate(INTERACTION_HARD_NEGATIVE_MODES):
+            sample_type_id = INTERACTION_SAMPLE_TYPES[mode]
+            writer.add_scalar(
+                f"Archive/interaction_hard_negative_samples/{mode}",
+                float(np.sum(sample_type_id == sample_type)),
+                index,
+            )
+            writer.add_scalar(
+                f"Archive/interaction_hard_negative_branch_failures/{mode}",
+                float(
+                    interaction_contract.get("branch_failures", {}).get(
+                        mode,
+                        0,
+                    )
+                ),
+                index,
+            )
+        writer.add_text("Archive/route_interaction_feature_name", PAIRWISE_FEATURE_NAME if pairwise else FEATURE_NAME, 0)
         writer.add_text("Archive/dataset_version", str(dataset_version), 0)
         writer.add_text("Archive/source_dataset_sha256", _sha256(source_dataset), 0)
         writer.add_text("Archive/output_dataset_sha256", _sha256(dataset_path), 0)
@@ -214,6 +290,11 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
     parser.add_argument("--dataset-version", required=True)
+    parser.add_argument(
+        "--pairwise",
+        action="store_true",
+        help="Derive per-agent action deltas to each teammate (shape [N,H,9]).",
+    )
     args = parser.parse_args()
     result = materialize(
         args.source_dataset,
@@ -221,6 +302,7 @@ def main() -> int:
         args.output_dir,
         args.tensorboard_logdir,
         args.dataset_version,
+        pairwise=args.pairwise,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

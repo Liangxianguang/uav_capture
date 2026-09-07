@@ -455,8 +455,8 @@ class InteractionAwareActionConditionedRouteJEPAPredictor(
         )
         if route_chunk_length <= 0 or route_candidate_count <= 0 or route_side_count <= 0:
             raise ValueError("Route dimensions must be positive.")
-        if route_interaction_chunk_dim < 0 or route_interaction_chunk_dim > 0 and route_interaction_chunk_dim != action_dim:
-            raise ValueError("route_interaction_chunk_dim must be zero or equal to action_dim.")
+        if route_interaction_chunk_dim < 0:
+            raise ValueError("route_interaction_chunk_dim must be non-negative.")
         self.route_chunk_length = int(route_chunk_length)
         self.route_interaction_chunk_dim = int(route_interaction_chunk_dim)
         self.route_candidate_count = int(route_candidate_count)
@@ -694,6 +694,7 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
         *args: Any,
         ttc_clip_seconds: float = 10.0,
         pairwise_pooling: bool = False,
+        pairwise_relational: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -701,17 +702,37 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
             raise ValueError("ttc_clip_seconds must be positive")
         self.ttc_clip_seconds = float(ttc_clip_seconds)
         self.pairwise_pooling = bool(pairwise_pooling)
+        self.pairwise_relational = bool(pairwise_relational)
         risk_input_dim = self.latent_dim
-        if self.pairwise_pooling:
+        if self.pairwise_pooling or self.pairwise_relational:
             # The 63-D public observation stores three teammate-relative
             # position vectors followed by three relative velocity vectors at
             # indices [15:33]. Pool these local interaction features only for
             # risk heads; legacy route-JEPA heads keep their original inputs.
-            self.pairwise_feature_encoder = nn.Sequential(
-                nn.Linear(18, self.hidden_dim),
-                nn.LayerNorm(self.hidden_dim),
-                nn.SiLU(),
-            )
+            if self.pairwise_relational:
+                if self.route_interaction_chunk_dim != 9:
+                    raise ValueError(
+                        "pairwise_relational requires route_interaction_chunk_dim=9 "
+                        "(three pairwise action vectors)."
+                    )
+                self.pairwise_pair_encoder = nn.Sequential(
+                    nn.Linear(6 + self.route_chunk_length * 3, self.hidden_dim),
+                    nn.LayerNorm(self.hidden_dim),
+                    nn.SiLU(),
+                    nn.Linear(self.hidden_dim, self.hidden_dim),
+                    nn.SiLU(),
+                )
+                self.pairwise_pool_encoder = nn.Sequential(
+                    nn.Linear(2 * self.hidden_dim, self.hidden_dim),
+                    nn.LayerNorm(self.hidden_dim),
+                    nn.SiLU(),
+                )
+            else:
+                self.pairwise_feature_encoder = nn.Sequential(
+                    nn.Linear(18, self.hidden_dim),
+                    nn.LayerNorm(self.hidden_dim),
+                    nn.SiLU(),
+                )
             risk_input_dim += self.hidden_dim
         self.stopping_distance_decoder = nn.Sequential(
             nn.LayerNorm(risk_input_dim),
@@ -766,13 +787,49 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
             }
         )
 
-    def _pairwise_context(self, inputs: torch.Tensor, latent: torch.Tensor) -> torch.Tensor | None:
-        if not self.pairwise_pooling:
+    def _pairwise_context(
+        self,
+        inputs: torch.Tensor,
+        latent: torch.Tensor,
+        route_interaction_chunks: torch.Tensor | None = None,
+    ) -> torch.Tensor | None:
+        if not (self.pairwise_pooling or self.pairwise_relational):
             return None
         if inputs.ndim != 3 or inputs.shape[-1] < 33:
             raise ValueError("Pairwise pooling requires [batch, history, >=33] observations.")
         local_interactions = inputs[:, -1, 15:33]
-        context = self.pairwise_feature_encoder(local_interactions)
+        if self.pairwise_relational:
+            if self.route_interaction_chunk_dim != 9:
+                raise ValueError("Pairwise relational context requires nine action features per step.")
+            if route_interaction_chunks is None:
+                route_interaction_chunks = torch.zeros(
+                    inputs.shape[0], self.route_chunk_length, 9,
+                    dtype=inputs.dtype, device=inputs.device,
+                )
+            expected = (inputs.shape[0], self.route_chunk_length, 9)
+            if route_interaction_chunks.shape != expected:
+                raise ValueError(
+                    "Expected pairwise route interaction chunks shape "
+                    f"{expected}, got {tuple(route_interaction_chunks.shape)}."
+                )
+            if not torch.isfinite(route_interaction_chunks).all():
+                raise ValueError("Pairwise route interaction chunks must be finite.")
+            pair_state = local_interactions.reshape(inputs.shape[0], 3, 6)
+            # Route interaction columns are ordered as three teammate-relative
+            # action vectors at every chunk step.  Encode each pair separately
+            # before pooling, so one imminent pair cannot be averaged away.
+            pair_actions = route_interaction_chunks.reshape(
+                inputs.shape[0], self.route_chunk_length, 3, 3
+            ).permute(0, 2, 1, 3).reshape(inputs.shape[0], 3, -1)
+            pair_features = torch.cat([pair_state, pair_actions], dim=-1)
+            pair_context = self.pairwise_pair_encoder(pair_features)
+            pooled = torch.cat(
+                [pair_context.mean(dim=1), pair_context.amax(dim=1)], dim=-1
+            )
+            context = self.pairwise_pool_encoder(pooled)
+        else:
+            local_interactions = inputs[:, -1, 15:33]
+            context = self.pairwise_feature_encoder(local_interactions)
         return context.unsqueeze(1).expand(-1, latent.shape[1], -1)
 
     def hard_negative_auxiliary_predictions(
@@ -834,7 +891,7 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
         )
         return mean, log_variance, latent, self.auxiliary_predictions(
             latent,
-            self._pairwise_context(inputs, latent),
+            self._pairwise_context(inputs, latent, route_interaction_chunks),
         )
 
 

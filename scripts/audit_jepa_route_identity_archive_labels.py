@@ -98,6 +98,18 @@ def audit_archive(directory: Path, *, expected_dataset_version: str = DATASET_VE
             )
         if not np.isfinite(relative_actions).all():
             raise ValueError(f"route_relative_action_chunk contains NaN/Inf: {directory}")
+    if metadata.get("pairwise_action_conditioned_route_chunk") is True:
+        if "route_pairwise_relative_action_chunk" not in arrays.files:
+            raise ValueError(f"Pairwise-conditioned archive is missing route pairwise action arrays: {directory}")
+        pairwise_actions = np.asarray(arrays["route_pairwise_relative_action_chunk"])
+        route_actions = np.asarray(arrays["route_action_chunk"])
+        if pairwise_actions.ndim != 3 or pairwise_actions.shape[:2] != route_actions.shape[:2] or pairwise_actions.shape[2] != 9:
+            raise ValueError(
+                "route_pairwise_relative_action_chunk must have shape [N,H,9]: "
+                f"{pairwise_actions.shape}"
+            )
+        if not np.isfinite(pairwise_actions).all():
+            raise ValueError(f"route_pairwise_relative_action_chunk contains NaN/Inf: {directory}")
     sample_count = int(arrays["sample_type"].shape[0])
     if sample_count <= 0:
         raise ValueError(f"Archive is empty: {directory}")

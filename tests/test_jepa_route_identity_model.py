@@ -158,6 +158,34 @@ def test_hard_negative_pairwise_pooling_conditions_only_risk_heads():
     assert all(torch.isfinite(value).all() for value in second.values())
 
 
+def test_hard_negative_pairwise_relational_context_is_action_conditioned():
+    model = build_action_conditioned_predictor(
+        "interaction_aware_action_conditioned_jepa_route_identity_hard_negative_v2",
+        {
+            "input_dim": 63,
+            "horizon_count": 5,
+            "hidden_dim": 16,
+            "latent_dim": 8,
+            "interaction_group_slices": [[0, 15], [15, 33], [33, 48], [48, 63]],
+            "route_chunk_length": 3,
+            "route_interaction_chunk_dim": 9,
+            "route_candidate_count": 12,
+            "route_side_count": 12,
+            "pairwise_relational": True,
+        },
+    ).eval()
+    inputs = torch.zeros(2, 8, 63)
+    actions = torch.zeros(2, 8, 3)
+    chunks = torch.zeros(2, 3, 3)
+    relative = torch.zeros(2, 3, 9)
+    first = model.forward_multitask(inputs, actions, chunks, route_interaction_chunks=relative)[3]
+    changed = relative.clone()
+    changed[:, :, :3] = 0.8
+    second = model.forward_multitask(inputs, actions, chunks, route_interaction_chunks=changed)[3]
+    assert not torch.allclose(first["pairwise_ttc_hazard_logits"], second["pairwise_ttc_hazard_logits"])
+    assert all(torch.isfinite(value).all() for value in second.values())
+
+
 def test_factory_and_runtime_history_forward_route_chunks():
     model = build_action_conditioned_predictor(
         "interaction_aware_action_conditioned_jepa_route_identity_v1",

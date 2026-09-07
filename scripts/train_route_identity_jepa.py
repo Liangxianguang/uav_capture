@@ -51,6 +51,7 @@ REQUIRED_ARRAYS = (
     "action_history",
     "route_action_chunk",
     "route_relative_action_chunk",
+    "route_pairwise_relative_action_chunk",
     "labels_relative",
     "labels_obstacle_clearance",
     "labels_boundary_clearance",
@@ -133,6 +134,11 @@ def parse_args() -> argparse.Namespace:
         help="Append an explicit latest-frame relative-teammate pooling block to risk heads.",
     )
     parser.add_argument(
+        "--pairwise-relational",
+        action="store_true",
+        help="Encode each teammate pair with candidate-action-conditioned relative motion before pooling.",
+    )
+    parser.add_argument(
         "--head-only",
         action="store_true",
         help="Freeze shared JEPA and legacy route heads; optimize only v2 hard-negative risk heads.",
@@ -199,7 +205,7 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
         declared_interaction = bool(metadata.get("interaction_action_conditioned_route_chunk", False))
         if declared_interaction and interaction_field not in archive_files:
             raise ValueError(f"{path} declares {interaction_field} but the array is missing")
-        missing = (set(REQUIRED_ARRAYS) - {interaction_field}).difference(archive_files)
+        missing = (set(REQUIRED_ARRAYS) - {interaction_field, "route_pairwise_relative_action_chunk"}).difference(archive_files)
         if missing:
             raise ValueError(f"{path} is missing route arrays: {sorted(missing)}")
         arrays = {name: np.asarray(archive[name]) for name in REQUIRED_ARRAYS if name in archive_files}
@@ -208,6 +214,16 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
             metadata["interaction_action_conditioned_route_chunk"] = False
         else:
             metadata["interaction_action_conditioned_route_chunk"] = True
+        pairwise_field = "route_pairwise_relative_action_chunk"
+        pairwise_declared = bool(metadata.get("pairwise_action_conditioned_route_chunk", False))
+        if pairwise_declared and pairwise_field not in archive_files:
+            raise ValueError(f"{path} declares {pairwise_field} but the array is missing")
+        if pairwise_field in archive_files:
+            arrays[pairwise_field] = np.asarray(archive[pairwise_field])
+        else:
+            arrays[pairwise_field] = np.zeros(
+                (*arrays["route_action_chunk"].shape[:2], 9), dtype=np.float32
+            )
     samples = int(arrays["inputs"].shape[0])
     if arrays["inputs"].shape[1:] != (8, 63):
         raise ValueError(f"inputs must have shape [N,8,63], got {arrays['inputs'].shape}")
@@ -218,6 +234,17 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
         raise ValueError(f"route_action_chunk must have shape [N,{chunk_length},3].")
     if arrays["route_relative_action_chunk"].shape[1:] != (chunk_length, 3):
         raise ValueError(f"route_relative_action_chunk must have shape [N,{chunk_length},3].")
+    pairwise_declared = bool(metadata.get("pairwise_action_conditioned_route_chunk", False))
+    if pairwise_declared:
+        if "route_pairwise_relative_action_chunk" not in arrays:
+            raise ValueError("Pairwise action-conditioned archive is missing its route feature.")
+        if arrays["route_pairwise_relative_action_chunk"].shape[1:] != (chunk_length, 9):
+            raise ValueError(
+                "route_pairwise_relative_action_chunk must have shape "
+                f"[N,{chunk_length},9]."
+            )
+        if not np.isfinite(arrays["route_pairwise_relative_action_chunk"]).all():
+            raise ValueError("route_pairwise_relative_action_chunk contains non-finite values.")
     for name in ("labels_relative",):
         if arrays[name].shape[1:] != (5, 3):
             raise ValueError(f"{name} must have shape [N,5,3].")
@@ -263,6 +290,10 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
         raise ValueError("Route archive action_scale must be positive and finite.")
     tensors["route_action_chunk"] = tensors["route_action_chunk"] / action_scale
     tensors["route_relative_action_chunk"] = tensors["route_relative_action_chunk"] / action_scale
+    if pairwise_declared:
+        tensors["route_pairwise_relative_action_chunk"] = (
+            tensors["route_pairwise_relative_action_chunk"] / action_scale
+        )
     return tensors, metadata
 
 
@@ -276,6 +307,7 @@ def _paired_contract(train: dict[str, Any], validation: dict[str, Any]) -> None:
         "horizon_steps",
         "action_scale",
         "interaction_action_conditioned_route_chunk",
+        "pairwise_action_conditioned_route_chunk",
     )
     mismatch = {
         field: {"train": train.get(field), "validation": validation.get(field)}
@@ -410,11 +442,14 @@ def _losses(
     hazard_positive_weight: float,
     quantile: float,
 ) -> dict[str, torch.Tensor]:
-    route_interaction_chunks = (
-        batch["route_relative_action_chunk"]
-        if int(getattr(model, "route_interaction_chunk_dim", 0)) > 0
-        else None
-    )
+    if int(getattr(model, "route_interaction_chunk_dim", 0)) == 9:
+        if "route_pairwise_relative_action_chunk" not in batch:
+            raise ValueError("Pairwise relational model requires route_pairwise_relative_action_chunk")
+        route_interaction_chunks = batch["route_pairwise_relative_action_chunk"]
+    elif int(getattr(model, "route_interaction_chunk_dim", 0)) > 0:
+        route_interaction_chunks = batch["route_relative_action_chunk"]
+    else:
+        route_interaction_chunks = None
     mean, log_variance, latent, auxiliary = model.forward_multitask(
         batch["inputs"],
         batch["action_history"],
@@ -694,6 +729,11 @@ def main() -> None:
         args.validation_dataset.resolve(), args.validation_metadata.resolve(), "validation"
     )
     _paired_contract(train_metadata, validation_metadata)
+    if args.pairwise_relational:
+        if not train_metadata.get("pairwise_action_conditioned_route_chunk", False):
+            raise ValueError("--pairwise-relational requires a pairwise action-conditioned archive")
+        if not validation_metadata.get("pairwise_action_conditioned_route_chunk", False):
+            raise ValueError("Validation archive lacks the pairwise action-conditioned contract")
     model_config: dict[str, Any] = {
         "input_dim": 63,
         "horizon_count": int(train_tensors["labels_relative"].shape[1]),
@@ -706,11 +746,14 @@ def main() -> None:
         ),
         "route_chunk_length": int(train_metadata["chunk_length_steps"]),
         "route_interaction_chunk_dim": (
-            3 if train_metadata.get("interaction_action_conditioned_route_chunk", False) else 0
+            9 if train_metadata.get("pairwise_action_conditioned_route_chunk", False)
+            else 3 if train_metadata.get("interaction_action_conditioned_route_chunk", False)
+            else 0
         ),
         "route_candidate_count": 12,
         "route_side_count": 12,
         "pairwise_pooling": bool(args.pairwise_pooling),
+        "pairwise_relational": bool(args.pairwise_relational),
     }
     model = build_action_conditioned_predictor(MODEL_TYPE, model_config).to(device)
     if not isinstance(model, InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor):
@@ -768,6 +811,8 @@ def main() -> None:
                 "risk_hazard_decoders.",
                 "risk_quantile_decoders.",
                 "pairwise_feature_encoder.",
+                "pairwise_pair_encoder.",
+                "pairwise_pool_encoder.",
             ))
         }
         if set(missing) != expected_missing or unexpected:
@@ -783,6 +828,8 @@ def main() -> None:
             "risk_hazard_decoders.",
             "risk_quantile_decoders.",
             "pairwise_feature_encoder.",
+            "pairwise_pair_encoder.",
+            "pairwise_pool_encoder.",
         )
         for name, parameter in model.named_parameters():
             parameter.requires_grad = name.startswith(trainable_prefixes)
