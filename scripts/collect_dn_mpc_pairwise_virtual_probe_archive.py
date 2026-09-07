@@ -1,10 +1,10 @@
-"""Collect offline-only pairwise virtual probes for the P14 label gate.
+"""Collect offline-only pairwise virtual probes for a closed development split.
 
 The probe actions are never sent to ``env.step``.  Positions are advanced by
 the kinematic equation on an isolated mathematical state copy, while the
 current strict Joint CBF verifier is queried read-only for each virtual step.
-The resulting archive is calibration-only and cannot be used as runtime
-evidence or as a safety certificate.
+The resulting archive is never a runtime controller or a safety certificate.
+Train/validation/development collection remains closed to locked test data.
 """
 
 from __future__ import annotations
@@ -461,6 +461,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
             "environment_config_sha256": _sha256(env_config_path),
             "collector_git_revision": _git_revision(),
         },
+        "tensorboard_namespace": str(args.tensorboard_namespace),
     }
     return arrays, metadata, scenes
 
@@ -471,7 +472,7 @@ def main() -> int:
     parser.add_argument("--environment-config", type=Path, required=True)
     parser.add_argument("--actor-checkpoint", type=Path, required=True)
     parser.add_argument("--episodes", type=int, default=2)
-    parser.add_argument("--split", choices=("calibration",), default="calibration")
+    parser.add_argument("--split", choices=("train", "validation", "calibration", "development"), default="calibration")
     parser.add_argument("--sample-stride", type=int, default=8)
     parser.add_argument("--history-length", type=int, default=8)
     parser.add_argument("--chunk-length-steps", type=int, default=5)
@@ -479,6 +480,7 @@ def main() -> int:
     parser.add_argument("--actor-device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
+    parser.add_argument("--tensorboard-namespace", default="P14")
     parser.add_argument("--development-only", action="store_true", required=True)
     args = parser.parse_args()
     if not args.development_only:
@@ -510,13 +512,16 @@ def main() -> int:
     sample_type = np.asarray(arrays["sample_type"]) == SAMPLE_TYPE
     strict_margin = np.asarray(arrays["labels_inter_agent_clearance"]) < float(args.pairwise_margin_m)
     cbf_infeasible = np.asarray(arrays["labels_cbf_feasible"]) < 0.5
+    namespace = str(args.tensorboard_namespace).strip()
+    if not namespace or any(char in namespace for char in "/\\"):
+        raise ValueError("tensorboard namespace must be a non-empty path-safe token")
     with SummaryWriter(log_dir=str(tensorboard_dir), flush_secs=1) as writer:
-        writer.add_scalar("P14/probe_rows", float(sample_type.sum()), 0)
-        writer.add_scalar("P14/strict_margin_positive_cell_rate", float(strict_margin.mean()), 0)
-        writer.add_scalar("P14/strict_margin_positive_row_rate", float(np.any(strict_margin, axis=1).mean()), 0)
-        writer.add_scalar("P14/cbf_infeasible_cell_rate", float(cbf_infeasible.mean()), 0)
-        writer.add_text("P14/metadata", json.dumps(metadata, sort_keys=True), 0)
-        writer.add_text("P14/provenance", json.dumps(provenance, sort_keys=True), 0)
+        writer.add_scalar(f"{namespace}/probe_rows", float(sample_type.sum()), 0)
+        writer.add_scalar(f"{namespace}/strict_margin_positive_cell_rate", float(strict_margin.mean()), 0)
+        writer.add_scalar(f"{namespace}/strict_margin_positive_row_rate", float(np.any(strict_margin, axis=1).mean()), 0)
+        writer.add_scalar(f"{namespace}/cbf_infeasible_cell_rate", float(cbf_infeasible.mean()), 0)
+        writer.add_text(f"{namespace}/metadata", json.dumps(metadata, sort_keys=True), 0)
+        writer.add_text(f"{namespace}/provenance", json.dumps(provenance, sort_keys=True), 0)
     summary = {
         "dataset": str(dataset_path),
         "metadata": str(metadata_path),

@@ -67,14 +67,20 @@ def _fresh(path: Path, label: str) -> Path:
     return resolved
 
 
-def _load_source(dataset: Path, metadata_path: Path, expected_source: str) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+def _load_source(
+    dataset: Path,
+    metadata_path: Path,
+    expected_source: str,
+    *,
+    expected_split: str,
+) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     dataset = dataset.resolve()
     metadata_path = metadata_path.resolve()
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if not isinstance(metadata, dict):
         raise ValueError(f"{expected_source} metadata must be an object")
-    if metadata.get("split") != "calibration":
-        raise ValueError(f"{expected_source} must be a calibration archive")
+    if metadata.get("split") != expected_split:
+        raise ValueError(f"{expected_source} must be a {expected_split} archive")
     if metadata.get("development_only") is not True or metadata.get("locked_test_opened") is not False:
         raise ValueError(f"{expected_source} must be closed development-only data")
     with np.load(dataset, allow_pickle=False) as archive:
@@ -88,8 +94,8 @@ def _load_source(dataset: Path, metadata_path: Path, expected_source: str) -> tu
     for name in REQUIRED_FIELDS:
         if arrays[name].shape[0] != rows:
             raise ValueError(f"{expected_source} field {name} has inconsistent row count")
-    if expected_source == "p14_virtual_probe" and not np.all(arrays["sample_type"] == 5):
-        raise ValueError("P14 source must use sample_type=5")
+    if "virtual_probe" in expected_source and not np.all(arrays["sample_type"] == 5):
+        raise ValueError("virtual probe source must use sample_type=5")
     return arrays, {
         "name": expected_source,
         "dataset": str(dataset),
@@ -114,10 +120,13 @@ def build_bundle(
     p14_metadata: Path,
     p15_dataset: Path,
     p15_metadata: Path,
+    *,
+    expected_split: str = "calibration",
+    source_names: tuple[str, str] = SOURCE_NAMES,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     sources = [
-        _load_source(p14_dataset, p14_metadata, "p14_virtual_probe"),
-        _load_source(p15_dataset, p15_metadata, "p15_route_outcomes"),
+        _load_source(p14_dataset, p14_metadata, source_names[0], expected_split=expected_split),
+        _load_source(p15_dataset, p15_metadata, source_names[1], expected_split=expected_split),
     ]
     all_names = list(REQUIRED_FIELDS) + list(OPTIONAL_FIELDS)
     arrays: dict[str, np.ndarray] = {}
@@ -132,35 +141,36 @@ def build_bundle(
     )
     arrays["calibration_source_id"] = source_ids
     arrays["calibration_source_name"] = np.asarray(
-        [SOURCE_NAMES[index] for index in source_ids], dtype="U24"
+        [source_names[index] for index in source_ids], dtype="U32"
     )
     metadata = {
         "dataset_version": CONTRACT_VERSION,
         "task": "dn_mpc_pairwise_multisource_calibration",
-        "split": "calibration",
+        "split": expected_split,
         "development_only": True,
         "locked_test_opened": False,
         "offline_only": True,
         "raw_unverified_action_executed": False,
         "label_semantics_preserved": True,
-        "source_names": {str(index): name for index, name in enumerate(SOURCE_NAMES)},
+        "source_names": {str(index): name for index, name in enumerate(source_names)},
         "source_archives": [
             {key: value for key, value in info.items() if key != "metadata_value"}
             for _source, info in sources
         ],
         "source_sample_type_contract": {
-            "p14_virtual_probe": {"sample_type": 5, "unsafe_actions_executed": False},
-            "p15_route_outcomes": {"sample_type": "0..4", "unsafe_actions_executed": False},
+            source_names[0]: {"sample_type": 5, "unsafe_actions_executed": False},
+            source_names[1]: {"sample_type": "0..4", "unsafe_actions_executed": False},
         },
         "array_shapes": {name: list(value.shape) for name, value in arrays.items()},
         "rows": int(arrays["inputs"].shape[0]),
         "source_rows": {info["name"]: info["rows"] for _source, info in sources},
+        "expected_split": expected_split,
         "information_boundary": {
             "target_truth_used_only_for_offline_labels": True,
-            "calibration_only": True,
+            "calibration_only": expected_split == "calibration",
             "locked_test_opened": False,
-            "p14_virtual_probe_actions_executed": False,
-            "p15_routes_advanced_only_after_verified_cbf": True,
+            "virtual_probe_actions_executed": False,
+            "routes_advanced_only_after_verified_cbf": True,
         },
         "source": {
             "builder": "scripts/build_dn_mpc_pairwise_multisource_calibration.py",
@@ -179,23 +189,31 @@ def _rate(values: np.ndarray, mask: np.ndarray) -> float:
     return float(selected.mean()) if selected.size else 0.0
 
 
-def _write_tensorboard(logdir: Path, arrays: Mapping[str, np.ndarray], metadata: Mapping[str, Any]) -> None:
+def _write_tensorboard(
+    logdir: Path,
+    arrays: Mapping[str, np.ndarray],
+    metadata: Mapping[str, Any],
+    *,
+    source_names: tuple[str, str],
+    namespace: str,
+) -> None:
     source = np.asarray(arrays["calibration_source_id"], dtype=np.int64)
     strict = np.asarray(arrays["labels_strict_margin_violation"], dtype=np.float32)
     branch = np.asarray(arrays["labels_branch_failure"], dtype=np.float32)
     cbf = np.asarray(arrays["labels_cbf_infeasible"], dtype=np.float32)
     with SummaryWriter(log_dir=str(logdir), flush_secs=1) as writer:
-        writer.add_scalar("P16/rows", float(len(source)), 0)
-        for index, name in enumerate(SOURCE_NAMES):
+        writer.add_scalar(f"{namespace}/rows", float(len(source)), 0)
+        for index, name in enumerate(source_names):
             mask = source == index
-            writer.add_scalar(f"P16/{name}/rows", float(mask.sum()), 0)
-            writer.add_scalar(f"P16/{name}/strict_margin_cell_rate", _rate(strict, mask[:, None]), 0)
-            writer.add_scalar(f"P16/{name}/strict_margin_row_rate", float(np.any(strict[mask] > 0.5, axis=1).mean()), 0)
-            writer.add_scalar(f"P16/{name}/branch_failure_row_rate", float(np.any(branch[mask] > 0.5, axis=1).mean()), 0)
-            writer.add_scalar(f"P16/{name}/cbf_infeasible_cell_rate", _rate(cbf, mask[:, None]), 0)
-        safe_hold = (source == 0) & (np.asarray(arrays["virtual_probe_mode"]) == 1)
-        writer.add_scalar("P16/p14_virtual_probe/safe_hold_rows", float(safe_hold.sum()), 0)
-        writer.add_text("P16/contract", json.dumps(metadata, sort_keys=True), 0)
+            writer.add_scalar(f"{namespace}/{name}/rows", float(mask.sum()), 0)
+            writer.add_scalar(f"{namespace}/{name}/strict_margin_cell_rate", _rate(strict, mask[:, None]), 0)
+            writer.add_scalar(f"{namespace}/{name}/strict_margin_row_rate", float(np.any(strict[mask] > 0.5, axis=1).mean()), 0)
+            writer.add_scalar(f"{namespace}/{name}/branch_failure_row_rate", float(np.any(branch[mask] > 0.5, axis=1).mean()), 0)
+            writer.add_scalar(f"{namespace}/{name}/cbf_infeasible_cell_rate", _rate(cbf, mask[:, None]), 0)
+        if "virtual_probe_mode" in arrays:
+            safe_hold = (source == 0) & (np.asarray(arrays["virtual_probe_mode"]) == 1)
+            writer.add_scalar(f"{namespace}/{source_names[0]}/safe_hold_rows", float(safe_hold.sum()), 0)
+        writer.add_text(f"{namespace}/contract", json.dumps(metadata, sort_keys=True), 0)
 
 
 def main() -> int:
@@ -207,19 +225,35 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
     parser.add_argument("--development-only", action="store_true", required=True)
+    parser.add_argument("--split", choices=("validation", "calibration"), default="calibration")
+    parser.add_argument("--source-0-name", default="p14_virtual_probe")
+    parser.add_argument("--source-1-name", default="p15_route_outcomes")
+    parser.add_argument("--tensorboard-namespace", default="P16")
+    parser.add_argument("--dataset-version")
     args = parser.parse_args()
     if not args.development_only:
         raise ValueError("multisource calibration requires --development-only")
     output_dir = _fresh(args.output_dir, "multisource calibration output")
     tensorboard_dir = _fresh(args.tensorboard_logdir, "multisource calibration TensorBoard logdir")
-    arrays, metadata = build_bundle(args.p14_dataset, args.p14_metadata, args.p15_dataset, args.p15_metadata)
-    dataset_path = output_dir / "pairwise_multisource_calibration.npz"
+    arrays, metadata = build_bundle(
+        args.p14_dataset,
+        args.p14_metadata,
+        args.p15_dataset,
+        args.p15_metadata,
+        expected_split=args.split,
+        source_names=(args.source_0_name, args.source_1_name),
+    )
+    dataset_version = args.dataset_version or f"dn_mpc_pairwise_multisource_{args.split}_v1"
+    metadata["dataset_version"] = dataset_version
+    metadata["task"] = f"dn_mpc_pairwise_multisource_{args.split}"
+    dataset_path = output_dir / f"pairwise_multisource_{args.split}.npz"
     metadata_path = output_dir / "metadata.json"
     np.savez_compressed(dataset_path, **arrays)
     metadata = dict(metadata)
     metadata["dataset_sha256"] = _sha256(dataset_path)
     metadata["metadata_path"] = str(metadata_path)
     metadata["tensorboard_logdir"] = str(tensorboard_dir)
+    metadata["tensorboard_namespace"] = str(args.tensorboard_namespace)
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     provenance = {
         "dataset_sha256": metadata["dataset_sha256"],
@@ -231,10 +265,22 @@ def main() -> int:
         "locked_test_opened": False,
         "offline_only": True,
         "raw_unverified_action_executed": False,
+        "split": args.split,
+        "dataset_version": dataset_version,
+        "tensorboard_namespace": str(args.tensorboard_namespace),
         "tensorboard_logdir": str(tensorboard_dir),
     }
     (output_dir / "provenance.json").write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    _write_tensorboard(tensorboard_dir, arrays, metadata)
+    namespace = str(args.tensorboard_namespace).strip()
+    if not namespace or any(char in namespace for char in "/\\"):
+        raise ValueError("tensorboard namespace must be a non-empty path-safe token")
+    _write_tensorboard(
+        tensorboard_dir,
+        arrays,
+        metadata,
+        source_names=(args.source_0_name, args.source_1_name),
+        namespace=namespace,
+    )
     summary = {
         "dataset": str(dataset_path),
         "metadata": str(metadata_path),

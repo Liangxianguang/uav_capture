@@ -428,6 +428,10 @@ DN-MPC -> nominal route planner
     未创建 Ledger-Lite。
 14. [ ] 建立独立 validation archive，验证 virtual strict-margin positives 与
     verified branch outcomes 的跨源校准后，才允许训练/在线集成。
-15. [ ] 完成三 seed paired replay，再考虑新的 locked block。
+    P17 已完成独立 source collection 和 provenance validation，但模型级
+    cross-source calibration metric 尚未通过。
+15. [ ] 在 P17 validation 上实现并通过模型无关的 cross-source calibration
+    metric；未通过前不得训练/在线集成。
+16. [ ] 完成三 seed paired replay，再考虑新的 locked block。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

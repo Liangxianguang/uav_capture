@@ -58,12 +58,17 @@ def _git_revision() -> str:
         return "unknown"
 
 
-def _load_source(dataset: Path, metadata_path: Path) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+def _load_source(
+    dataset: Path,
+    metadata_path: Path,
+    *,
+    expected_split: str = "calibration",
+) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if not isinstance(metadata, dict):
         raise ValueError("source metadata must be a JSON object")
-    if metadata.get("split") != "calibration":
-        raise ValueError(f"P13 requires split=calibration, got {metadata.get('split')!r}")
+    if metadata.get("split") != expected_split:
+        raise ValueError(f"expected split={expected_split}, got {metadata.get('split')!r}")
     if metadata.get("development_only") is not True or metadata.get("locked_test_opened") is not False:
         raise ValueError("P13 requires a closed development archive")
     with np.load(dataset, allow_pickle=False) as archive:
@@ -220,6 +225,7 @@ def materialize(
     pairwise_margin_m: float,
     ttc_threshold_s: float,
     tensorboard_namespace: str = "P13",
+    expected_split: str = "calibration",
 ) -> dict[str, Any]:
     source_dataset = source_dataset.resolve()
     source_metadata = source_metadata.resolve()
@@ -229,7 +235,11 @@ def materialize(
         raise FileExistsError(f"Refusing to overwrite output directory: {output_dir}")
     if tensorboard_logdir.exists() and any(tensorboard_logdir.iterdir()):
         raise FileExistsError(f"Refusing to overwrite TensorBoard logdir: {tensorboard_logdir}")
-    arrays, source_metadata_value = _load_source(source_dataset, source_metadata)
+    arrays, source_metadata_value = _load_source(
+        source_dataset,
+        source_metadata,
+        expected_split=expected_split,
+    )
     arrays, contract = materialize_labels(
         arrays,
         pairwise_margin_m=pairwise_margin_m,
@@ -261,6 +271,7 @@ def materialize(
         "development_only": True,
         "locked_test_opened": False,
         "pairwise_label_contract": contract,
+        "split": expected_split,
     }
     (output_dir / "provenance.json").write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     _write_tensorboard(
@@ -302,6 +313,7 @@ def main() -> int:
         default="P13",
         help="Namespace prefix for label metrics, e.g. P15 for a later phase.",
     )
+    parser.add_argument("--split", choices=("calibration", "validation"), default="calibration")
     args = parser.parse_args()
     if args.pairwise_margin_m < 0.0 or args.ttc_threshold_s < 0.0:
         raise ValueError("pairwise margin and TTC threshold must be non-negative")
@@ -314,6 +326,7 @@ def main() -> int:
         pairwise_margin_m=args.pairwise_margin_m,
         ttc_threshold_s=args.ttc_threshold_s,
         tensorboard_namespace=args.tensorboard_namespace,
+        expected_split=args.split,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

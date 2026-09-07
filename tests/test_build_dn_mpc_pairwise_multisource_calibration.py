@@ -3,7 +3,15 @@ import numpy as np
 from scripts.build_dn_mpc_pairwise_multisource_calibration import build_bundle
 
 
-def _write_source(tmp_path, name: str, sample_type: int, rows: int, *, virtual: bool) -> tuple:
+def _write_source(
+    tmp_path,
+    name: str,
+    sample_type: int,
+    rows: int,
+    *,
+    virtual: bool,
+    split: str = "calibration",
+) -> tuple:
     dataset = tmp_path / f"{name}.npz"
     metadata = tmp_path / f"{name}.json"
     horizon = 2
@@ -28,7 +36,7 @@ def _write_source(tmp_path, name: str, sample_type: int, rows: int, *, virtual: 
         arrays["virtual_probe_pair_index"] = np.zeros(rows, dtype=np.int64)
     np.savez_compressed(dataset, **arrays)
     metadata.write_text(
-        '{"split":"calibration","development_only":true,"locked_test_opened":false}\n',
+        f'{{"split":"{split}","development_only":true,"locked_test_opened":false}}\n',
         encoding="utf-8",
     )
     return dataset, metadata
@@ -43,3 +51,23 @@ def test_build_bundle_preserves_source_semantics(tmp_path) -> None:
     assert arrays["virtual_probe_mode"].tolist() == [0, 0, -1, -1, -1]
     assert metadata["label_semantics_preserved"] is True
     assert metadata["source_rows"] == {"p14_virtual_probe": 2, "p15_route_outcomes": 3}
+
+
+def test_build_bundle_accepts_disjoint_validation_sources(tmp_path) -> None:
+    p17_virtual, p17_virtual_meta = _write_source(
+        tmp_path, "p17_virtual", 5, 1, virtual=True, split="validation"
+    )
+    p17_route, p17_route_meta = _write_source(
+        tmp_path, "p17_route", 0, 1, virtual=False, split="validation"
+    )
+    arrays, metadata = build_bundle(
+        p17_virtual,
+        p17_virtual_meta,
+        p17_route,
+        p17_route_meta,
+        expected_split="validation",
+        source_names=("p17_virtual_probe", "p17_route_outcomes"),
+    )
+    assert metadata["split"] == "validation"
+    assert metadata["expected_split"] == "validation"
+    assert arrays["calibration_source_name"].tolist() == ["p17_virtual_probe", "p17_route_outcomes"]

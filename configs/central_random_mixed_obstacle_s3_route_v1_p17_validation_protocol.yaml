@@ -1,0 +1,74 @@
+protocol_name: central_random_mixed_obstacle_s3_route_v1_p17_validation
+protocol_version: 1
+phase: development_only
+locked_test_opened: false
+not_a_locked_test: true
+
+seed_blocks:
+  train: 658101
+  validation: 659101
+  calibration: 657101
+  development: 660101
+  locked_test: 647201
+
+episodes_per_split:
+  train: 40
+  validation: 20
+  calibration: 20
+  development: 20
+  locked_test: 100
+
+s3:
+  target_crossing_required: false
+  required_defender_zone_entries: 2
+  obstacle_count_range: [3, 5]
+  initial_side_distances: [6.0, 6.5, 7.0, 7.5, 9.0]
+  defender_sides: [left, right]
+  target_speed_scales: [0.45, 0.55]
+  target_crossing_speed_scales: [0.90]
+  target_motion_modes: [flee_persistence, s_curve]
+  observation_conditions:
+    - name: nominal
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.15
+        observation_noise_std: 0.03
+        message_delay_steps: 2
+        message_dropout_probability: 0.05
+    - name: delayed_noisy
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.22
+        observation_noise_std: 0.06
+        message_delay_steps: 4
+        message_dropout_probability: 0.10
+  max_sampling_attempts: 500
+
+route_contract:
+  candidate_profile: obstacle_route_v1
+  candidate_count: 12
+  chunk_length_steps: 5
+  execute_only_first_step: true
+  project_to_reachable_dynamics: true
+  primary_cbf_prefilter: true
+  interaction_hard_negatives:
+    enabled: true
+    modes: [near_pass, formation_crossing, split_merge]
+    offline_only: true
+
+safety_contract:
+  cbf_margin_changed: false
+  stale_ood_nonfinite_gates_changed: false
+  controlled_abort_preserved: true
+  raw_unverified_execution_allowed: false
+  branch_advances_only_after_verified_primary_cbf: true
+
+validation_contract:
+  purpose: independent_cross_source_validation
+  disjoint_from: [p14_calibration, p15_calibration]
+  locked_test_opened: false
+  no_training_authorized: true
+
+tensorboard:
+  required: true
+  namespace: P17
