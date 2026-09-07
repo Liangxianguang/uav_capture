@@ -4,7 +4,8 @@
 - Protocol: development-only; no action was executed
 - Decision: **STOP BEFORE ONLINE INTEGRATION**
 - Checkpoint SHA-256: `474e4178a41d3765e2b978c0eb1411f759c52ce36b5c0d31f1c682785f938848`
-- Git revision at re-audit: `5d3e38a477b2865d7f642475138fa5919b1f5cbe`
+- Git base revision at re-audit: `3d441a2abea1b8a6b3f59ebd8fffb94369f36558`
+- Geometry repair commit: `5d3e38a477b2865d7f642475138fa5919b1f5cbe`
 
 ## Geometry repair
 
