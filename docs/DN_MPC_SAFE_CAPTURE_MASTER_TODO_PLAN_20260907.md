@@ -408,10 +408,13 @@ DN-MPC -> nominal route planner
    `docs/DN_MPC_P12_PAIRWISE_TTC_LABEL_AUDIT_STOP_20260908.md`。当前 TTC hazard
    与实际 strict-margin violation/CBF infeasibility 不等价，已停止继续调
    pairwise positive weight。
-9. [ ] 重新定义并独立采集 `predicted_ttc_hazard`、`strict_margin_violation`、
-   `cbf_infeasible` 和 `branch_failure`，通过新 calibration gate 后才训练下一版
-   JEPA evaluator。
-10. [ ] calibration gate 通过后才实现 Ledger-Lite；否则保留解析 DN-MPC + CBF。
-11. [ ] 完成三 seed paired replay，再考虑新的 locked block。
+9. [x] P13 已完成四类显式 outcome label 合同并采集 disjoint calibration；结果见
+   `docs/DN_MPC_P13_PAIRWISE_OUTCOME_LABEL_CONTRACT_STOP_20260908.md`。合同通过，
+   但 valid runtime/interaction 的 strict-margin 正例为 `0%`，停止训练。
+10. [ ] P14 采集 offline-only unsafe virtual probes，补足 strict-margin 正例并通过
+    positive-count/calibration gate；不得执行 raw-unverified action。
+11. [ ] 新 calibration gate 通过后才训练下一版 JEPA evaluator 或实现 Ledger-Lite；
+    否则保留解析 DN-MPC + CBF。
+12. [ ] 完成三 seed paired replay，再考虑新的 locked block。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**
