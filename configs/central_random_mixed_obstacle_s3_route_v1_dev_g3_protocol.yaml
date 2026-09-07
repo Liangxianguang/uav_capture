@@ -1,0 +1,80 @@
+protocol_name: central_random_mixed_obstacle_s3_route_v1_dev_g3
+protocol_version: 1
+phase: development_only
+locked_test_opened: false
+not_a_replacement_for_existing_locked_benchmarks: true
+
+seed_blocks:
+  train: 645301
+  validation: 646301
+  calibration: 648301
+  development: 649301
+  locked_test: 647401
+
+episodes_per_split:
+  train: 40
+  validation: 40
+  calibration: 20
+  development: 20
+  locked_test: 100
+
+s3:
+  target_crossing_required: false
+  required_defender_zone_entries: 2
+  obstacle_count_range: [3, 5]
+  initial_side_distances: [6.0, 6.5, 7.0, 7.5, 9.0]
+  defender_sides: [left, right]
+  target_speed_scales: [0.45, 0.55]
+  target_crossing_speed_scales: [0.90]
+  target_motion_modes: [flee_persistence, s_curve]
+  observation_conditions:
+    - name: nominal
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.15
+        observation_noise_std: 0.03
+        message_delay_steps: 2
+        message_dropout_probability: 0.05
+    - name: delayed_noisy
+      pursuit_overrides:
+        detection_range: 14.0
+        detection_dropout_probability: 0.22
+        observation_noise_std: 0.06
+        message_delay_steps: 4
+        message_dropout_probability: 0.10
+  max_sampling_attempts: 500
+
+route_contract:
+  candidate_profile: obstacle_route_v1
+  candidate_count: 12
+  route_labels:
+    - nominal
+    - left_detour
+    - right_detour
+    - upper_detour
+    - lower_detour
+    - radial_out
+    - formation_split
+    - formation_contract
+    - braking
+    - safe_intercept
+    - visibility_hold
+    - verified_safe_hold
+  chunk_length_steps: 3
+  execute_only_first_step: true
+  project_to_reachable_dynamics: true
+  primary_cbf_prefilter: true
+
+safety_contract:
+  cbf_margin_changed: false
+  stale_ood_nonfinite_gates_changed: false
+  controlled_abort_preserved: true
+  raw_unverified_execution_allowed: false
+
+tensorboard:
+  required: true
+  archive_scalars:
+    - Archive/sample_count
+    - Archive/route_geometry_valid_fraction
+    - Archive/cbf_first_step_feasible_fraction
+    - Archive/branch_failure_within_horizon_fraction
