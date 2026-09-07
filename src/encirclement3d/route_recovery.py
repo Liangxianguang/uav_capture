@@ -294,6 +294,11 @@ def select_verified_progress_route(
     observation: Mapping[str, Any],
     *,
     require_detour: bool = False,
+    preferred_route_id: str | None = None,
+    hold_steps_remaining: int = 0,
+    preferred_route_side: str | None = None,
+    nearest_tangent_route: bool = False,
+    tangent_switch_tolerance_m: float = 0.25,
 ) -> tuple[int | None, str]:
     """Select the most useful route from independently verified candidates.
 
@@ -303,6 +308,10 @@ def select_verified_progress_route(
     shorter geometric routes.
     """
 
+    if int(hold_steps_remaining) < 0:
+        raise ValueError("hold_steps_remaining must be non-negative.")
+    if not np.isfinite(float(tangent_switch_tolerance_m)) or tangent_switch_tolerance_m < 0.0:
+        raise ValueError("tangent_switch_tolerance_m must be finite and non-negative.")
     positions = np.asarray(observation.get("defender_positions"), dtype=np.float64)
     beliefs = np.asarray(observation.get("target_belief_positions"), dtype=np.float64)
     if positions.ndim != 2 or beliefs.shape != positions.shape or not np.isfinite(positions).all() or not np.isfinite(beliefs).all():
@@ -321,6 +330,72 @@ def select_verified_progress_route(
         "safe_intercept",
         "visibility_hold",
     }
+    # Recovery used to re-rank independently verified routes on every step,
+    # which caused route oscillation even when the current route remained
+    # safe.  Keep the current route during its registered hold window.  A
+    # route that disappeared or failed the fresh probe cannot be held.
+    if preferred_route_id is not None and int(hold_steps_remaining) > 0:
+        for index, candidate in enumerate(route_batch.candidates):
+            probe = counterfactuals[index] if index < len(counterfactuals) else None
+            if (
+                str(getattr(candidate, "route_id", "")) == str(preferred_route_id)
+                and bool(getattr(candidate, "valid", True))
+                and probe is not None
+                and bool(getattr(probe, "accepted", False))
+                and str(candidate.label) not in {"braking", "verified_safe_hold"}
+                and (not require_detour or str(candidate.label) not in {"nominal", "formation_contract"})
+            ):
+                return int(index), "verified_progress_route_hold"
+
+    if nearest_tangent_route:
+        tangent_indices: list[int] = []
+        for index, candidate in enumerate(route_batch.candidates):
+            probe = counterfactuals[index] if index < len(counterfactuals) else None
+            if (
+                str(getattr(candidate, "label", "")) in {"left_detour", "right_detour"}
+                and bool(getattr(candidate, "valid", True))
+                and probe is not None
+                and bool(getattr(probe, "accepted", False))
+            ):
+                tangent_indices.append(index)
+        if tangent_indices:
+            shortest_length = min(
+                float(route_batch.candidates[index].route_length_m) for index in tangent_indices
+            )
+            shortest = [
+                index
+                for index in tangent_indices
+                if float(route_batch.candidates[index].route_length_m)
+                <= shortest_length + float(tangent_switch_tolerance_m)
+            ]
+            preferred = [
+                index
+                for index in shortest
+                if preferred_route_side is not None
+                and str(getattr(route_batch.candidates[index], "side", "")) == str(preferred_route_side)
+            ]
+            pool = preferred or shortest
+            selected = min(
+                pool,
+                key=lambda index: (
+                    float(route_batch.candidates[index].route_length_m),
+                    -float(
+                        np.mean(
+                            np.sum(
+                                np.asarray(route_batch.candidates[index].action_chunk[0], dtype=np.float64)
+                                * directions,
+                                axis=1,
+                            )
+                        )
+                    ),
+                    int(index),
+                ),
+            )
+            return int(selected), (
+                "nearest_tangent_route_hold"
+                if preferred
+                else "nearest_tangent_route"
+            )
     scored: list[tuple[float, float, int]] = []
     fallback_scored: list[tuple[float, int]] = []
     for index, candidate in enumerate(route_batch.candidates):

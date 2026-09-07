@@ -383,6 +383,55 @@ def parse_args() -> argparse.Namespace:
         default=0.05,
         help="Predicted CBF geometry slack threshold in metres for barrier-imminence recovery.",
     )
+    parser.add_argument(
+        "--barrier-imminence-consecutive-steps",
+        type=int,
+        default=1,
+        help="Consecutive soft barrier-imminence observations required before recovery.",
+    )
+    parser.add_argument(
+        "--candidate-hysteresis-margin",
+        type=float,
+        help="Runtime route-score hysteresis margin in metres; omitted keeps the protocol value.",
+    )
+    parser.add_argument(
+        "--minimum-hold-steps",
+        type=int,
+        help="Runtime minimum route hold in control steps; omitted keeps the protocol value.",
+    )
+    parser.add_argument(
+        "--route-switch-penalty",
+        type=float,
+        help="Runtime route-switch score penalty in metres; omitted keeps the protocol value.",
+    )
+    parser.add_argument(
+        "--target-escape-alignment-weight",
+        type=float,
+        help="Runtime target-escape alignment score weight; omitted keeps the protocol value.",
+    )
+    parser.add_argument(
+        "--nearest-tangent-route",
+        action="store_true",
+        help="Prefer the shortest independently verified left/right tangent route during recovery.",
+    )
+    parser.add_argument(
+        "--tangent-switch-tolerance-m",
+        type=float,
+        default=0.25,
+        help="Keep the current tangent side when its route is within this length of the shortest route.",
+    )
+    parser.add_argument(
+        "--tangent-max-observation-age-steps",
+        type=float,
+        default=4.0,
+        help="Only enable tangent recovery while the public target belief is no older than this age.",
+    )
+    parser.add_argument(
+        "--tangent-route-hold-steps",
+        type=int,
+        default=2,
+        help="Finite route-side commitment after tangent recovery; zero disables the commitment.",
+    )
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument(
         "--development-only",
@@ -771,9 +820,15 @@ def _run_episode(
     verified_progress_fallback: bool = False,
     barrier_imminence_gate: bool = False,
     barrier_imminence_threshold_m: float = 0.05,
+    barrier_imminence_consecutive_steps: int = 1,
+    nearest_tangent_route: bool = False,
+    tangent_switch_tolerance_m: float = 0.25,
+    tangent_max_observation_age_steps: float = 4.0,
+    tangent_route_hold_steps: int = 2,
     visibility_search_enabled: bool = False,
     visibility_search_offset_m: float = 1.5,
     visibility_search_mode: str = "lateral_interior_scan_v1",
+    recovery_route_hold_steps: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     episode_index = int(manifest_item["episode_index"])
     spec = dict(manifest_item["spec"])
@@ -822,6 +877,14 @@ def _run_episode(
         raise ValueError("route_probe_horizon must be positive.")
     if not np.isfinite(float(barrier_imminence_threshold_m)) or barrier_imminence_threshold_m < 0.0:
         raise ValueError("barrier_imminence_threshold_m must be finite and non-negative.")
+    if int(barrier_imminence_consecutive_steps) <= 0:
+        raise ValueError("barrier_imminence_consecutive_steps must be positive.")
+    if not np.isfinite(float(tangent_switch_tolerance_m)) or tangent_switch_tolerance_m < 0.0:
+        raise ValueError("tangent_switch_tolerance_m must be finite and non-negative.")
+    if not np.isfinite(float(tangent_max_observation_age_steps)) or tangent_max_observation_age_steps < 0.0:
+        raise ValueError("tangent_max_observation_age_steps must be finite and non-negative.")
+    if int(tangent_route_hold_steps) < 0:
+        raise ValueError("tangent_route_hold_steps must be non-negative.")
     safety_filter = (
         JointCBFQPSafetyFilter(
             env,
@@ -930,9 +993,15 @@ def _run_episode(
     stopping_guard_by_risk: dict[str, int] = {}
     barrier_imminence_steps = 0
     barrier_imminence_by_risk: dict[str, int] = {}
+    barrier_imminence_streak = 0
     verified_progress_fallback_steps = 0
     verified_progress_fallback_labels: list[str] = []
     route_probe_horizon_failures = 0
+    recovery_route_id: str | None = None
+    recovery_route_side: str | None = None
+    recovery_route_hold_remaining = 0
+    route_switch_steps = 0
+    last_executed_route_id: str | None = None
     target_collision = False
     forced_termination_reason: str | None = None
     final_info: dict[str, Any] = {}
@@ -1149,13 +1218,34 @@ def _run_episode(
                         stopping_guard_by_risk.get(stopping_guard.risk_type, 0) + 1
                     )
             if barrier_imminence_gate:
-                barrier_imminence = compute_barrier_imminence(
+                raw_barrier_imminence = compute_barrier_imminence(
                     observation,
                     safety_filter,
                     requested_action,
                     threshold_m=float(barrier_imminence_threshold_m),
                     prediction_steps=1,
                 )
+                if raw_barrier_imminence.triggered:
+                    barrier_imminence_streak += 1
+                else:
+                    barrier_imminence_streak = 0
+                hard_barrier = bool(
+                    raw_barrier_imminence.minimum_predicted_slack_m < 0.0
+                    or not raw_barrier_imminence.solver_accepted
+                )
+                if (
+                    raw_barrier_imminence.triggered
+                    and not hard_barrier
+                    and barrier_imminence_streak < int(barrier_imminence_consecutive_steps)
+                ):
+                    barrier_imminence = replace(
+                        raw_barrier_imminence,
+                        triggered=False,
+                        risk_type="none",
+                        reason_code="barrier_imminence_pending",
+                    )
+                else:
+                    barrier_imminence = raw_barrier_imminence
                 if barrier_imminence.triggered:
                     barrier_imminence_steps += 1
                     barrier_imminence_by_risk[barrier_imminence.risk_type] = (
@@ -1174,6 +1264,18 @@ def _run_episode(
                     route_runtime.cbf_counterfactuals,
                     observation,
                     require_detour=bool(stopping_guard.triggered or barrier_imminence.triggered),
+                    preferred_route_id=recovery_route_id,
+                    hold_steps_remaining=recovery_route_hold_remaining,
+                    preferred_route_side=recovery_route_side,
+                    nearest_tangent_route=bool(
+                        nearest_tangent_route
+                        and queue_age_steps <= float(tangent_max_observation_age_steps)
+                        and (
+                            str(stopping_guard.risk_type).startswith("obstacle")
+                            or str(barrier_imminence.risk_type) == "obstacle"
+                        )
+                    ),
+                    tangent_switch_tolerance_m=float(tangent_switch_tolerance_m),
                 )
                 if selected_index is not None and rank_result is not None:
                     selected_route = route_runtime.route_batch.candidates[selected_index]
@@ -1208,6 +1310,33 @@ def _run_episode(
                     }
                     verified_progress_fallback_steps += 1
                     verified_progress_fallback_labels.append(str(selected_route.label))
+                    recovery_route_id = str(selected_route.route_id)
+                    if str(selected_route.side) in {"left", "right"}:
+                        recovery_route_side = str(selected_route.side)
+                    hold_steps = (
+                        int(tangent_route_hold_steps)
+                        if nearest_tangent_route and str(selected_route.side) in {"left", "right"}
+                        else int(recovery_route_hold_steps or 0)
+                    )
+                    recovery_route_hold_remaining = max(hold_steps - 1, 0)
+            else:
+                if nearest_tangent_route and recovery_route_hold_remaining > 0:
+                    recovery_route_hold_remaining -= 1
+                else:
+                    recovery_route_id = None
+                    recovery_route_side = None
+                    recovery_route_hold_remaining = 0
+
+        # Count transitions only after recovery/ranking has produced the final
+        # route for this control cycle.  The selected route is still passed
+        # through the independent and final CBF checks below.
+        route_switched = False
+        if selected_route_metadata is not None:
+            executed_route_id = str(selected_route_metadata.get("route_id"))
+            if last_executed_route_id is not None and executed_route_id != last_executed_route_id:
+                route_switch_steps += 1
+                route_switched = True
+            last_executed_route_id = executed_route_id
 
         # The ranker can choose a tangential route while the current velocity
         # is already too large to preserve a pairwise/boundary barrier.  This
@@ -1485,6 +1614,7 @@ def _run_episode(
                 "candidate_cbf_prefilter": candidate_cbf_diagnostics if rank_result is not None else [],
                 "route_runtime": route_runtime.as_dict() if route_runtime is not None else None,
                 "selected_route": selected_route_metadata,
+                "route_switch": bool(route_switched),
                 "independent_cbf_counterfactuals": independent_cbf_counterfactuals,
                 "cbf": diagnostics,
             }
@@ -1642,6 +1772,10 @@ def _run_episode(
         "stopping_guard_by_risk": dict(sorted(stopping_guard_by_risk.items())),
         "barrier_imminence_gate": bool(barrier_imminence_gate),
         "barrier_imminence_threshold_m": float(barrier_imminence_threshold_m),
+        "barrier_imminence_consecutive_steps": int(barrier_imminence_consecutive_steps),
+        "nearest_tangent_route": bool(nearest_tangent_route),
+        "tangent_switch_tolerance_m": float(tangent_switch_tolerance_m),
+        "tangent_max_observation_age_steps": float(tangent_max_observation_age_steps),
         "barrier_imminence_steps": barrier_imminence_steps,
         "barrier_imminence_by_risk": dict(sorted(barrier_imminence_by_risk.items())),
         "verified_progress_fallback": bool(verified_progress_fallback),
@@ -1649,6 +1783,7 @@ def _run_episode(
         "verified_progress_fallback_labels": verified_progress_fallback_labels,
         "route_probe_horizon": int(route_probe_horizon),
         "route_probe_horizon_failures": route_probe_horizon_failures,
+        "route_switch_steps": route_switch_steps,
         "selected_candidate_indices": selected_indices,
         "selected_candidate_mean_index": float(np.mean(selected_indices)) if selected_indices else None,
         "ledger_state_counts": {
@@ -1792,6 +1927,7 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "stopping_guard_steps": count("stopping_guard_steps"),
         "verified_progress_fallback_steps": count("verified_progress_fallback_steps"),
         "barrier_imminence_steps": count("barrier_imminence_steps"),
+        "route_switch_steps": count("route_switch_steps"),
         "transit_success_rate": rate("transit_success"),
         "mean_capture_time_seconds": float(np.mean(capture_times)) if capture_times else None,
         "mean_min_clearance_m": float(np.mean([float(row["min_clearance_m"]) for row in rows])),
@@ -2034,6 +2170,7 @@ def _write_tensorboard(
         writer.add_scalar("Aggregate/Route/horizon_probe_failures", float(summary.get("route_probe_horizon_failures", 0)), 0)
         writer.add_scalar("Aggregate/Recovery/stopping_guard_steps", float(summary.get("stopping_guard_steps", 0)), 0)
         writer.add_scalar("Aggregate/Recovery/verified_progress_fallback_steps", float(summary.get("verified_progress_fallback_steps", 0)), 0)
+        writer.add_scalar("Aggregate/Route/switch_steps", float(summary.get("route_switch_steps", 0)), 0)
         writer.add_scalar("Aggregate/Recovery/barrier_imminence_steps", float(summary.get("barrier_imminence_steps", 0)), 0)
         writer.add_scalar(
             "Aggregate/Route/independent_cbf_probe_checks",
@@ -2150,6 +2287,29 @@ def main() -> None:
         raise ValueError("--cbf-horizon must be positive.")
     if args.route_corridor_samples < 3:
         raise ValueError("--route-corridor-samples must be at least 3.")
+    if args.candidate_hysteresis_margin is not None and (
+        not np.isfinite(args.candidate_hysteresis_margin) or args.candidate_hysteresis_margin < 0.0
+    ):
+        raise ValueError("--candidate-hysteresis-margin must be finite and non-negative.")
+    if args.minimum_hold_steps is not None and args.minimum_hold_steps < 0:
+        raise ValueError("--minimum-hold-steps must be non-negative.")
+    if args.route_switch_penalty is not None and (
+        not np.isfinite(args.route_switch_penalty) or args.route_switch_penalty < 0.0
+    ):
+        raise ValueError("--route-switch-penalty must be finite and non-negative.")
+    if args.target_escape_alignment_weight is not None and (
+        not np.isfinite(args.target_escape_alignment_weight)
+        or args.target_escape_alignment_weight < 0.0
+    ):
+        raise ValueError("--target-escape-alignment-weight must be finite and non-negative.")
+    if args.barrier_imminence_consecutive_steps <= 0:
+        raise ValueError("--barrier-imminence-consecutive-steps must be positive.")
+    if not np.isfinite(args.tangent_switch_tolerance_m) or args.tangent_switch_tolerance_m < 0.0:
+        raise ValueError("--tangent-switch-tolerance-m must be finite and non-negative.")
+    if not np.isfinite(args.tangent_max_observation_age_steps) or args.tangent_max_observation_age_steps < 0.0:
+        raise ValueError("--tangent-max-observation-age-steps must be finite and non-negative.")
+    if args.tangent_route_hold_steps < 0:
+        raise ValueError("--tangent-route-hold-steps must be non-negative.")
     contract = _variant_contract(args.variant)
     if args.candidate_cbf_prefilter and not contract["use_cbf"]:
         raise ValueError("--candidate-cbf-prefilter requires a CBF-enabled variant.")
@@ -2172,6 +2332,18 @@ def main() -> None:
     if not isinstance(ranking_contract, Mapping):
         raise ValueError("candidate_ranking protocol section must be a mapping.")
     ranker_config = _ranker_config(str(contract["variant"]), ranking_contract)
+    runtime_ranking_overrides = {
+        key: value
+        for key, value in {
+            "candidate_hysteresis_margin_m": args.candidate_hysteresis_margin,
+            "minimum_hold_steps": args.minimum_hold_steps,
+            "route_switch_penalty_m": args.route_switch_penalty,
+            "target_escape_alignment_weight": args.target_escape_alignment_weight,
+        }.items()
+        if value is not None
+    }
+    if runtime_ranking_overrides:
+        ranker_config = replace(ranker_config, **runtime_ranking_overrides)
     if ranker_config.cautious_reacquisition_enabled and not contract["use_cbf"]:
         raise ValueError("cautious_reacquisition requires the Joint CBF execution boundary.")
     candidate_contract = protocol.get("candidate_contract", {})
@@ -2318,6 +2490,12 @@ def main() -> None:
             verified_progress_fallback=args.verified_progress_fallback,
             barrier_imminence_gate=args.barrier_imminence_gate,
             barrier_imminence_threshold_m=args.barrier_imminence_threshold,
+            barrier_imminence_consecutive_steps=args.barrier_imminence_consecutive_steps,
+            nearest_tangent_route=args.nearest_tangent_route,
+            tangent_switch_tolerance_m=args.tangent_switch_tolerance_m,
+            tangent_max_observation_age_steps=args.tangent_max_observation_age_steps,
+            tangent_route_hold_steps=args.tangent_route_hold_steps,
+            recovery_route_hold_steps=int(ranker_config.minimum_hold_steps),
             visibility_search_enabled=visibility_search_enabled,
             visibility_search_offset_m=visibility_search_offset_m,
             visibility_search_mode=visibility_search_mode,
@@ -2383,6 +2561,11 @@ def main() -> None:
             "verified_progress_fallback": bool(args.verified_progress_fallback),
             "barrier_imminence_gate": bool(args.barrier_imminence_gate),
             "barrier_imminence_threshold_m": float(args.barrier_imminence_threshold),
+            "barrier_imminence_consecutive_steps": int(args.barrier_imminence_consecutive_steps),
+            "nearest_tangent_route": bool(args.nearest_tangent_route),
+            "tangent_switch_tolerance_m": float(args.tangent_switch_tolerance_m),
+            "tangent_max_observation_age_steps": float(args.tangent_max_observation_age_steps),
+            "tangent_route_hold_steps": int(args.tangent_route_hold_steps),
             "visibility_search_enabled": visibility_search_enabled,
             "visibility_search_offset_m": visibility_search_offset_m,
             "visibility_search_mode": visibility_search_mode,

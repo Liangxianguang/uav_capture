@@ -190,3 +190,58 @@ def test_select_verified_progress_route_can_require_a_detour_and_falls_back_to_b
     )
     assert index == 1
     assert reason == "verified_braking_route"
+
+
+def test_select_verified_progress_route_holds_the_current_verified_route() -> None:
+    action = np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
+    route_batch = SimpleNamespace(
+        candidates=(
+            _candidate("left_detour", action, route_length=3.0),
+            _candidate("right_detour", action * 0.5, route_length=1.0),
+        )
+    )
+    counterfactuals = (SimpleNamespace(accepted=True), SimpleNamespace(accepted=True))
+    # The helper uses route_id, so attach the exact id used by the runtime.
+    route_batch.candidates[0].route_id = "left_detour:obstacle-0"
+    index, reason = select_verified_progress_route(
+        route_batch,
+        counterfactuals,
+        _observation(),
+        require_detour=True,
+        preferred_route_id="left_detour:obstacle-0",
+        hold_steps_remaining=2,
+    )
+    assert index == 0
+    assert reason == "verified_progress_route_hold"
+
+
+def test_select_verified_progress_route_prefers_shortest_tangent_and_keeps_side_within_tolerance() -> None:
+    action = np.array([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64)
+    left = _candidate("left_detour", action, route_length=2.0)
+    right = _candidate("right_detour", action * 0.5, route_length=1.0)
+    left.side = "left"
+    right.side = "right"
+    route_batch = SimpleNamespace(candidates=(left, right))
+    probes = (SimpleNamespace(accepted=True), SimpleNamespace(accepted=True))
+    index, reason = select_verified_progress_route(
+        route_batch,
+        probes,
+        _observation(),
+        require_detour=True,
+        nearest_tangent_route=True,
+    )
+    assert index == 1
+    assert reason == "nearest_tangent_route"
+
+    left.route_length_m = 1.1
+    index, reason = select_verified_progress_route(
+        route_batch,
+        probes,
+        _observation(),
+        require_detour=True,
+        preferred_route_side="left",
+        nearest_tangent_route=True,
+        tangent_switch_tolerance_m=0.25,
+    )
+    assert index == 0
+    assert reason == "nearest_tangent_route_hold"
