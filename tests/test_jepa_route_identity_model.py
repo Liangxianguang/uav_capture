@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 
 from encirclement3d.jepa_safe_capture_candidates import SafeCaptureCandidateHistory
@@ -55,6 +56,42 @@ def test_route_chunk_changes_conditioned_prediction():
     first_mean = model(inputs, actions, first)[0]
     second_mean = model(inputs, actions, second)[0]
     assert not torch.allclose(first_mean, second_mean)
+
+
+def test_interaction_conditioned_route_chunk_changes_prediction_and_is_finite():
+    torch.manual_seed(23)
+    model = InteractionAwareActionConditionedRouteJEPAPredictor(
+        input_dim=63,
+        horizon_count=5,
+        hidden_dim=16,
+        latent_dim=8,
+        route_chunk_length=3,
+        route_interaction_chunk_dim=3,
+        route_candidate_count=12,
+        route_side_count=12,
+        interaction_group_slices=((0, 15), (15, 33), (33, 48), (48, 63)),
+    ).eval()
+    inputs = torch.zeros(2, 8, 63)
+    actions = torch.zeros(2, 8, 3)
+    route = torch.zeros(2, 3, 3)
+    relative = torch.zeros(2, 3, 3)
+    changed = relative.clone()
+    changed[:, :, 1] = 0.8
+    first = model(inputs, actions, route, route_interaction_chunks=relative)[0]
+    second = model(inputs, actions, route, route_interaction_chunks=changed)[0]
+    assert not torch.allclose(first, second)
+    assert torch.isfinite(second).all()
+
+
+def test_legacy_route_model_rejects_interaction_feature_without_dimension():
+    model = _model().eval()
+    with pytest.raises(ValueError, match="route_interaction_chunk_dim"):
+        model(
+            torch.zeros(1, 8, 63),
+            torch.zeros(1, 8, 3),
+            torch.zeros(1, 3, 3),
+            route_interaction_chunks=torch.zeros(1, 3, 3),
+        )
 
 
 def test_hard_negative_model_exposes_finite_risk_heads_and_factory_contract():

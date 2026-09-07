@@ -81,6 +81,11 @@ def _load_model(checkpoint_path: Path, device: torch.device) -> tuple[torch.nn.M
 
 def audit_split(model: torch.nn.Module, dataset: Path, metadata: Path, split: str, device: torch.device) -> dict[str, Any]:
     tensors, archive_metadata = load_dataset(dataset.resolve(), metadata.resolve(), split)
+    route_interaction_chunks = (
+        tensors["route_relative_action_chunk"].to(device)
+        if int(getattr(model, "route_interaction_chunk_dim", 0)) > 0
+        else None
+    )
     with torch.no_grad():
         _mean, _log_variance, _latent, auxiliary = model.forward_multitask(
             tensors["inputs"].to(device),
@@ -88,6 +93,7 @@ def audit_split(model: torch.nn.Module, dataset: Path, metadata: Path, split: st
             tensors["route_action_chunk"].to(device),
             tensors["route_candidate_index"].to(device),
             tensors["route_side_index"].to(device),
+            route_interaction_chunks,
         )
     report: dict[str, Any] = {
         "split": split,

@@ -82,6 +82,7 @@ def test_boundary_shadow_append_is_offline_only_and_does_not_step_environment() 
     assert env.step_calls == 0
     assert samples["sample_type"] == [1, 1, 1, 1]
     assert samples["route_candidate_index"] == [-1, -1, -1, -1]
+    assert np.asarray(samples["route_relative_action_chunk"]).shape == (4, 5, 3)
 
 
 def test_boundary_shadow_ttc_is_nonnegative_and_finite() -> None:

@@ -81,6 +81,18 @@ def audit_archive(directory: Path, *, expected_dataset_version: str = DATASET_VE
     missing = sorted(required.difference(arrays.files))
     if missing:
         raise ValueError(f"Archive is missing arrays {missing}: {directory}")
+    if metadata.get("interaction_action_conditioned_route_chunk") is True:
+        if "route_action_chunk" not in arrays.files or "route_relative_action_chunk" not in arrays.files:
+            raise ValueError(f"Interaction-conditioned archive is missing route action arrays: {directory}")
+        route_actions = np.asarray(arrays["route_action_chunk"])
+        relative_actions = np.asarray(arrays["route_relative_action_chunk"])
+        if relative_actions.shape != route_actions.shape:
+            raise ValueError(
+                "route_relative_action_chunk must match route_action_chunk shape: "
+                f"{relative_actions.shape} != {route_actions.shape}"
+            )
+        if not np.isfinite(relative_actions).all():
+            raise ValueError(f"route_relative_action_chunk contains NaN/Inf: {directory}")
     sample_count = int(arrays["sample_type"].shape[0])
     if sample_count <= 0:
         raise ValueError(f"Archive is empty: {directory}")

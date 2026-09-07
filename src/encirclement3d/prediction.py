@@ -440,6 +440,7 @@ class InteractionAwareActionConditionedRouteJEPAPredictor(
         num_layers: int = 1,
         interaction_group_slices: tuple[tuple[int, int], ...] | list[list[int]] | None = None,
         route_chunk_length: int = 3,
+        route_interaction_chunk_dim: int = 0,
         route_candidate_count: int = 12,
         route_side_count: int = 12,
     ) -> None:
@@ -454,12 +455,16 @@ class InteractionAwareActionConditionedRouteJEPAPredictor(
         )
         if route_chunk_length <= 0 or route_candidate_count <= 0 or route_side_count <= 0:
             raise ValueError("Route dimensions must be positive.")
+        if route_interaction_chunk_dim < 0 or route_interaction_chunk_dim > 0 and route_interaction_chunk_dim != action_dim:
+            raise ValueError("route_interaction_chunk_dim must be zero or equal to action_dim.")
         self.route_chunk_length = int(route_chunk_length)
+        self.route_interaction_chunk_dim = int(route_interaction_chunk_dim)
         self.route_candidate_count = int(route_candidate_count)
         self.route_side_count = int(route_side_count)
         self.supports_route_chunks = True
         self.supports_route_metadata = True
         route_input_dim = self.route_chunk_length * self.action_dim
+        route_input_dim += self.route_chunk_length * self.route_interaction_chunk_dim
         self.route_encoder = nn.Sequential(
             nn.Linear(route_input_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
@@ -528,6 +533,7 @@ class InteractionAwareActionConditionedRouteJEPAPredictor(
         device: torch.device,
         route_candidate_indices: torch.Tensor | None = None,
         route_side_indices: torch.Tensor | None = None,
+        route_interaction_chunks: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if route_chunks is None:
             route_chunks = torch.zeros(
@@ -544,7 +550,28 @@ class InteractionAwareActionConditionedRouteJEPAPredictor(
             )
         if not torch.isfinite(route_chunks).all():
             raise ValueError("route_chunks must be finite.")
-        features = self.route_encoder(route_chunks.reshape(batch_size, -1))
+        route_values = [route_chunks.reshape(batch_size, -1)]
+        if self.route_interaction_chunk_dim:
+            if route_interaction_chunks is None:
+                route_interaction_chunks = torch.zeros(
+                    batch_size,
+                    self.route_chunk_length,
+                    self.route_interaction_chunk_dim,
+                    dtype=dtype,
+                    device=device,
+                )
+            expected = (batch_size, self.route_chunk_length, self.route_interaction_chunk_dim)
+            if route_interaction_chunks.shape != expected:
+                raise ValueError(
+                    "Expected route_interaction_chunks shape "
+                    f"{expected}, got {tuple(route_interaction_chunks.shape)}."
+                )
+            if not torch.isfinite(route_interaction_chunks).all():
+                raise ValueError("route_interaction_chunks must be finite.")
+            route_values.append(route_interaction_chunks.reshape(batch_size, -1))
+        elif route_interaction_chunks is not None:
+            raise ValueError("route_interaction_chunks requires route_interaction_chunk_dim > 0.")
+        features = self.route_encoder(torch.cat(route_values, dim=-1))
         for values, embedding, count, name in (
             (route_candidate_indices, self.route_candidate_embedding, self.route_candidate_count, "route_candidate_indices"),
             (route_side_indices, self.route_side_embedding, self.route_side_count, "route_side_indices"),
@@ -570,6 +597,7 @@ class InteractionAwareActionConditionedRouteJEPAPredictor(
         route_chunks: torch.Tensor | None = None,
         route_candidate_indices: torch.Tensor | None = None,
         route_side_indices: torch.Tensor | None = None,
+        route_interaction_chunks: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if inputs.ndim != 3 or inputs.shape[-1] != self.input_dim:
             raise ValueError(
@@ -594,6 +622,7 @@ class InteractionAwareActionConditionedRouteJEPAPredictor(
             inputs.device,
             route_candidate_indices,
             route_side_indices,
+            route_interaction_chunks,
         )
         context_last = context[:, -1] + route_features
         predicted_latent = self.latent_predictor(context_last).view(
@@ -637,6 +666,7 @@ class InteractionAwareActionConditionedRouteJEPAPredictor(
         route_chunks: torch.Tensor | None = None,
         route_candidate_indices: torch.Tensor | None = None,
         route_side_indices: torch.Tensor | None = None,
+        route_interaction_chunks: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         mean, log_variance, latent = self.forward(
             inputs,
@@ -644,6 +674,7 @@ class InteractionAwareActionConditionedRouteJEPAPredictor(
             route_chunks,
             route_candidate_indices,
             route_side_indices,
+            route_interaction_chunks,
         )
         return mean, log_variance, latent, self.auxiliary_predictions(latent)
 
@@ -791,6 +822,7 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
         route_chunks: torch.Tensor | None = None,
         route_candidate_indices: torch.Tensor | None = None,
         route_side_indices: torch.Tensor | None = None,
+        route_interaction_chunks: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         mean, log_variance, latent = self.forward(
             inputs,
@@ -798,6 +830,7 @@ class InteractionAwareActionConditionedRouteHardNegativeJEPAPredictor(
             route_chunks,
             route_candidate_indices,
             route_side_indices,
+            route_interaction_chunks,
         )
         return mean, log_variance, latent, self.auxiliary_predictions(
             latent,

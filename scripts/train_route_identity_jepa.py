@@ -50,6 +50,7 @@ REQUIRED_ARRAYS = (
     "inputs",
     "action_history",
     "route_action_chunk",
+    "route_relative_action_chunk",
     "labels_relative",
     "labels_obstacle_clearance",
     "labels_boundary_clearance",
@@ -189,10 +190,24 @@ def _finite_tensor(name: str, values: np.ndarray, samples: int) -> torch.Tensor:
 def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
     metadata = _load_metadata(metadata_path, path, expected_split)
     with np.load(path) as archive:
-        missing = set(REQUIRED_ARRAYS).difference(archive.files)
+        archive_files = set(archive.files)
+        # The interaction-conditioned route feature was introduced after the
+        # v1/v2 archives.  Keep those archives loadable for audit/reproduction
+        # by supplying an explicit zero feature, while requiring the field
+        # whenever the metadata declares the new contract.
+        interaction_field = "route_relative_action_chunk"
+        declared_interaction = bool(metadata.get("interaction_action_conditioned_route_chunk", False))
+        if declared_interaction and interaction_field not in archive_files:
+            raise ValueError(f"{path} declares {interaction_field} but the array is missing")
+        missing = (set(REQUIRED_ARRAYS) - {interaction_field}).difference(archive_files)
         if missing:
             raise ValueError(f"{path} is missing route arrays: {sorted(missing)}")
-        arrays = {name: np.asarray(archive[name]) for name in REQUIRED_ARRAYS}
+        arrays = {name: np.asarray(archive[name]) for name in REQUIRED_ARRAYS if name in archive_files}
+        if interaction_field not in arrays:
+            arrays[interaction_field] = np.zeros_like(arrays["route_action_chunk"], dtype=np.float32)
+            metadata["interaction_action_conditioned_route_chunk"] = False
+        else:
+            metadata["interaction_action_conditioned_route_chunk"] = True
     samples = int(arrays["inputs"].shape[0])
     if arrays["inputs"].shape[1:] != (8, 63):
         raise ValueError(f"inputs must have shape [N,8,63], got {arrays['inputs'].shape}")
@@ -201,6 +216,8 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
     chunk_length = int(metadata["chunk_length_steps"])
     if arrays["route_action_chunk"].shape[1:] != (chunk_length, 3):
         raise ValueError(f"route_action_chunk must have shape [N,{chunk_length},3].")
+    if arrays["route_relative_action_chunk"].shape[1:] != (chunk_length, 3):
+        raise ValueError(f"route_relative_action_chunk must have shape [N,{chunk_length},3].")
     for name in ("labels_relative",):
         if arrays[name].shape[1:] != (5, 3):
             raise ValueError(f"{name} must have shape [N,5,3].")
@@ -245,6 +262,7 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
     if not np.isfinite(action_scale) or action_scale <= 0.0:
         raise ValueError("Route archive action_scale must be positive and finite.")
     tensors["route_action_chunk"] = tensors["route_action_chunk"] / action_scale
+    tensors["route_relative_action_chunk"] = tensors["route_relative_action_chunk"] / action_scale
     return tensors, metadata
 
 
@@ -257,6 +275,7 @@ def _paired_contract(train: dict[str, Any], validation: dict[str, Any]) -> None:
         "chunk_length_steps",
         "horizon_steps",
         "action_scale",
+        "interaction_action_conditioned_route_chunk",
     )
     mismatch = {
         field: {"train": train.get(field), "validation": validation.get(field)}
@@ -391,12 +410,18 @@ def _losses(
     hazard_positive_weight: float,
     quantile: float,
 ) -> dict[str, torch.Tensor]:
+    route_interaction_chunks = (
+        batch["route_relative_action_chunk"]
+        if int(getattr(model, "route_interaction_chunk_dim", 0)) > 0
+        else None
+    )
     mean, log_variance, latent, auxiliary = model.forward_multitask(
         batch["inputs"],
         batch["action_history"],
         batch["route_action_chunk"],
         batch["route_candidate_index"],
         batch["route_side_index"],
+        route_interaction_chunks,
     )
     target = batch["labels_relative"]
     target_nll = gaussian_nll(mean, log_variance, target)
@@ -680,6 +705,9 @@ def main() -> None:
             "interaction_group_slices", [[0, 15], [15, 33], [33, 48], [48, 63]]
         ),
         "route_chunk_length": int(train_metadata["chunk_length_steps"]),
+        "route_interaction_chunk_dim": (
+            3 if train_metadata.get("interaction_action_conditioned_route_chunk", False) else 0
+        ),
         "route_candidate_count": 12,
         "route_side_count": 12,
         "pairwise_pooling": bool(args.pairwise_pooling),
@@ -702,7 +730,33 @@ def main() -> None:
         state = base.get("model_state_dict")
         if not isinstance(state, dict):
             raise ValueError("Base checkpoint is missing model_state_dict.")
-        missing, unexpected = model.load_state_dict(state, strict=False)
+        target_state = model.state_dict()
+        adapted_state: dict[str, torch.Tensor] = {}
+        for name, value in state.items():
+            if name not in target_state:
+                continue
+            if tuple(value.shape) == tuple(target_state[name].shape):
+                adapted_state[name] = value
+                continue
+            # The interaction-conditioned route encoder appends a second
+            # chunk to the first linear layer. Preserve the learned v1 route
+            # columns and initialize only the new columns to zero so a zero
+            # interaction feature reproduces the old model exactly.
+            if name == "route_encoder.0.weight" and value.ndim == 2:
+                target = target_state[name].detach().clone()
+                if value.shape[0] != target.shape[0] or value.shape[1] > target.shape[1]:
+                    raise ValueError(
+                        "Base route encoder shape is incompatible with the interaction-conditioned model: "
+                        f"base={tuple(value.shape)}, target={tuple(target.shape)}"
+                    )
+                target[:, : value.shape[1]] = value
+                adapted_state[name] = target
+                continue
+            raise ValueError(
+                f"Base checkpoint tensor {name!r} shape {tuple(value.shape)} does not match "
+                f"target shape {tuple(target_state[name].shape)}."
+            )
+        missing, unexpected = model.load_state_dict(adapted_state, strict=False)
         expected_missing = {
             key for key in model.state_dict()
             if key.startswith((

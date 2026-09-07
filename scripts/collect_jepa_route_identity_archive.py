@@ -640,6 +640,7 @@ def _empty_samples() -> dict[str, list[Any]]:
         "inputs": [],
         "action_history": [],
         "route_action_chunk": [],
+        "route_relative_action_chunk": [],
         "labels_relative": [],
         "labels_obstacle_clearance": [],
         "labels_boundary_clearance": [],
@@ -697,6 +698,15 @@ def _append_samples(
             np.concatenate([past_actions[:, agent], candidate_chunk[0, agent][None, :]], axis=0) / action_scale
         )
         samples["route_action_chunk"].append(candidate_chunk[:, agent].copy())
+        if candidate_chunk.shape[1] > 1:
+            teammate_mean = (
+                candidate_chunk.sum(axis=1) - candidate_chunk[:, agent]
+            ) / float(candidate_chunk.shape[1] - 1)
+        else:
+            teammate_mean = np.zeros_like(candidate_chunk[:, agent])
+        samples["route_relative_action_chunk"].append(
+            (candidate_chunk[:, agent] - teammate_mean).copy()
+        )
         for source, target in (
             ("relative", "labels_relative"),
             ("obstacle_clearance", "labels_obstacle_clearance"),
@@ -758,6 +768,15 @@ def _append_boundary_shadow_samples(
             np.concatenate([past_actions[:, agent], action_chunk[0, agent][None, :]], axis=0) / action_scale
         )
         samples["route_action_chunk"].append(action_chunk[:, agent].copy())
+        if action_chunk.shape[1] > 1:
+            teammate_mean = (
+                action_chunk.sum(axis=1) - action_chunk[:, agent]
+            ) / float(action_chunk.shape[1] - 1)
+        else:
+            teammate_mean = np.zeros_like(action_chunk[:, agent])
+        samples["route_relative_action_chunk"].append(
+            (action_chunk[:, agent] - teammate_mean).copy()
+        )
         zeros = np.zeros(max(HORIZON_STEPS), dtype=np.float32)
         for key, value in (
             ("labels_relative", np.zeros((max(HORIZON_STEPS), 3), dtype=np.float32)),
@@ -1083,6 +1102,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         "history_length": 8,
         "horizon_steps": list(HORIZON_STEPS),
         "chunk_length_steps": int(args.chunk_length_steps),
+        "interaction_action_conditioned_route_chunk": True,
         "candidate_profile": "obstacle_route_v1",
         "candidate_count": len(ROUTE_LABELS),
         "route_labels": list(ROUTE_LABELS),
