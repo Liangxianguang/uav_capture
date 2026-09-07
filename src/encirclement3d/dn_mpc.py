@@ -40,6 +40,7 @@ class DNMPCConfig:
     terminal_progress_weight: float = 0.25
     stopping_distance_weight: float = 0.15
     stopping_acceleration_mps2: float = 6.0
+    tangent_route_hold_steps: int = 5
 
     def __post_init__(self) -> None:
         if int(self.horizon_steps) <= 0:
@@ -65,6 +66,8 @@ class DNMPCConfig:
             raise ValueError("minimum_hold_steps must be non-negative and max_route_age_steps positive.")
         if float(self.stopping_acceleration_mps2) <= 0.0:
             raise ValueError("stopping_acceleration_mps2 must be positive.")
+        if int(self.tangent_route_hold_steps) < 0:
+            raise ValueError("tangent_route_hold_steps must be non-negative.")
 
 
 @dataclass(frozen=True)
@@ -88,6 +91,7 @@ class DNMPCDecision:
     active_obstacle_id: int | None = None
     terminal_progress_costs: tuple[float, ...] = ()
     stopping_distance_costs: tuple[float, ...] = ()
+    route_confidence: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -108,6 +112,7 @@ class DNMPCDecision:
             "active_obstacle_id": self.active_obstacle_id,
             "terminal_progress_costs": list(self.terminal_progress_costs),
             "stopping_distance_costs": list(self.stopping_distance_costs),
+            "route_confidence": float(self.route_confidence),
         }
 
 
@@ -125,6 +130,8 @@ class DistributedMinimaxMPC:
         self._route_id: str | None = None
         self._route_side: str | None = None
         self._route_age = 0
+        self._phase = "approach"
+        self._tangent_age = 0
 
     @property
     def route_id(self) -> str | None:
@@ -134,6 +141,8 @@ class DistributedMinimaxMPC:
         self._route_id = None
         self._route_side = None
         self._route_age = 0
+        self._phase = "approach"
+        self._tangent_age = 0
 
     def _belief(self, observation: Mapping[str, Any], defender_count: int) -> tuple[np.ndarray, np.ndarray]:
         positions = _finite_array(observation.get("defender_positions"), (defender_count, 3), "defender_positions")
@@ -303,10 +312,17 @@ class DistributedMinimaxMPC:
         observation: Mapping[str, Any],
         *,
         previous_action: np.ndarray | None = None,
+        eligible_mask: Sequence[bool] | None = None,
     ) -> DNMPCDecision:
         candidates = tuple(getattr(route_batch, "candidates", ()))
         if not candidates:
             raise ValueError("route_batch must contain candidates.")
+        if eligible_mask is None:
+            eligible = np.asarray([bool(getattr(candidate, "valid", True)) for candidate in candidates], dtype=bool)
+        else:
+            eligible = np.asarray(eligible_mask, dtype=bool)
+            if eligible.shape != (len(candidates),):
+                raise ValueError("eligible_mask must contain one entry per route candidate.")
         first_action = np.asarray(candidates[0].action_chunk, dtype=np.float64)[0]
         previous = np.zeros_like(first_action) if previous_action is None else _finite_array(previous_action, first_action.shape, "previous_action")
         positions = _finite_array(observation.get("defender_positions"), first_action.shape, "defender_positions")
@@ -321,7 +337,7 @@ class DistributedMinimaxMPC:
         stopping_distance = np.full(len(candidates), np.inf, dtype=np.float64)
         local_rows: list[tuple[float, ...]] = [tuple() for _ in candidates]
         for index, candidate in enumerate(candidates):
-            if not bool(getattr(candidate, "valid", True)):
+            if not bool(eligible[index]):
                 continue
             score, worst_value, capture_value, formation_value, smoothness_value, progress_value, stopping_value, local = self._score_candidate(
                 candidate, observation, previous, hypotheses
@@ -355,6 +371,7 @@ class DistributedMinimaxMPC:
                 escape_hypotheses=tuple(tuple(float(value) for value in row) for row in hypotheses),
                 terminal_progress_costs=tuple(float(value) for value in terminal_progress),
                 stopping_distance_costs=tuple(float(value) for value in stopping_distance),
+                route_confidence=0.0,
             )
         best_index = int(valid_indices[np.argmin(scores[valid_indices])])
         current_index = next(
@@ -363,9 +380,25 @@ class DistributedMinimaxMPC:
         )
         selected_index = best_index
         reason = "minimax_best_route"
+        current_phase = self._phase
+        tangent_indices = [
+            int(index)
+            for index in valid_indices
+            if self._route_phase(candidates[int(index)]).startswith("tangent_")
+            and str(getattr(candidates[int(index)], "side", "")) == self._route_side
+        ]
+        if current_phase.startswith("tangent_") and int(self._tangent_age) < int(self.config.tangent_route_hold_steps):
+            if current_index is not None and self._route_phase(candidates[current_index]).startswith("tangent_"):
+                selected_index = int(current_index)
+                reason = "tangent_side_hold"
+            elif tangent_indices:
+                selected_index = min(tangent_indices, key=lambda index: float(scores[index]))
+                reason = "tangent_side_reacquire"
         if current_index is not None and int(self._route_age) < int(self.config.max_route_age_steps):
             improvement = float(scores[current_index] - scores[best_index])
-            if int(self._route_age) < int(self.config.minimum_hold_steps):
+            if reason != "minimax_best_route":
+                pass
+            elif int(self._route_age) < int(self.config.minimum_hold_steps):
                 selected_index = int(current_index)
                 reason = "route_hold_minimum_age"
             elif improvement < float(self.config.switch_improvement_m):
@@ -379,6 +412,17 @@ class DistributedMinimaxMPC:
             self._route_age += 1
         self._route_id = str(selected.route_id)
         self._route_side = str(getattr(selected, "side", ""))
+        selected_phase = self._route_phase(selected)
+        if selected_phase.startswith("tangent_"):
+            self._tangent_age = self._tangent_age + 1 if self._phase == selected_phase and not switched else 0
+        else:
+            self._tangent_age = 0
+        self._phase = selected_phase
+        finite_scores = np.sort(scores[valid_indices])
+        if finite_scores.size >= 2:
+            route_confidence = float(np.clip((finite_scores[1] - finite_scores[0]) / (abs(finite_scores[0]) + 1e-9), 0.0, 1.0))
+        else:
+            route_confidence = 1.0
         return DNMPCDecision(
             selected_index=int(selected_index),
             selected_route_id=self._route_id,
@@ -397,6 +441,7 @@ class DistributedMinimaxMPC:
             active_obstacle_id=getattr(selected, "obstacle_id", None),
             terminal_progress_costs=tuple(float(value) for value in terminal_progress),
             stopping_distance_costs=tuple(float(value) for value in stopping_distance),
+            route_confidence=route_confidence,
         )
 
 

@@ -1,0 +1,32 @@
+schema_version: dn_mpc_cbf_g5_development_v1
+development_only: true
+locked_test_opened: false
+evaluation_type: dn_mpc_cbf_g5_development
+episodes: 4
+scene_manifest: results/jepa_route_recovery_dev_g1b_seed20260911/scene_manifest.jsonl
+planner:
+  horizon_steps: 5
+  dt_seconds: 0.1
+  target_escape_speed_mps: 1.0
+  target_escape_acceleration_mps2: 1.0
+  route_switch_penalty_m: 0.15
+  switch_improvement_m: 0.25
+  minimum_hold_steps: 2
+  tangent_route_hold_steps: 5
+route:
+  profile: obstacle_route_v1
+  chunk_length_steps: 5
+  corridor_samples: 65
+  project_to_reachable_dynamics: true
+  execute_first_step_then_replan: true
+cbf:
+  barrier_mode: strict_buffer
+  anticipatory_horizon_steps: 3
+  route_probe_horizon_steps: 3
+  obstacle_margin_m: 0.35
+  inter_agent_margin_m: 0.35
+  boundary_margin_m: 0.35
+modules:
+  jepa_enabled: false
+  ledger_enabled: false
+  simulator_action_executed: true
