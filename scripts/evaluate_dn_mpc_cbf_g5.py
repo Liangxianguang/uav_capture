@@ -102,6 +102,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--cbf-horizon", type=int, default=3)
     parser.add_argument("--route-probe-horizon", type=int, default=3)
     parser.add_argument("--route-corridor-samples", type=int, default=65)
+    parser.add_argument("--minimum-hold-steps", type=int, default=2)
+    parser.add_argument("--switch-improvement-m", type=float, default=0.25)
+    parser.add_argument("--tangent-route-hold-steps", type=int, default=5)
     parser.add_argument("--development-only", action="store_true")
     return parser.parse_args()
 
@@ -136,13 +139,23 @@ def _buffer_observables(env: CaptureRadiusPursuit3DEnv, safety_filter: JointCBFQ
     }
 
 
+def _planner_config(args: argparse.Namespace, dt_seconds: float) -> DNMPCConfig:
+    return DNMPCConfig(
+        horizon_steps=5,
+        dt_seconds=float(dt_seconds),
+        minimum_hold_steps=int(args.minimum_hold_steps),
+        switch_improvement_m=float(args.switch_improvement_m),
+        tangent_route_hold_steps=int(args.tangent_route_hold_steps),
+    )
+
+
 def _run_episode(*, item: dict[str, Any], config: dict[str, Any], actor: Any, action_scale: float, device: torch.device, args: argparse.Namespace, output_dir: Path) -> dict[str, Any]:
     spec = dict(item["spec"])
     scenario = scenario_from_metadata(dict(item["scenario"]))
     env = CaptureRadiusPursuit3DEnv(config, obstacle_count=len(scenario.obstacles), target_speed_scale=float(spec["target_speed_scale"]))
     observation = prepare_showcase_episode(env, scenario, seed=int(spec["episode_seed"]), record_history=True, validate_scenario=False)
     safety_filter = JointCBFQPSafetyFilter(env, anticipatory_horizon_steps=int(args.cbf_horizon), barrier_mode="strict_buffer")
-    planner = DistributedMinimaxMPC(DNMPCConfig(horizon_steps=5, dt_seconds=float(env.dt), tangent_route_hold_steps=5))
+    planner = DistributedMinimaxMPC(_planner_config(args, float(env.dt)))
     previous_action = np.asarray(env.defender_velocities, dtype=np.float64).copy()
     hidden = actor.initial_actor_hidden(env.n_defenders, device=device) if hasattr(actor, "initial_actor_hidden") else None
     route_switches = 0
@@ -303,6 +316,10 @@ def main() -> None:
         raise SystemExit("The G5 S1 evaluator requires exactly the frozen 4-episode manifest.")
     if args.cbf_horizon <= 0 or args.route_probe_horizon <= 0:
         raise SystemExit("CBF and route probe horizons must be positive.")
+    if args.minimum_hold_steps < 0 or args.tangent_route_hold_steps < 0:
+        raise SystemExit("Route hold steps must be non-negative.")
+    if not np.isfinite(args.switch_improvement_m) or args.switch_improvement_m < 0.0:
+        raise SystemExit("Switch improvement must be finite and non-negative.")
     output_dir = _fresh(args.output_dir, "output directory")
     (output_dir / "step_traces").mkdir(parents=True, exist_ok=True)
     tensorboard_dir = _fresh(args.tensorboard_dir, "TensorBoard directory")
@@ -353,7 +370,7 @@ def main() -> None:
             "scene_manifest_sha256": _sha256(args.scene_manifest),
         },
         "contract": {
-            "planner": asdict(DNMPCConfig(horizon_steps=5, dt_seconds=0.1, tangent_route_hold_steps=5)),
+            "planner": asdict(_planner_config(args, 0.1)),
             "cbf": JointCBFQPSafetyFilter(probe_env, anticipatory_horizon_steps=args.cbf_horizon, barrier_mode="strict_buffer").contract,
             "route_probe_horizon": int(args.route_probe_horizon),
             "route_chunk_length_steps": 5,

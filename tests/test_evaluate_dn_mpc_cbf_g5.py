@@ -1,8 +1,9 @@
 from pathlib import Path
+from argparse import Namespace
 
 import numpy as np
 
-from scripts.evaluate_dn_mpc_cbf_g5 import _buffer_observables
+from scripts.evaluate_dn_mpc_cbf_g5 import _buffer_observables, _planner_config
 
 
 def test_s1_buffer_observables_are_separate_from_physical_clearance() -> None:
@@ -31,3 +32,13 @@ def test_s1_result_contract_is_development_only() -> None:
     assert "locked_test_opened: false" in text
     assert "jepa_enabled: false" in text
     assert "ledger_enabled: false" in text
+
+
+def test_route_hysteresis_parameters_are_reflected_in_planner_contract() -> None:
+    config = _planner_config(
+        Namespace(minimum_hold_steps=3, switch_improvement_m=0.35, tangent_route_hold_steps=6),
+        0.1,
+    )
+    assert config.minimum_hold_steps == 3
+    assert np.isclose(config.switch_improvement_m, 0.35)
+    assert config.tangent_route_hold_steps == 6
