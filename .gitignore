@@ -1,6 +1,7 @@
 __pycache__/
 .pytest_cache/
 *.py[cod]
+.codegraph/
 
 # Generated experiment outputs stay local or in an external archive.
 results/*
