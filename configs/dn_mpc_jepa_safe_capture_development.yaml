@@ -18,7 +18,10 @@ planner:
   stopping_distance_weight: 0.15
   stopping_acceleration_mps2: 6.0
 route:
-  chunk_length_steps: 5
+  # The route-conditioned JEPA checkpoint was trained with three-step chunks.
+  # DN-MPC may still score a five-step horizon, but the executable candidate
+  # interface must stay aligned with the checkpoint contract.
+  chunk_length_steps: 3
   dt_seconds: 0.1
   max_speed_mps: 5.0
   max_acceleration_mps2: 6.0

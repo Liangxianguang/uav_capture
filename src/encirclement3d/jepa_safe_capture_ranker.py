@@ -1018,7 +1018,18 @@ class SafeCaptureJEPARanker:
                 nominal_anchor_selected = bool(best == 0 and int(ordered[0]) != 0)
                 if best != 0:
                     if self.config.fixed_point_score_comparison:
-                        best = 0 if int(score_keys[0]) <= int(score_keys[best]) + tie_units else best
+                        # The nominal anchor can be rejected by the causal CBF
+                        # prefilter.  Its fixed-point key is then deliberately
+                        # ``None``; it must not be compared as though it were
+                        # an eligible score.
+                        nominal_key = score_keys[0]
+                        best_key_for_candidate = score_keys[best]
+                        if (
+                            nominal_key is not None
+                            and best_key_for_candidate is not None
+                            and int(nominal_key) <= int(best_key_for_candidate) + tie_units
+                        ):
+                            best = 0
                     elif bool(eligible[0]) and scores[0] <= scores[best] + self.config.nominal_anchor_margin_m:
                         best = 0
                 if best != 0 and (

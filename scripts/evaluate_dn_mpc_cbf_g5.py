@@ -149,7 +149,7 @@ def _planner_config(args: argparse.Namespace, dt_seconds: float) -> DNMPCConfig:
         minimum_hold_steps=int(args.minimum_hold_steps),
         switch_improvement_m=float(args.switch_improvement_m),
         tangent_route_hold_steps=int(args.tangent_route_hold_steps),
-        boundary_rescue_trigger_m=float(args.boundary_rescue_trigger_m),
+        boundary_rescue_trigger_m=float(getattr(args, "boundary_rescue_trigger_m", 3.0)),
     )
 
 
