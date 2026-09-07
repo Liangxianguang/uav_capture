@@ -1,7 +1,7 @@
 # DN-MPC + JEPA + CBF 新方向 TODO 计划
 
-**版本：** v1.0（development-only）  
-**日期：** 2026-09-07  
+**版本：** v1.0（development-only）
+**日期：** 2026-09-07
 **目标：** 在不破坏现有 M0/M3/G5、V4 locked 结果和 CBF 安全合同的前提下，引入面向对抗围捕的分布式极小极大 DN-MPC 规划器。
 
 ## 0. 不冲突原则
