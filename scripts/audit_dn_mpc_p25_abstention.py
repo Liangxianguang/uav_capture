@@ -18,11 +18,15 @@ from typing import Any
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
-from train_route_identity_jepa import load_dataset
-
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+try:
+    from scripts.train_route_identity_jepa import load_dataset
+except ModuleNotFoundError:  # pragma: no cover - direct CLI fallback
+    from train_route_identity_jepa import load_dataset
+
+
 ROUTE_LABELS = (
     "nominal",
     "left_detour",
