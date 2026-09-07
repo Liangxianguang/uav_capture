@@ -86,4 +86,3 @@ The repeated failure narrows the next research task to representation/label
 calibration for runtime and split/merge interactions. It is not evidence that
 CBF margins should be relaxed and it is not evidence of an end-to-end JEPA
 improvement.
-
