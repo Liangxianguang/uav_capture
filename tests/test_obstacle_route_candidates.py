@@ -84,6 +84,20 @@ def test_route_contract_contains_interpretable_three_step_candidates() -> None:
     assert all(candidate.action_chunk.shape[0] >= 3 for candidate in batch.candidates)
 
 
+def test_open_scene_generates_all_development_route_labels() -> None:
+    batch = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        _observation([]),
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+
+    assert len(batch.candidates) == len(ROUTE_LABELS)
+    assert batch.candidates[batch.labels.index("left_detour")].rejection_reasons == ("no_obstacle",)
+    assert batch.candidates[batch.labels.index("right_detour")].rejection_reasons == ("no_obstacle",)
+    assert batch.candidates[batch.labels.index("radial_out")].side == "radial_out"
+    assert batch.candidates[batch.labels.index("formation_split")].side == "split"
+
+
 def test_central_obstacle_generates_distinct_left_right_and_upper_routes() -> None:
     observation = _observation([_cylinder((0.0, 0.0))])
     batch = generate_obstacle_route_candidates(
@@ -107,6 +121,21 @@ def test_central_obstacle_generates_distinct_left_right_and_upper_routes() -> No
     assert left.valid and right.valid and upper.valid
     assert left.minimum_geometric_clearance_m >= 0.35 - 1e-8
     assert right.minimum_geometric_clearance_m >= 0.35 - 1e-8
+
+
+def test_direct_nominal_corridor_is_rejected_when_start_to_target_crosses_obstacle() -> None:
+    batch = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        _observation([_cylinder((0.0, 0.0))]),
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+
+    nominal = batch.candidates[batch.labels.index("nominal")]
+    intercept = batch.candidates[batch.labels.index("safe_intercept")]
+    assert not nominal.valid
+    assert not intercept.valid
+    assert "route_clearance_below_margin" in nominal.rejection_reasons
+    assert "route_clearance_below_margin" in intercept.rejection_reasons
 
 
 def test_left_blocked_scene_shifts_left_route_and_keeps_right_route() -> None:

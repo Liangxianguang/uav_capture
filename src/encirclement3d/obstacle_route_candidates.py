@@ -698,10 +698,13 @@ def _route_waypoints(
         return np.stack([target]), "nominal", (), None, None
     if label == "braking" or label == "verified_safe_hold":
         return np.stack([centroid]), "hold", (), None, None
-    if label == "radial_out" and obstacle is not None:
-        away = _unit(centroid - obstacle.center_3d, np.array([1.0, 0.0, 0.0]))
+    if label == "radial_out":
+        if obstacle is not None:
+            away = _unit(centroid - obstacle.center_3d, np.array([1.0, 0.0, 0.0]))
+        else:
+            away = _unit(centroid - target, np.array([-1.0, 0.0, 0.0]))
         return np.stack([centroid + away * (config.route_buffer_m + margin), target]), "radial_out", (), obstacle_id, obstacle_shape
-    if label == "formation_split" and obstacle is not None:
+    if label == "formation_split":
         split_offset = np.array([left_xy[0], left_xy[1], 0.0], dtype=np.float64) * (
             config.route_buffer_m + margin
         )
@@ -897,8 +900,9 @@ def make_obstacle_route_candidates(
         else:
             raw_chunk = _actions_from_waypoints(positions, waypoints, label=label, config=settings)
         projected_chunk, projected, projection_reasons = _project_chunk(raw_chunk, previous, settings)
+        geometry_path = np.vstack((centroid[None, :], waypoints))
         geometric_feasible, minimum_clearance, geometry_reasons = _route_geometric_feasibility(
-            waypoints,
+            geometry_path,
             obstacles,
             config=settings,
         )

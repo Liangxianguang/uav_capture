@@ -391,8 +391,8 @@ DN-MPC -> nominal route planner
 
 1. [x] 初始化本地 CodeGraph，并确认新 planner 与旧 evaluator 尚未耦合。
 2. [x] 修正 DN-MPC 局部成本输出契约，完成 `22 passed` 回归。
-3. [ ] 新增 `scripts/smoke_dn_mpc_route_selection.py`，使用 synthetic route batch，输出 JSON 和 TensorBoard。
-4. [ ] 新增 `configs/dn_mpc_jepa_safe_capture_development.yaml`，明确 `development_only=true` 和 `locked_test_opened=false`。
+3. [x] 新增 `scripts/smoke_dn_mpc_route_selection.py`，使用 synthetic route batch，输出 JSON 和 TensorBoard。
+4. [x] 新增 `configs/dn_mpc_jepa_safe_capture_development.yaml`，明确 `development_only=true` 和 `locked_test_opened=false`。
 5. [ ] 完成 P0 manifest，再运行 S1：DN-MPC + CBF G5 4 场景。
 6. [ ] 若 S1 通过，接入路线状态机并运行 L0-L1；若失败，只修 planner/接口，不训练 JEPA。
 7. [ ] S1/S2 稳定后再采集 hard-negative archive 和训练 JEPA evaluator。

@@ -1,0 +1,35 @@
+schema_version: dn_mpc_jepa_safe_capture_development_v1
+development_only: true
+locked_test_opened: false
+planner:
+  horizon_steps: 5
+  dt_seconds: 0.1
+  target_escape_speed_mps: 1.0
+  target_escape_acceleration_mps2: 1.0
+  capture_weight: 1.0
+  worst_case_escape_weight: 1.0
+  formation_weight: 0.15
+  smoothness_weight: 0.05
+  route_switch_penalty_m: 0.15
+  switch_improvement_m: 0.25
+  minimum_hold_steps: 2
+  max_route_age_steps: 50
+route:
+  chunk_length_steps: 5
+  dt_seconds: 0.1
+  max_speed_mps: 5.0
+  max_acceleration_mps2: 6.0
+  max_action_change_mps: 6.0
+  vehicle_radius_m: 0.25
+  obstacle_margin_m: 0.35
+  route_buffer_m: 0.75
+  nominal_speed_mps: 4.0
+  project_to_reachable_dynamics: true
+  corridor_samples: 65
+  visibility_search_enabled: false
+smoke:
+  simulator_action_executed: false
+  cbf_executed: false
+  jepa_enabled: false
+  ledger_enabled: false
+  scenario_contract: open_single_cylinder_single_wall_mixed
