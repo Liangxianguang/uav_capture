@@ -1,8 +1,8 @@
 # DN-MPC + JEPA + CBF 安全围捕主 TODO 计划
 
-**版本：** v1.0（development-only）  
-**日期：** 2026-09-07  
-**适用仓库：** `D:\\uav-capture\\uav_capture`  
+**版本：** v1.0（development-only）
+**日期：** 2026-09-07
+**适用仓库：** `D:\\uav-capture\\uav_capture`
 **新方向名称：** `DN-MPC-Hybrid`
 
 ## 0. 计划定位
@@ -400,4 +400,3 @@ DN-MPC -> nominal route planner
 9. [ ] 完成三 seed paired replay，再考虑新的 locked block。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**
-
