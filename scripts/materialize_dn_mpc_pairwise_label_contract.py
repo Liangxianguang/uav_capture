@@ -167,13 +167,17 @@ def _write_tensorboard(
     source_metadata: Path,
     source_dataset_sha256: str,
     source_metadata_sha256: str,
+    tensorboard_namespace: str,
 ) -> None:
     logdir.mkdir(parents=True, exist_ok=True)
+    namespace = str(tensorboard_namespace).strip()
+    if not namespace or any(char in namespace for char in "/\\"):
+        raise ValueError("tensorboard namespace must be a non-empty path-safe token")
     sample_type = np.asarray(arrays["sample_type"], dtype=np.int64)
     runtime = sample_type == SAMPLE_TYPES["runtime"]
     with SummaryWriter(log_dir=str(logdir), flush_secs=1) as writer:
         writer.add_text(
-            "P13/provenance",
+            f"{namespace}/provenance",
             json.dumps(
                 {
                     "source_dataset": str(source_dataset),
@@ -192,18 +196,18 @@ def _write_tensorboard(
             "labels_cbf_infeasible",
             "labels_branch_failure",
         ):
-            writer.add_scalar(f"P13/runtime/{name}_cell_rate", _rate(arrays[name], runtime[:, None]) or 0.0, 0)
+            writer.add_scalar(f"{namespace}/runtime/{name}_cell_rate", _rate(arrays[name], runtime[:, None]) or 0.0, 0)
             for sample_name, sample_id in SAMPLE_TYPES.items():
                 mask = sample_type == sample_id
                 if mask.any():
                     writer.add_scalar(
-                        f"P13/{sample_name}/{name}_cell_rate",
+                        f"{namespace}/{sample_name}/{name}_cell_rate",
                         _rate(np.asarray(arrays[name]), mask[:, None]) or 0.0,
                         0,
                     )
-        writer.add_scalar("P13/runtime/rows", float(runtime.sum()), 0)
-        writer.add_scalar("P13/boundary_shadow/rows", float((~runtime).sum()), 0)
-        writer.add_text("P13/contract", json.dumps(contract, sort_keys=True), 0)
+        writer.add_scalar(f"{namespace}/runtime/rows", float(runtime.sum()), 0)
+        writer.add_scalar(f"{namespace}/boundary_shadow/rows", float((~runtime).sum()), 0)
+        writer.add_text(f"{namespace}/contract", json.dumps(contract, sort_keys=True), 0)
 
 
 def materialize(
@@ -215,6 +219,7 @@ def materialize(
     dataset_version: str,
     pairwise_margin_m: float,
     ttc_threshold_s: float,
+    tensorboard_namespace: str = "P13",
 ) -> dict[str, Any]:
     source_dataset = source_dataset.resolve()
     source_metadata = source_metadata.resolve()
@@ -252,6 +257,7 @@ def materialize(
         "python": sys.version.replace("\n", " "),
         "platform": platform.platform(),
         "tensorboard_logdir": str(tensorboard_logdir),
+        "tensorboard_namespace": str(tensorboard_namespace),
         "development_only": True,
         "locked_test_opened": False,
         "pairwise_label_contract": contract,
@@ -265,6 +271,7 @@ def materialize(
         source_metadata=source_metadata,
         source_dataset_sha256=provenance["source_dataset_sha256"],
         source_metadata_sha256=provenance["source_metadata_sha256"],
+        tensorboard_namespace=tensorboard_namespace,
     )
     summary = {
         "dataset": str(dataset_path),
@@ -290,6 +297,11 @@ def main() -> int:
     parser.add_argument("--dataset-version", default="dn_mpc_route_identity_chunk5_pairwise_outcome_labels_v1")
     parser.add_argument("--pairwise-margin-m", type=float, default=0.35)
     parser.add_argument("--ttc-threshold-s", type=float, default=1.0)
+    parser.add_argument(
+        "--tensorboard-namespace",
+        default="P13",
+        help="Namespace prefix for label metrics, e.g. P15 for a later phase.",
+    )
     args = parser.parse_args()
     if args.pairwise_margin_m < 0.0 or args.ttc_threshold_s < 0.0:
         raise ValueError("pairwise margin and TTC threshold must be non-negative")
@@ -301,6 +313,7 @@ def main() -> int:
         dataset_version=args.dataset_version,
         pairwise_margin_m=args.pairwise_margin_m,
         ttc_threshold_s=args.ttc_threshold_s,
+        tensorboard_namespace=args.tensorboard_namespace,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

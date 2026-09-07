@@ -34,6 +34,10 @@ Source archive SHA-256:
 The materialized four-label archive SHA-256 is
 `c65512cdc786f0b26250458520539e769cbb5f1f718b2ab4c4f6364ccaf6840c`.
 All collection and materialization parameters were recorded in TensorBoard.
+The first materialization used the legacy `P13` namespace; it remains an
+audit artifact but is not the canonical P15 log. After the namespace fix, the
+canonical materialization uses `P15/...` tags under
+`results/dn_mpc_safe_capture_tensorboard/p15_balanced_pairwise_labels_v2`.
 
 ## Results
 
@@ -83,11 +87,9 @@ margin probes and verified execution failures.
 
 ## Cleanup audit
 
-Nine empty generated directories were identified under `results/`; no files
-were removed because all non-empty result, TensorBoard, checkpoint, report,
-and `tmp` archive directories are still part of the reproducibility evidence.
-The empty-directory list is recorded in the execution log rather than being
-silently deleted.
+Nine empty generated directories were identified under `results/` and removed.
+No files were removed: all non-empty result, TensorBoard, checkpoint, report,
+and `tmp` archive directories remain available as reproducibility evidence.
 
 ## Artifacts
 
@@ -96,5 +98,6 @@ silently deleted.
 - Collector: `scripts/collect_jepa_route_identity_archive.py`
 - Label materializer: `scripts/materialize_dn_mpc_pairwise_label_contract.py`
 - Source archive: `results/dn_mpc_jepa_safe_capture_dev/p15_balanced_pairwise_archive_calibration8_seed20260908/route_identity_counterfactual.npz`
-- Label archive: `results/dn_mpc_jepa_safe_capture_dev/p15_balanced_pairwise_labels/route_identity_pairwise_outcome_labels.npz`
+- Label archive: `results/dn_mpc_jepa_safe_capture_dev/p15_balanced_pairwise_labels_v2/route_identity_pairwise_outcome_labels.npz`
 - TensorBoard: `results/dn_mpc_jepa_safe_capture_tensorboard/p15_balanced_pairwise_archive_calibration8_seed20260908`
+- Label TensorBoard: `results/dn_mpc_safe_capture_tensorboard/p15_balanced_pairwise_labels_v2`
