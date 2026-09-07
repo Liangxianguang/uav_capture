@@ -126,6 +126,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--acceleration-slack-loss-weight", type=float, default=0.50)
     parser.add_argument("--hazard-loss-weight", type=float, default=1.0)
     parser.add_argument("--hazard-positive-weight", type=float, default=4.0)
+    parser.add_argument(
+        "--pairwise-hazard-positive-weight",
+        type=float,
+        default=None,
+        help="Optional pairwise-only hazard positive weight; defaults to --hazard-positive-weight.",
+    )
     parser.add_argument("--quantile-loss-weight", type=float, default=0.50)
     parser.add_argument("--quantile", type=float, default=0.10)
     parser.add_argument(
@@ -440,6 +446,7 @@ def _losses(
     route_ranking_horizon_index: int,
     route_ranking_margin: float,
     hazard_positive_weight: float,
+    pairwise_hazard_positive_weight: float,
     quantile: float,
 ) -> dict[str, torch.Tensor]:
     if int(getattr(model, "route_interaction_chunk_dim", 0)) == 9:
@@ -486,8 +493,12 @@ def _losses(
     pairwise_ttc_mse = F.smooth_l1_loss(
         auxiliary["pairwise_ttc_risk"] / 10.0, batch["labels_pairwise_ttc"] / 10.0
     )
-    if hazard_positive_weight <= 0.0 or not 0.0 < quantile < 1.0:
-        raise ValueError("hazard_positive_weight must be positive and quantile must be in (0,1)")
+    if (
+        hazard_positive_weight <= 0.0
+        or pairwise_hazard_positive_weight <= 0.0
+        or not 0.0 < quantile < 1.0
+    ):
+        raise ValueError("hazard positive weights must be positive and quantile must be in (0,1)")
     hazard_loss_terms: list[torch.Tensor] = []
     quantile_loss_terms: list[torch.Tensor] = []
     hazard_metrics: dict[str, torch.Tensor] = {}
@@ -502,7 +513,12 @@ def _losses(
             [(target_ttc <= threshold).float() for threshold in (0.5, 1.0, 2.0)], dim=-1
         )
         logits = auxiliary[f"{risk_name}_hazard_logits"]
-        pos_weight = torch.full((3,), float(hazard_positive_weight), device=logits.device)
+        positive_weight = (
+            pairwise_hazard_positive_weight
+            if risk_name == "pairwise_ttc"
+            else hazard_positive_weight
+        )
+        pos_weight = torch.full((3,), float(positive_weight), device=logits.device)
         hazard_element = F.binary_cross_entropy_with_logits(
             logits, target_bands, pos_weight=pos_weight, reduction="none"
         )
@@ -644,6 +660,7 @@ def run_epoch(
     route_ranking_horizon_index: int,
     route_ranking_margin: float,
     hazard_positive_weight: float,
+    pairwise_hazard_positive_weight: float,
     quantile: float,
 ) -> dict[str, float]:
     training = optimizer is not None
@@ -660,6 +677,7 @@ def run_epoch(
                 route_ranking_horizon_index=route_ranking_horizon_index,
                 route_ranking_margin=route_ranking_margin,
                 hazard_positive_weight=hazard_positive_weight,
+                pairwise_hazard_positive_weight=pairwise_hazard_positive_weight,
                 quantile=quantile,
             )
             if training:
@@ -858,6 +876,13 @@ def main() -> None:
     }
     if any(value < 0.0 for value in weights.values()):
         raise ValueError("All task weights must be non-negative.")
+    pairwise_hazard_positive_weight = (
+        float(args.hazard_positive_weight)
+        if args.pairwise_hazard_positive_weight is None
+        else float(args.pairwise_hazard_positive_weight)
+    )
+    if args.hazard_positive_weight <= 0.0 or pairwise_hazard_positive_weight <= 0.0:
+        raise ValueError("Hazard positive weights must be positive.")
     horizon_count = int(train_tensors["labels_route_progress"].shape[1])
     if args.route_ranking_horizon_index >= horizon_count:
         raise ValueError("--route-ranking-horizon-index is outside the archive horizon range.")
@@ -899,6 +924,7 @@ def main() -> None:
             route_ranking_horizon_index=args.route_ranking_horizon_index,
             route_ranking_margin=args.route_ranking_margin,
             hazard_positive_weight=args.hazard_positive_weight,
+            pairwise_hazard_positive_weight=pairwise_hazard_positive_weight,
             quantile=args.quantile,
         )
         with torch.no_grad():
@@ -911,6 +937,7 @@ def main() -> None:
                 route_ranking_horizon_index=args.route_ranking_horizon_index,
                 route_ranking_margin=args.route_ranking_margin,
                 hazard_positive_weight=args.hazard_positive_weight,
+                pairwise_hazard_positive_weight=pairwise_hazard_positive_weight,
                 quantile=args.quantile,
             )
         record: dict[str, float | int] = {"epoch": epoch}
@@ -942,6 +969,8 @@ def main() -> None:
                     "train_metadata": train_metadata,
                     "validation_metadata": validation_metadata,
                     "task_weights": weights,
+                    "hazard_positive_weight": float(args.hazard_positive_weight),
+                    "pairwise_hazard_positive_weight": pairwise_hazard_positive_weight,
                     "source_hashes": source_hashes,
                     "training_variant": "route_identity_multitask_ranked_v2",
                     "route_ranking_horizon_index": args.route_ranking_horizon_index,
@@ -998,6 +1027,8 @@ def main() -> None:
         "batch_size": args.batch_size,
         "model": model_config,
         "task_weights": weights,
+        "hazard_positive_weight": float(args.hazard_positive_weight),
+        "pairwise_hazard_positive_weight": pairwise_hazard_positive_weight,
         "route_ranking_horizon_index": args.route_ranking_horizon_index,
         "route_ranking_margin": args.route_ranking_margin,
         "best_epoch": best_epoch,
