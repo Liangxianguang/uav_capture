@@ -89,9 +89,9 @@ DN-MPC 是规划与最坏情况排序器，不是安全证明器；JEPA 是候�
 
 ### 3.3 P0 验收门
 
-- [ ] 旧基线 replay 可运行，结果和历史合同一致到允许的数值误差。
-- [ ] 新输出不覆盖任何已有文件。
-- [ ] 所有新 run 都能通过唯一 `run_id`、seed、git revision 和 config hash 追溯。
+- [x] 旧基线 replay 可运行，结果和历史合同一致到允许的数值误差。
+- [x] 新输出不覆盖任何已有文件。
+- [x] 所有新 run 都能通过唯一 `run_id`、seed、git revision 和 config hash 追溯。
 
 **不通过则停止：** 不开始训练，不接入旧闭环，不修改 CBF。
 
@@ -207,7 +207,7 @@ CBF 接入顺序固定为：
 - [ ] 记录 nominal action、selected action、safe-hold action、CBF correction norm。
 - [ ] 记录每条约束的 active/infeasible 原因，不只记录一个 abort 标签。
 - [ ] 验证路线规划器不会绕过 CBF 或直接写入环境 action。
-- [ ] 首先只在 G5 固定 4 场景运行 DN-MPC + CBF，不接 JEPA。
+- [x] 首先只在 G5 固定 4 场景运行 DN-MPC + CBF，不接 JEPA。
 
 **P4 门：** safe capture 不低于 G5 `4/4`，collision/boundary/pairwise/raw-unverified 为 0，
 timeout 和 controlled abort 不增加。
@@ -401,7 +401,7 @@ DN-MPC -> nominal route planner
 4. [x] 新增 `configs/dn_mpc_jepa_safe_capture_development.yaml`，明确 `development_only=true` 和 `locked_test_opened=false`。
 5. [x] 完成 P0 manifest；最新严格 chunk-5 G5 结果为 `4/4`，见
    `docs/DN_MPC_P0_BASELINE_FREEZE_G5_CHUNK5_20260907.md`。
-6. [ ] 若 S1 通过，接入路线状态机并运行 L0-L1；若失败，只修 planner/接口，不训练 JEPA。
+6. [ ] S1 已通过（`4/4`，见 `docs/DN_MPC_S1_REPLAY_AND_ARTIFACT_INVENTORY_20260907.md`）；接入路线状态机并运行 L0-L1，若失败只修 planner/接口，不训练 JEPA。
 7. [ ] S1/S2 稳定后再采集 hard-negative archive 和训练 JEPA evaluator。
 8. [ ] calibration gate 通过后才实现 Ledger-Lite；否则保留解析 DN-MPC + CBF。
 9. [ ] 完成三 seed paired replay，再考虑新的 locked block。
