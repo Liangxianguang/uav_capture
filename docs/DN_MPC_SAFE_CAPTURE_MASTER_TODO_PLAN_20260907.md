@@ -411,8 +411,11 @@ DN-MPC -> nominal route planner
 9. [x] P13 已完成四类显式 outcome label 合同并采集 disjoint calibration；结果见
    `docs/DN_MPC_P13_PAIRWISE_OUTCOME_LABEL_CONTRACT_STOP_20260908.md`。合同通过，
    但 valid runtime/interaction 的 strict-margin 正例为 `0%`，停止训练。
-10. [ ] P14 采集 offline-only unsafe virtual probes，补足 strict-margin 正例并通过
-    positive-count/calibration gate；不得执行 raw-unverified action。
+10. [x] P14 已完成 offline-only unsafe virtual probes；结果见
+    `docs/DN_MPC_P14_VIRTUAL_PROBE_CALIBRATION_20260908.md`。strict-margin
+    positive cell rate 为 `15.57%`、row rate 为 `40.33%`，且未执行任何
+    raw-unverified action。数据可用于校准诊断，但 branch-failure 仍为 0，
+    因此尚未通过 JEPA/Ledger promotion gate。
 11. [ ] 新 calibration gate 通过后才训练下一版 JEPA evaluator 或实现 Ledger-Lite；
     否则保留解析 DN-MPC + CBF。
 12. [ ] 完成三 seed paired replay，再考虑新的 locked block。
