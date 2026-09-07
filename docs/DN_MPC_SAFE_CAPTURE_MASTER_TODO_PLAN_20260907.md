@@ -465,5 +465,22 @@ DN-MPC -> nominal route planner
     目标逃逸代价），在独立 calibration 后训练下一枚 evaluator；未通过
     selected/nominal/safe-hold CBF trace 和 OOD/disagreement gate 前不得三
     seed paired replay。
+23. [x] 完成 P23 listwise route-JEPA 训练与审计；结果见
+    `docs/DN_MPC_P23_LISTWISE_CANDIDATE_RANKING_AUDIT_20260908.md` 和
+    `docs/DN_MPC_P23_LISTWISE_ROUTE_PROGRESS_AUDIT_20260908.md`。validation
+    exact top-1 为 `29.65%`，informative top-1 为 `51.43%`，pairwise 为
+    `83.47%`；相对 P18 有改善，但仍未通过 promotion gate。
+24. [x] 完成 P24 listwise temperature=`0.005` 训练与审计；结果见
+    `docs/DN_MPC_P24_LISTWISE_TEMP005_CANDIDATE_RANKING_AUDIT_20260908.md`
+    和 `docs/DN_MPC_P24_LISTWISE_TEMP005_ROUTE_PROGRESS_AUDIT_20260908.md`。
+    validation exact top-1 为 `36.63%`，informative top-1 为 `80.00%`，
+    pairwise 为 `88.73%`。这是有效的离线改善，但 train/calibration
+    仍有 zero-eligible groups，selected CBF trace 与 OOD/disagreement
+    binding 仍缺失，因此保持 offline-only。
+25. [ ] 实现 P25 traceability/calibration contract：在 train、validation、
+    calibration 三个 split 记录 selected candidate、nominal anchor 和
+    verified safe-hold 的独立 CBF counterfactual；建立 fresh OOD、rollout
+    disagreement 和 abstention calibration。P25 全部 gate 通过前不得在线
+    接入、创建 Ledger-Lite 或开展三 seed paired replay。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

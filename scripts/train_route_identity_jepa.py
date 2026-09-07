@@ -115,6 +115,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--route-ranking-loss-weight", type=float, default=1.0)
     parser.add_argument("--route-ranking-horizon-index", type=int, default=2)
     parser.add_argument("--route-ranking-margin", type=float, default=0.005)
+    parser.add_argument(
+        "--route-ranking-mode",
+        choices=("pairwise", "listwise"),
+        default="pairwise",
+        help="Route-progress ranking objective; pairwise preserves the P18 contract.",
+    )
+    parser.add_argument(
+        "--route-ranking-temperature",
+        type=float,
+        default=0.02,
+        help="Temperature for listwise route-progress targets and logits.",
+    )
     parser.add_argument("--route-identity-loss-weight", type=float, default=0.35)
     parser.add_argument("--route-side-loss-weight", type=float, default=0.25)
     parser.add_argument("--geometry-loss-weight", type=float, default=0.50)
@@ -385,6 +397,8 @@ def _route_progress_ranking_metrics(
     *,
     horizon_index: int,
     margin: float,
+    mode: str = "pairwise",
+    temperature: float = 0.02,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Compare route alternatives from the same belief state.
 
@@ -393,6 +407,10 @@ def _route_progress_ranking_metrics(
     negatives separately.
     """
 
+    if mode not in {"pairwise", "listwise"}:
+        raise ValueError(f"Unsupported route ranking mode: {mode!r}")
+    if temperature <= 0.0:
+        raise ValueError("route ranking temperature must be positive")
     predicted = auxiliary["route_progress"][:, horizon_index]
     observed = batch["labels_route_progress"][:, horizon_index]
     runtime = (batch["sample_type"] < 0.5) & (batch["route_candidate_index"] >= 0)
@@ -426,7 +444,16 @@ def _route_progress_ranking_metrics(
         predicted_delta = predicted_values[first] - predicted_values[second]
         signs = torch.sign(target_delta)
         pair_losses = torch.relu(float(margin) - signs * predicted_delta)[informative]
-        losses.append(pair_losses.mean())
+        if mode == "listwise":
+            # Use the continuous route utility as a soft target.  Near-tied
+            # alternatives receive similar probability mass instead of an
+            # arbitrary hard top-1 label, while the metric remains pairwise
+            # and comparable with the legacy P18 audit.
+            target_distribution = F.softmax(target_values / float(temperature), dim=0)
+            prediction_log_distribution = F.log_softmax(predicted_values / float(temperature), dim=0)
+            losses.append(-(target_distribution * prediction_log_distribution).sum())
+        else:
+            losses.append(pair_losses.mean())
         correct += int((signs[informative] * predicted_delta[informative] > 0.0).sum().item())
         pair_count += int(informative.sum().item())
     if not losses:
@@ -445,6 +472,8 @@ def _losses(
     *,
     route_ranking_horizon_index: int,
     route_ranking_margin: float,
+    route_ranking_mode: str,
+    route_ranking_temperature: float,
     hazard_positive_weight: float,
     pairwise_hazard_positive_weight: float,
     quantile: float,
@@ -566,6 +595,8 @@ def _losses(
         batch,
         horizon_index=route_ranking_horizon_index,
         margin=route_ranking_margin,
+        mode=route_ranking_mode,
+        temperature=route_ranking_temperature,
     )
     feasibility_probability = torch.sigmoid(auxiliary["cbf_feasibility_logit"])
     visibility_probability = torch.sigmoid(auxiliary["target_visibility_logit"])
@@ -659,6 +690,8 @@ def run_epoch(
     *,
     route_ranking_horizon_index: int,
     route_ranking_margin: float,
+    route_ranking_mode: str,
+    route_ranking_temperature: float,
     hazard_positive_weight: float,
     pairwise_hazard_positive_weight: float,
     quantile: float,
@@ -676,6 +709,8 @@ def run_epoch(
                 weights,
                 route_ranking_horizon_index=route_ranking_horizon_index,
                 route_ranking_margin=route_ranking_margin,
+                route_ranking_mode=route_ranking_mode,
+                route_ranking_temperature=route_ranking_temperature,
                 hazard_positive_weight=hazard_positive_weight,
                 pairwise_hazard_positive_weight=pairwise_hazard_positive_weight,
                 quantile=quantile,
@@ -886,6 +921,8 @@ def main() -> None:
     horizon_count = int(train_tensors["labels_route_progress"].shape[1])
     if args.route_ranking_horizon_index >= horizon_count:
         raise ValueError("--route-ranking-horizon-index is outside the archive horizon range.")
+    if args.route_ranking_temperature <= 0.0:
+        raise ValueError("--route-ranking-temperature must be positive.")
     train_loader = _loader(train_tensors, args.batch_size, True, args.seed)
     validation_loader = _loader(validation_tensors, args.batch_size, False, args.seed)
     trainable_parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
@@ -923,6 +960,8 @@ def main() -> None:
             weights,
             route_ranking_horizon_index=args.route_ranking_horizon_index,
             route_ranking_margin=args.route_ranking_margin,
+            route_ranking_mode=args.route_ranking_mode,
+            route_ranking_temperature=args.route_ranking_temperature,
             hazard_positive_weight=args.hazard_positive_weight,
             pairwise_hazard_positive_weight=pairwise_hazard_positive_weight,
             quantile=args.quantile,
@@ -936,6 +975,8 @@ def main() -> None:
                 weights,
                 route_ranking_horizon_index=args.route_ranking_horizon_index,
                 route_ranking_margin=args.route_ranking_margin,
+                route_ranking_mode=args.route_ranking_mode,
+                route_ranking_temperature=args.route_ranking_temperature,
                 hazard_positive_weight=args.hazard_positive_weight,
                 pairwise_hazard_positive_weight=pairwise_hazard_positive_weight,
                 quantile=args.quantile,
@@ -972,9 +1013,11 @@ def main() -> None:
                     "hazard_positive_weight": float(args.hazard_positive_weight),
                     "pairwise_hazard_positive_weight": pairwise_hazard_positive_weight,
                     "source_hashes": source_hashes,
-                    "training_variant": "route_identity_multitask_ranked_v2",
+                    "training_variant": "route_identity_multitask_ranked_v3_listwise" if args.route_ranking_mode == "listwise" else "route_identity_multitask_ranked_v2",
                     "route_ranking_horizon_index": args.route_ranking_horizon_index,
                     "route_ranking_margin": args.route_ranking_margin,
+                    "route_ranking_mode": args.route_ranking_mode,
+                    "route_ranking_temperature": args.route_ranking_temperature,
                     "best_epoch": best_epoch,
                     "best_validation_loss": best_validation_loss,
                     "base_checkpoint": str(args.base_checkpoint.resolve()) if args.base_checkpoint else None,
@@ -1016,7 +1059,7 @@ def main() -> None:
     (args.output / "history.json").write_text(json.dumps(history, indent=2) + "\n", encoding="utf-8")
     run_metadata = {
         "model_type": MODEL_TYPE,
-        "training_variant": "route_identity_multitask_ranked_v2",
+        "training_variant": "route_identity_multitask_ranked_v3_listwise" if args.route_ranking_mode == "listwise" else "route_identity_multitask_ranked_v2",
         "device": str(device),
         "torch": version("torch"),
         "python": sys.version.replace("\n", " "),
@@ -1031,6 +1074,8 @@ def main() -> None:
         "pairwise_hazard_positive_weight": pairwise_hazard_positive_weight,
         "route_ranking_horizon_index": args.route_ranking_horizon_index,
         "route_ranking_margin": args.route_ranking_margin,
+        "route_ranking_mode": args.route_ranking_mode,
+        "route_ranking_temperature": args.route_ranking_temperature,
         "best_epoch": best_epoch,
         "best_validation_loss": best_validation_loss,
         "base_checkpoint": str(args.base_checkpoint.resolve()) if args.base_checkpoint else None,

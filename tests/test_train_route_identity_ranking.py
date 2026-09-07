@@ -59,3 +59,30 @@ def test_route_progress_ranking_loss_penalizes_reversed_route_order() -> None:
     assert float(groups) == 1.0
     loss.backward()
     assert auxiliary["route_progress"].grad is not None
+
+
+def test_listwise_route_progress_loss_accepts_near_ties() -> None:
+    batch = {
+        "sample_type": torch.zeros(4),
+        "route_candidate_index": torch.tensor([0, 0, 1, 1]),
+        "scenario_index": torch.zeros(4, dtype=torch.long),
+        "time_index": torch.zeros(4, dtype=torch.long),
+        "route_geometry_valid": torch.ones(4),
+        "labels_cbf_feasible": torch.ones(4, 5),
+        "labels_route_progress": torch.tensor(
+            [[0.50, 0.0, 0.50, 0.0, 0.0], [0.50, 0.0, 0.50, 0.0, 0.0],
+             [0.49, 0.0, 0.49, 0.0, 0.0], [0.49, 0.0, 0.49, 0.0, 0.0]]
+        ),
+    }
+    auxiliary = {"route_progress": torch.tensor(
+        [[0.20, 0.0, 0.20, 0.0, 0.0], [0.20, 0.0, 0.20, 0.0, 0.0],
+         [0.10, 0.0, 0.10, 0.0, 0.0], [0.10, 0.0, 0.10, 0.0, 0.0]], requires_grad=True
+    )}
+    loss, accuracy, groups = _route_progress_ranking_metrics(
+        auxiliary, batch, horizon_index=2, margin=0.005, mode="listwise", temperature=0.02
+    )
+    assert float(loss) > 0.0
+    assert float(accuracy) == 1.0
+    assert float(groups) == 1.0
+    loss.backward()
+    assert auxiliary["route_progress"].grad is not None
