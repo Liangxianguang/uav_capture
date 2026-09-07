@@ -422,6 +422,12 @@ DN-MPC -> nominal route planner
     `0%`，因此 promotion gate 未通过，未训练 JEPA、未创建 Ledger-Lite。
 12. [ ] 新 calibration gate 通过后才训练下一版 JEPA evaluator 或实现
     Ledger-Lite；否则保留解析 DN-MPC + CBF。
-13. [ ] 完成三 seed paired replay，再考虑新的 locked block。
+13. [x] P16 已完成 P14/P15 source-bound multisource calibration bundle；结果见
+    `docs/DN_MPC_P16_MULTISOURCE_CALIBRATION_BUNDLE_20260908.md`。source-binding
+    和 provenance gate 通过，但 online promotion gate 仍未通过，未训练 JEPA、
+    未创建 Ledger-Lite。
+14. [ ] 建立独立 validation archive，验证 virtual strict-margin positives 与
+    verified branch outcomes 的跨源校准后，才允许训练/在线集成。
+15. [ ] 完成三 seed paired replay，再考虑新的 locked block。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

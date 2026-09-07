@@ -1,0 +1,50 @@
+protocol_name: dn_mpc_pairwise_multisource_calibration_v1
+protocol_version: 1
+phase: development_only
+locked_test_opened: false
+not_a_training_archive: true
+
+sources:
+  - name: p14_virtual_probe
+    role: physical_strict_margin_probe
+    actions_executed: false
+    dataset_contract: dn_mpc_pairwise_virtual_probe_outcome_labels_v1
+  - name: p15_route_outcomes
+    role: verified_runtime_and_interaction_branch_outcomes
+    actions_executed: false
+    dataset_contract: dn_mpc_pairwise_outcome_labels_v1
+
+label_contract:
+  preserve_source_semantics: true
+  labels:
+    predicted_ttc_hazard: warning_only
+    strict_margin_violation: physical_clearance_below_0.35m
+    cbf_infeasible: verified_primary_cbf_false_or_nonfinite
+    branch_failure: executed_or_verified_counterfactual_branch_failure
+  source_id_required: true
+  missing_source_specific_fields_fill_value: -1
+
+safety_contract:
+  cbf_margin_changed: false
+  stale_ood_nonfinite_gates_changed: false
+  controlled_abort_preserved: true
+  raw_unverified_execution_allowed: false
+  locked_test_collection_forbidden: true
+
+promotion_gate:
+  requires_nonzero_p14_strict_margin_positive_rows: true
+  requires_nonzero_p15_branch_failure_rows: true
+  requires_source_ids_and_hashes: true
+  requires_tensorboard_provenance: true
+  does_not_authorize_online_training: true
+  online_training_requires_independent_validation: true
+
+tensorboard:
+  required: true
+  namespace: P16
+  scalar_groups:
+    - P16/rows
+    - P16/p14_virtual_probe/strict_margin_cell_rate
+    - P16/p14_virtual_probe/branch_failure_row_rate
+    - P16/p15_route_outcomes/strict_margin_cell_rate
+    - P16/p15_route_outcomes/branch_failure_row_rate
