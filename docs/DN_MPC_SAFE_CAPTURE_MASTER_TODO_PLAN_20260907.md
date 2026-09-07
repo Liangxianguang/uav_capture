@@ -164,6 +164,8 @@ CBF feasibility
 - [x] `src/encirclement3d/dn_mpc.py` 已建立 development-only 解析 planner。
 - [x] `tests/test_dn_mpc.py` 已覆盖有效候选、无效候选、路线保持和局部成本输出。
 - [x] 与 route-recovery、obstacle-route runtime 的回归为 `22 passed`。
+- [x] `scripts/replay_dn_mpc_multicycle.py` 已完成 4 场景、72 周期 public-belief replay。
+- [x] replay 已记录 route phase、terminal progress、stopping distance、route age 和切换原因到 JSONL/TensorBoard。
 - [ ] 仍未接入旧 evaluator、JEPA 或在线 CBF runtime。
 
 ## 6. P3：路线状态机、迟滞与最近切向策略
@@ -185,6 +187,9 @@ approach -> pre_brake -> tangent_left/right -> encircle -> intercept -> capture
 
 **P3 门：** route switch、fallback、controlled abort 不高于 G5 基线；否则先回放 trace，
 不继续训练 JEPA。
+
+**当前 P3 触发证据：** P2 mixed replay 的 route switch rate 为 `29.4%`
+（5/17），因此 P3 状态机与迟滞扫描必须先完成，不能直接进入 JEPA 训练。
 
 ## 7. P4：CBF 分层接入
 

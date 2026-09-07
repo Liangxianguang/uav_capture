@@ -37,6 +37,9 @@ class DNMPCConfig:
     switch_improvement_m: float = 0.25
     minimum_hold_steps: int = 2
     max_route_age_steps: int = 50
+    terminal_progress_weight: float = 0.25
+    stopping_distance_weight: float = 0.15
+    stopping_acceleration_mps2: float = 6.0
 
     def __post_init__(self) -> None:
         if int(self.horizon_steps) <= 0:
@@ -51,12 +54,17 @@ class DNMPCConfig:
             "smoothness_weight",
             "route_switch_penalty_m",
             "switch_improvement_m",
+            "terminal_progress_weight",
+            "stopping_distance_weight",
+            "stopping_acceleration_mps2",
         ):
             value = float(getattr(self, name))
             if not np.isfinite(value) or value < 0.0 or (name == "dt_seconds" and value <= 0.0):
                 raise ValueError(f"{name} must be finite and non-negative.")
         if int(self.minimum_hold_steps) < 0 or int(self.max_route_age_steps) <= 0:
             raise ValueError("minimum_hold_steps must be non-negative and max_route_age_steps positive.")
+        if float(self.stopping_acceleration_mps2) <= 0.0:
+            raise ValueError("stopping_acceleration_mps2 must be positive.")
 
 
 @dataclass(frozen=True)
@@ -76,6 +84,10 @@ class DNMPCDecision:
     smoothness_costs: tuple[float, ...]
     local_agent_costs: tuple[tuple[float, ...], ...]
     escape_hypotheses: tuple[tuple[float, float, float], ...]
+    route_phase: str = "approach"
+    active_obstacle_id: int | None = None
+    terminal_progress_costs: tuple[float, ...] = ()
+    stopping_distance_costs: tuple[float, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -92,6 +104,10 @@ class DNMPCDecision:
             "smoothness_costs": list(self.smoothness_costs),
             "local_agent_costs": [list(row) for row in self.local_agent_costs],
             "escape_hypotheses": [list(row) for row in self.escape_hypotheses],
+            "route_phase": self.route_phase,
+            "active_obstacle_id": self.active_obstacle_id,
+            "terminal_progress_costs": list(self.terminal_progress_costs),
+            "stopping_distance_costs": list(self.stopping_distance_costs),
         }
 
 
@@ -179,7 +195,7 @@ class DistributedMinimaxMPC:
         observation: Mapping[str, Any],
         previous_action: np.ndarray,
         escape_hypotheses: tuple[np.ndarray, ...],
-    ) -> tuple[float, float, float, float, float, tuple[float, ...]]:
+    ) -> tuple[float, float, float, float, float, float, float, tuple[float, ...]]:
         positions = _finite_array(observation.get("defender_positions"), previous_action.shape, "defender_positions")
         actions = np.asarray(candidate.action_chunk, dtype=np.float64)
         if actions.ndim != 3 or actions.shape[1:] != positions.shape or not np.isfinite(actions).all():
@@ -194,6 +210,7 @@ class DistributedMinimaxMPC:
             raise ValueError("candidate.action_chunk must contain at least one step.")
         defender_rollout = np.stack(predictions, axis=0)
         horizon = defender_rollout.shape[0]
+        initial_nearest = float(np.min(np.linalg.norm(positions - target[None, :], axis=-1)))
         escape_distances: list[float] = []
         local_costs_by_hypothesis: list[np.ndarray] = []
         for escape_velocity in escape_hypotheses:
@@ -216,6 +233,11 @@ class DistributedMinimaxMPC:
             local_costs_by_hypothesis.append(distances[-1])
         capture_cost = float(np.mean(escape_distances))
         worst_case_escape = float(np.max(escape_distances))
+        final_nearest = float(np.min(np.linalg.norm(defender_rollout[-1] - target[None, :], axis=-1)))
+        # A negative cost is an explicit reward for closing the terminal gap.
+        # Keeping it separate in the trace makes the progress contribution
+        # auditable instead of hiding it inside the capture distance.
+        terminal_progress_cost = -max(0.0, initial_nearest - final_nearest)
         local = tuple(
             float(value)
             for value in np.max(np.stack(local_costs_by_hypothesis, axis=0), axis=0)
@@ -229,6 +251,12 @@ class DistributedMinimaxMPC:
         if actions.shape[0] > 1:
             action_delta = np.concatenate((action_delta.reshape(1, *action_delta.shape), np.diff(actions, axis=0)), axis=0)
         smoothness_cost = float(np.mean(np.linalg.norm(action_delta, axis=-1)))
+        speeds = np.linalg.norm(actions[:horizon], axis=-1)
+        stopping_distance = np.square(speeds) / (2.0 * float(self.config.stopping_acceleration_mps2))
+        route_clearance = float(getattr(candidate, "minimum_geometric_clearance_m", np.inf))
+        stopping_distance_cost = float(
+            np.mean(np.maximum(0.0, stopping_distance - max(route_clearance, 0.0)))
+        )
         switch_cost = (
             float(self.config.route_switch_penalty_m)
             if self._route_id is not None and str(candidate.route_id) != self._route_id
@@ -239,9 +267,35 @@ class DistributedMinimaxMPC:
             + float(self.config.worst_case_escape_weight) * worst_case_escape
             + float(self.config.formation_weight) * formation_cost
             + float(self.config.smoothness_weight) * smoothness_cost
+            + float(self.config.terminal_progress_weight) * terminal_progress_cost
+            + float(self.config.stopping_distance_weight) * stopping_distance_cost
             + switch_cost
         )
-        return score, worst_case_escape, capture_cost, formation_cost, smoothness_cost, local
+        return (
+            score,
+            worst_case_escape,
+            capture_cost,
+            formation_cost,
+            smoothness_cost,
+            terminal_progress_cost,
+            stopping_distance_cost,
+            local,
+        )
+
+    @staticmethod
+    def _route_phase(candidate: Any) -> str:
+        label = str(getattr(candidate, "label", "nominal"))
+        if label in {"braking", "radial_out"}:
+            return "pre_brake"
+        if label in {"left_detour", "right_detour", "upper_detour", "lower_detour"}:
+            return "tangent_left" if label == "left_detour" else "tangent_right" if label == "right_detour" else "tangent_vertical"
+        if label in {"formation_split", "formation_contract"}:
+            return "encircle"
+        if label in {"safe_intercept", "visibility_hold"}:
+            return "intercept"
+        if label == "verified_safe_hold":
+            return "safe_hold"
+        return "approach"
 
     def plan(
         self,
@@ -263,11 +317,13 @@ class DistributedMinimaxMPC:
         capture = np.full(len(candidates), np.inf, dtype=np.float64)
         formation = np.full(len(candidates), np.inf, dtype=np.float64)
         smoothness = np.full(len(candidates), np.inf, dtype=np.float64)
+        terminal_progress = np.full(len(candidates), np.inf, dtype=np.float64)
+        stopping_distance = np.full(len(candidates), np.inf, dtype=np.float64)
         local_rows: list[tuple[float, ...]] = [tuple() for _ in candidates]
         for index, candidate in enumerate(candidates):
             if not bool(getattr(candidate, "valid", True)):
                 continue
-            score, worst_value, capture_value, formation_value, smoothness_value, local = self._score_candidate(
+            score, worst_value, capture_value, formation_value, smoothness_value, progress_value, stopping_value, local = self._score_candidate(
                 candidate, observation, previous, hypotheses
             )
             scores[index] = score
@@ -275,6 +331,8 @@ class DistributedMinimaxMPC:
             capture[index] = capture_value
             formation[index] = formation_value
             smoothness[index] = smoothness_value
+            terminal_progress[index] = progress_value
+            stopping_distance[index] = stopping_value
             local_rows[index] = local
         valid_indices = np.flatnonzero(np.isfinite(scores))
         if valid_indices.size == 0:
@@ -295,6 +353,8 @@ class DistributedMinimaxMPC:
                 smoothness_costs=tuple(float(value) for value in smoothness),
                 local_agent_costs=tuple(local_rows),
                 escape_hypotheses=tuple(tuple(float(value) for value in row) for row in hypotheses),
+                terminal_progress_costs=tuple(float(value) for value in terminal_progress),
+                stopping_distance_costs=tuple(float(value) for value in stopping_distance),
             )
         best_index = int(valid_indices[np.argmin(scores[valid_indices])])
         current_index = next(
@@ -333,6 +393,10 @@ class DistributedMinimaxMPC:
             smoothness_costs=tuple(float(value) for value in smoothness),
             local_agent_costs=tuple(local_rows),
             escape_hypotheses=tuple(tuple(float(value) for value in row) for row in hypotheses),
+            route_phase=self._route_phase(selected),
+            active_obstacle_id=getattr(selected, "obstacle_id", None),
+            terminal_progress_costs=tuple(float(value) for value in terminal_progress),
+            stopping_distance_costs=tuple(float(value) for value in stopping_distance),
         )
 
 

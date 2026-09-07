@@ -14,6 +14,9 @@ planner:
   switch_improvement_m: 0.25
   minimum_hold_steps: 2
   max_route_age_steps: 50
+  terminal_progress_weight: 0.25
+  stopping_distance_weight: 0.15
+  stopping_acceleration_mps2: 6.0
 route:
   chunk_length_steps: 5
   dt_seconds: 0.1
