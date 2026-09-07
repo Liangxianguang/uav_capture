@@ -56,6 +56,13 @@ from encirclement3d.obstacle_route_runtime import (  # noqa: E402
     probe_independent_cbf_counterfactuals,
     probe_route_batch_with_cbf,
 )
+from encirclement3d.route_recovery import (  # noqa: E402
+    BarrierImminenceResult,
+    StoppingGuardResult,
+    compute_barrier_imminence,
+    compute_stopping_guard,
+    select_verified_progress_route,
+)
 from encirclement3d.prediction import (  # noqa: E402
     InteractionAwareActionConditionedRouteJEPAPredictor,
     InteractionAwareActionConditionedSafeCaptureJEPAPredictor,
@@ -348,6 +355,33 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=65,
         help="Public-geometry samples per route segment for obstacle_route_v1; 65 preserves the current contract.",
+    )
+    parser.add_argument(
+        "--route-probe-horizon",
+        type=int,
+        default=1,
+        help="Read-only causal CBF probe horizon for route chunks; 1 preserves first-step semantics.",
+    )
+    parser.add_argument(
+        "--stopping-distance-gate",
+        action="store_true",
+        help="Enable directional stopping-distance feasibility guard (development only).",
+    )
+    parser.add_argument(
+        "--verified-progress-fallback",
+        action="store_true",
+        help="Allow an independently CBF-verified route to recover from JEPA/Ledger abstention.",
+    )
+    parser.add_argument(
+        "--barrier-imminence-gate",
+        action="store_true",
+        help="Enable one-step CBF barrier-imminence route recovery (development only).",
+    )
+    parser.add_argument(
+        "--barrier-imminence-threshold",
+        type=float,
+        default=0.05,
+        help="Predicted CBF geometry slack threshold in metres for barrier-imminence recovery.",
     )
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument(
@@ -732,6 +766,11 @@ def _run_episode(
     proactive_braking_clearance_m: float | None = None,
     cbf_anticipatory_horizon_steps: int | None = None,
     route_corridor_samples: int = 65,
+    route_probe_horizon: int = 1,
+    stopping_distance_gate: bool = False,
+    verified_progress_fallback: bool = False,
+    barrier_imminence_gate: bool = False,
+    barrier_imminence_threshold_m: float = 0.05,
     visibility_search_enabled: bool = False,
     visibility_search_offset_m: float = 1.5,
     visibility_search_mode: str = "lateral_interior_scan_v1",
@@ -779,6 +818,10 @@ def _run_episode(
         )
     if cbf_anticipatory_horizon_steps is not None and cbf_anticipatory_horizon_steps <= 0:
         raise ValueError("cbf_anticipatory_horizon_steps must be positive when enabled.")
+    if int(route_probe_horizon) <= 0:
+        raise ValueError("route_probe_horizon must be positive.")
+    if not np.isfinite(float(barrier_imminence_threshold_m)) or barrier_imminence_threshold_m < 0.0:
+        raise ValueError("barrier_imminence_threshold_m must be finite and non-negative.")
     safety_filter = (
         JointCBFQPSafetyFilter(
             env,
@@ -883,6 +926,13 @@ def _run_episode(
     cautious_reacquisition_accepted_steps = 0
     cautious_reacquisition_rejected_steps = 0
     proactive_braking_steps = 0
+    stopping_guard_steps = 0
+    stopping_guard_by_risk: dict[str, int] = {}
+    barrier_imminence_steps = 0
+    barrier_imminence_by_risk: dict[str, int] = {}
+    verified_progress_fallback_steps = 0
+    verified_progress_fallback_labels: list[str] = []
+    route_probe_horizon_failures = 0
     target_collision = False
     forced_termination_reason: str | None = None
     final_info: dict[str, Any] = {}
@@ -971,7 +1021,12 @@ def _run_episode(
                     ),
                     previous_action=previous_action,
                 )
-                route_runtime = probe_route_batch_with_cbf(route_batch, safety_filter, observation)
+                route_runtime = probe_route_batch_with_cbf(
+                    route_batch,
+                    safety_filter,
+                    observation,
+                    horizon_steps=int(route_probe_horizon),
+                )
                 batch = route_runtime.candidate_batch
                 candidate_cbf_diagnostics = [
                     None if probe is None else probe.as_dict()
@@ -987,6 +1042,10 @@ def _run_episode(
                 )
                 route_cbf_probe_rejected += sum(
                     probe is not None and not probe.accepted for probe in route_runtime.cbf_counterfactuals
+                )
+                route_probe_horizon_failures += sum(
+                    probe is not None and probe.earliest_failure_step is not None
+                    for probe in route_runtime.cbf_counterfactuals
                 )
                 candidate_cbf_prefilter_checks += sum(
                     diagnostic is not None for diagnostic in candidate_cbf_diagnostics
@@ -1064,6 +1123,92 @@ def _run_episode(
                     "route_length_m": selected_route.route_length_m,
                     "rejection_reasons": list(selected_route.rejection_reasons),
                 }
+        route_recovery_reason: str | None = None
+        stopping_guard: StoppingGuardResult = StoppingGuardResult(
+            False, "none", 0.0, float("inf"), 0.0, (), "disabled"
+        )
+        barrier_imminence: BarrierImminenceResult = BarrierImminenceResult(
+            False,
+            "none",
+            float("inf"),
+            float(barrier_imminence_threshold_m),
+            1,
+            True,
+            "disabled",
+        )
+        # A route that has independently passed the CBF probe is a valid
+        # progress fallback when the learned scorer abstains.  The fallback
+        # never bypasses the final CBF filter and never considers safe-hold a
+        # progress route.
+        if route_runtime is not None and safety_filter is not None:
+            if stopping_distance_gate:
+                stopping_guard = compute_stopping_guard(observation, env, safety_filter)
+                if stopping_guard.triggered:
+                    stopping_guard_steps += 1
+                    stopping_guard_by_risk[stopping_guard.risk_type] = (
+                        stopping_guard_by_risk.get(stopping_guard.risk_type, 0) + 1
+                    )
+            if barrier_imminence_gate:
+                barrier_imminence = compute_barrier_imminence(
+                    observation,
+                    safety_filter,
+                    requested_action,
+                    threshold_m=float(barrier_imminence_threshold_m),
+                    prediction_steps=1,
+                )
+                if barrier_imminence.triggered:
+                    barrier_imminence_steps += 1
+                    barrier_imminence_by_risk[barrier_imminence.risk_type] = (
+                        barrier_imminence_by_risk.get(barrier_imminence.risk_type, 0) + 1
+                    )
+            should_recover = bool(
+                verified_progress_fallback
+                and (
+                    stopping_guard.triggered
+                    or barrier_imminence.triggered
+                )
+            )
+            if should_recover:
+                selected_index, route_recovery_reason = select_verified_progress_route(
+                    route_runtime.route_batch,
+                    route_runtime.cbf_counterfactuals,
+                    observation,
+                    require_detour=bool(stopping_guard.triggered or barrier_imminence.triggered),
+                )
+                if selected_index is not None and rank_result is not None:
+                    selected_route = route_runtime.route_batch.candidates[selected_index]
+                    selected_chunk = np.asarray(selected_route.action_chunk, dtype=np.float64)
+                    rank_result = replace(
+                        rank_result,
+                        selected_index=int(selected_index),
+                        selected_action=selected_chunk[0].copy(),
+                        selected_chunk=selected_chunk.copy(),
+                        execution_mode="trusted",
+                        fallback_reason=route_recovery_reason,
+                        trace=replace(
+                            rank_result.trace,
+                            selected_index=int(selected_index),
+                            execution_mode="trusted",
+                            fallback_reason=route_recovery_reason,
+                        ),
+                    )
+                    requested_action = selected_chunk[0].copy()
+                    selected_route_ids.append(selected_route.route_id)
+                    selected_route_labels.append(selected_route.label)
+                    selected_route_sides.append(selected_route.side)
+                    selected_route_metadata = {
+                        "route_id": selected_route.route_id,
+                        "label": selected_route.label,
+                        "side": selected_route.side,
+                        "obstacle_id": selected_route.obstacle_id,
+                        "obstacle_shape": selected_route.obstacle_shape,
+                        "minimum_geometric_clearance_m": selected_route.minimum_geometric_clearance_m,
+                        "route_length_m": selected_route.route_length_m,
+                        "rejection_reasons": list(selected_route.rejection_reasons),
+                    }
+                    verified_progress_fallback_steps += 1
+                    verified_progress_fallback_labels.append(str(selected_route.label))
+
         # The ranker can choose a tangential route while the current velocity
         # is already too large to preserve a pairwise/boundary barrier.  This
         # opt-in development guard turns that state into a reachable braking
@@ -1301,6 +1446,9 @@ def _run_episode(
                 "reachable_nominal_action": reachable_nominal_action,
                 "requested_action": requested_action,
                 "proactive_braking": bool(proactive_braking),
+                "stopping_guard": stopping_guard.as_dict(),
+                "barrier_imminence": barrier_imminence.as_dict(),
+                "route_recovery_reason": route_recovery_reason,
                 "executed_action": action,
                 "raw_unverified_executed": bool(raw_unverified_executed),
                 "input_observation": input_observation,
@@ -1489,6 +1637,18 @@ def _run_episode(
         "cautious_reacquisition_accepted_steps": cautious_reacquisition_accepted_steps,
         "cautious_reacquisition_rejected_steps": cautious_reacquisition_rejected_steps,
         "proactive_braking_steps": proactive_braking_steps,
+        "stopping_distance_gate": bool(stopping_distance_gate),
+        "stopping_guard_steps": stopping_guard_steps,
+        "stopping_guard_by_risk": dict(sorted(stopping_guard_by_risk.items())),
+        "barrier_imminence_gate": bool(barrier_imminence_gate),
+        "barrier_imminence_threshold_m": float(barrier_imminence_threshold_m),
+        "barrier_imminence_steps": barrier_imminence_steps,
+        "barrier_imminence_by_risk": dict(sorted(barrier_imminence_by_risk.items())),
+        "verified_progress_fallback": bool(verified_progress_fallback),
+        "verified_progress_fallback_steps": verified_progress_fallback_steps,
+        "verified_progress_fallback_labels": verified_progress_fallback_labels,
+        "route_probe_horizon": int(route_probe_horizon),
+        "route_probe_horizon_failures": route_probe_horizon_failures,
         "selected_candidate_indices": selected_indices,
         "selected_candidate_mean_index": float(np.mean(selected_indices)) if selected_indices else None,
         "ledger_state_counts": {
@@ -1621,6 +1781,7 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "route_geometry_invalid": count("route_geometry_invalid"),
         "route_cbf_probe_accepted": count("route_cbf_probe_accepted"),
         "route_cbf_probe_rejected": count("route_cbf_probe_rejected"),
+        "route_probe_horizon_failures": count("route_probe_horizon_failures"),
         "independent_cbf_probe_checks": count("independent_cbf_probe_checks"),
         "independent_cbf_probe_accepted": count("independent_cbf_probe_accepted"),
         "independent_cbf_probe_rejected": count("independent_cbf_probe_rejected"),
@@ -1628,6 +1789,9 @@ def _metric_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "cautious_reacquisition_attempt_steps": count("cautious_reacquisition_attempt_steps"),
         "cautious_reacquisition_accepted_steps": count("cautious_reacquisition_accepted_steps"),
         "cautious_reacquisition_rejected_steps": count("cautious_reacquisition_rejected_steps"),
+        "stopping_guard_steps": count("stopping_guard_steps"),
+        "verified_progress_fallback_steps": count("verified_progress_fallback_steps"),
+        "barrier_imminence_steps": count("barrier_imminence_steps"),
         "transit_success_rate": rate("transit_success"),
         "mean_capture_time_seconds": float(np.mean(capture_times)) if capture_times else None,
         "mean_min_clearance_m": float(np.mean([float(row["min_clearance_m"]) for row in rows])),
@@ -1741,6 +1905,11 @@ def _write_tensorboard(
             writer.add_scalar("Route/cbf_probe_accepted", float(row.get("route_cbf_probe_accepted", 0)), index)
             writer.add_scalar("Route/cbf_probe_rejected", float(row.get("route_cbf_probe_rejected", 0)), index)
             writer.add_scalar(
+                "Route/horizon_probe_failures",
+                float(row.get("route_probe_horizon_failures", 0)),
+                index,
+            )
+            writer.add_scalar(
                 "Route/independent_cbf_probe_checks",
                 float(row.get("independent_cbf_probe_checks", 0)),
                 index,
@@ -1762,6 +1931,21 @@ def _write_tensorboard(
             )
             writer.add_scalar("Fallback/rank_steps", float(row["rank_fallback_steps"]), index)
             writer.add_scalar("Fallback/safe_hold_steps", float(row["safe_hold_steps"]), index)
+            writer.add_scalar(
+                "Recovery/stopping_guard_steps",
+                float(row.get("stopping_guard_steps", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "Recovery/verified_progress_fallback_steps",
+                float(row.get("verified_progress_fallback_steps", 0)),
+                index,
+            )
+            writer.add_scalar(
+                "Recovery/barrier_imminence_steps",
+                float(row.get("barrier_imminence_steps", 0)),
+                index,
+            )
             writer.add_scalar(
                 "Reacquisition/attempt_steps",
                 float(row.get("cautious_reacquisition_attempt_steps", 0)),
@@ -1847,6 +2031,10 @@ def _write_tensorboard(
         writer.add_scalar("Aggregate/Route/geometry_invalid", float(summary.get("route_geometry_invalid", 0)), 0)
         writer.add_scalar("Aggregate/Route/cbf_probe_accepted", float(summary.get("route_cbf_probe_accepted", 0)), 0)
         writer.add_scalar("Aggregate/Route/cbf_probe_rejected", float(summary.get("route_cbf_probe_rejected", 0)), 0)
+        writer.add_scalar("Aggregate/Route/horizon_probe_failures", float(summary.get("route_probe_horizon_failures", 0)), 0)
+        writer.add_scalar("Aggregate/Recovery/stopping_guard_steps", float(summary.get("stopping_guard_steps", 0)), 0)
+        writer.add_scalar("Aggregate/Recovery/verified_progress_fallback_steps", float(summary.get("verified_progress_fallback_steps", 0)), 0)
+        writer.add_scalar("Aggregate/Recovery/barrier_imminence_steps", float(summary.get("barrier_imminence_steps", 0)), 0)
         writer.add_scalar(
             "Aggregate/Route/independent_cbf_probe_checks",
             float(summary.get("independent_cbf_probe_checks", 0)),
@@ -2125,6 +2313,11 @@ def main() -> None:
             candidate_cbf_prefilter=args.candidate_cbf_prefilter,
             cbf_anticipatory_horizon_steps=args.cbf_horizon,
             route_corridor_samples=args.route_corridor_samples,
+            route_probe_horizon=args.route_probe_horizon,
+            stopping_distance_gate=args.stopping_distance_gate,
+            verified_progress_fallback=args.verified_progress_fallback,
+            barrier_imminence_gate=args.barrier_imminence_gate,
+            barrier_imminence_threshold_m=args.barrier_imminence_threshold,
             visibility_search_enabled=visibility_search_enabled,
             visibility_search_offset_m=visibility_search_offset_m,
             visibility_search_mode=visibility_search_mode,
@@ -2185,6 +2378,11 @@ def main() -> None:
             "execute_first_step_then_replan": True,
             "project_to_reachable_dynamics": True,
             "route_corridor_samples": int(args.route_corridor_samples),
+            "route_probe_horizon": int(args.route_probe_horizon),
+            "stopping_distance_gate": bool(args.stopping_distance_gate),
+            "verified_progress_fallback": bool(args.verified_progress_fallback),
+            "barrier_imminence_gate": bool(args.barrier_imminence_gate),
+            "barrier_imminence_threshold_m": float(args.barrier_imminence_threshold),
             "visibility_search_enabled": visibility_search_enabled,
             "visibility_search_offset_m": visibility_search_offset_m,
             "visibility_search_mode": visibility_search_mode,
