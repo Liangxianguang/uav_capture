@@ -435,9 +435,15 @@ DN-MPC -> nominal route planner
     该 gate 只证明源稳定性，不授权在线集成。
 16. [x] 在配对 P17 train archive 上完成一枚 development-only route-JEPA
     checkpoint；训练结果和哈希见 P18 报告。
-17. [ ] 对 P18 checkpoint 做离线 candidate-ranking audit；在 candidate
-    eligibility、selected/nominal/safe-hold CBF counterfactual、score
-    direction 和 OOD/disagreement 审计通过前，不接入在线闭环。
-18. [ ] 完成三 seed paired replay，再考虑新的 locked block。
+17. [x] 完成 P18 checkpoint 的离线 candidate-ranking audit；结果见
+    `DN_MPC_P19_P18_CANDIDATE_RANKING_AUDIT_20260908.md`。finite 输出和
+    pairwise score direction 通过诊断阈值，但 validation top-1 只有
+    `14.81%`，10/172 个 runtime groups 没有全体 defender 同时几何有效且
+    首步 CBF 可行的候选；selected/nominal/safe-hold 独立 CBF trace 和
+    OOD/disagreement binding 也缺失。因此 promotion gate 失败，未接入在线
+    闭环。
+18. [ ] 先修复 route-geometry fallback，采集 selected/nominal/safe-hold
+    独立 CBF counterfactual，并为 P18 建立新的 OOD/disagreement calibration；
+    P19 复审通过后再完成三 seed paired replay。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

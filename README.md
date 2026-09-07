@@ -85,6 +85,7 @@ they are not additional execution queues.
 - [DN-MPC P16 multi-source calibration bundle](docs/DN_MPC_P16_MULTISOURCE_CALIBRATION_BUNDLE_20260908.md)
 - [DN-MPC P17 independent multi-source validation](docs/DN_MPC_P17_INDEPENDENT_MULTISOURCE_VALIDATION_20260908.md)
 - [DN-MPC P18 source stability and route-JEPA training](docs/DN_MPC_P18_SOURCE_STABILITY_AND_ROUTE_JEPA_TRAINING_20260908.md)
+- [DN-MPC P19 P18 candidate-ranking audit (stop report)](docs/DN_MPC_P19_P18_CANDIDATE_RANKING_AUDIT_20260908.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the
