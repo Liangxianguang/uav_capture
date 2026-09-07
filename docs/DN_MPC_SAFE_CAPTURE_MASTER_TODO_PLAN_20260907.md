@@ -486,9 +486,18 @@ DN-MPC -> nominal route planner
     `36.63%`、informative top-1 为 `80.00%`、pairwise 为 `88.73%`；
     candidate eligibility、exact top-1 和 OOD/disagreement gate 仍失败，
     所以保持 offline-only。
-26. [ ] P26 将无 eligible candidate 的 group 作为显式 planner-abstention
-    结果审计，不能伪造 selected route；同时基于 P25 archive hash 建立
-    fresh OOD、rollout-disagreement 和 abstention calibration。P26 gate
-    通过前不得在线接入、创建 Ledger-Lite 或进行三 seed paired replay。
+26. [x] 完成 P26 planner-abstention 诊断，结果见
+    `docs/DN_MPC_P26_PLANNER_ABSTENTION_AUDIT_20260908.md`。train
+    `(scenario=6,time=47)` 与 calibration `(scenario=5,time=47)` 的 12 个
+    候选全部首步 CBF 不可行；validation `172/172` group 均至少有 2 个
+    可行候选。该问题属于已进入联合 CBF 不可行区的显式 abstention，不能
+    通过伪造 selected route 或放宽 CBF 解决。
+27. [ ] 基于 P25 archive hash 建立 fresh OOD、rollout-disagreement 和
+    abstention calibration；promotion gate 通过前不得在线接入、创建
+    Ledger-Lite 或进行三 seed paired replay。
+28. [ ] 基于 P26 两个 abstention state 做 anticipatory route hard-negative
+    replay：在进入不可行区之前增加 braking、最近切向和 boundary-rescue
+    候选，并重新采集独立 selected/nominal/safe-hold trace；仍需先通过
+    candidate eligibility、exact top-1 和 fresh OOD/disagreement calibration。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**
