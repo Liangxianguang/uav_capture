@@ -1,8 +1,8 @@
 # DN-MPC P4 Boundary-Rescue Replay
 
-**日期：** 2026-09-07  
-**状态：** development-only；locked test remains closed  
-**代码 revision：** `7c57346d7942daa27549d16c591912af19403936`  
+**日期：** 2026-09-07
+**状态：** development-only；locked test remains closed
+**代码 revision：** `7c57346d7942daa27549d16c591912af19403936`
 **硬件：** NVIDIA GeForce RTX 5050
 
 ## 1. 目的和边界
@@ -122,4 +122,3 @@ route switches 上升，combined mean capture 为 16.017 s，因此该结果证�
 3. JEPA 接入先在同一 G5 manifest 做 paired replay，不能直接扩大 L1-L3；
 4. 若 safe capture 下降、controlled abort 增加或出现任一安全硬门违规，立即回放
    trace 并停在解析 DN-MPC + CBF。
-
