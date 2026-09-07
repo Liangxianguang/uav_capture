@@ -53,7 +53,7 @@ allowed to choose a route.
 
 ## Counterfactual traceability
 
-The archives contain the required per-candidate CBF labels and include runtime
+The original P19 archives contain the required per-candidate CBF labels and include runtime
 rows for both candidate 0 (`nominal`) and candidate 11
 (`verified_safe_hold`). They do **not** contain an independent per-step
 `selected_candidate_index` together with a selected-action CBF replay. Thus:

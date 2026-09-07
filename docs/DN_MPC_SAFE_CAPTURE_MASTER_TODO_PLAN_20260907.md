@@ -442,8 +442,13 @@ DN-MPC -> nominal route planner
     首步 CBF 可行的候选；selected/nominal/safe-hold 独立 CBF trace 和
     OOD/disagreement binding 也缺失。因此 promotion gate 失败，未接入在线
     闭环。
-18. [ ] 先修复 route-geometry fallback，采集 selected/nominal/safe-hold
-    独立 CBF counterfactual，并为 P18 建立新的 OOD/disagreement calibration；
-    P19 复审通过后再完成三 seed paired replay。
+18. [x] P20 修复 route-geometry fallback 并重采集同一 validation block；结果见
+    `DN_MPC_P20_GEOMETRY_HOLD_REPAIR_AND_REAUDIT_20260908.md`。零 eligible
+    group 从 `10/172` 降为 `0/172`，但 validation top-1 route-progress
+    agreement 仍只有 `19.19%`，promotion gate 仍失败。
+19. [ ] 审计 route-progress label/score direction，重新校准或训练 P18
+    evaluator；同时采集 selected/nominal/safe-hold 独立 CBF counterfactual
+    和 OOD/disagreement calibration。P19/P20 全部 gate 通过后再进行三 seed
+    paired replay。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

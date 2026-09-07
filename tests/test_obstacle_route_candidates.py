@@ -180,6 +180,24 @@ def test_direct_nominal_corridor_is_rejected_when_start_to_target_crosses_obstac
     assert "route_clearance_below_margin" in intercept.rejection_reasons
 
 
+def test_verified_safe_hold_is_not_rejected_by_current_centroid_clearance() -> None:
+    # The current centroid is inside the geometric margin, but the downstream
+    # CBF can still decide whether a zero-action hold is safe.  Route geometry
+    # must not discard that fallback before the CBF counterfactual runs.
+    observation = _observation([_cylinder((-6.0, 0.0), radius=1.0)])
+    batch = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+    hold = batch.candidates[batch.labels.index("verified_safe_hold")]
+    braking = batch.candidates[batch.labels.index("braking")]
+    assert hold.minimum_geometric_clearance_m < 0.35
+    assert hold.valid
+    assert braking.valid
+    assert "route_clearance_below_margin" not in hold.rejection_reasons
+
+
 def test_left_blocked_scene_shifts_left_route_and_keeps_right_route() -> None:
     # The second cylinder is outside the nominal belief corridor, but blocks
     # the first left (+y) bypass corridor.  The route generator must use both

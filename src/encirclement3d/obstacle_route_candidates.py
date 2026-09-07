@@ -949,6 +949,16 @@ def make_obstacle_route_candidates(
             obstacles,
             config=settings,
         )
+        # A braking/verified-hold route does not traverse the obstacle field;
+        # its zero-action safety is established by the downstream CBF.  The
+        # geometric corridor check includes the current centroid, so applying
+        # it to a hold route would incorrectly reject a recoverable state that
+        # is already near an obstacle even when the CBF can safely hold it.
+        if label in {"braking", "verified_safe_hold"}:
+            geometric_feasible = True
+            geometry_reasons = tuple(
+                reason for reason in geometry_reasons if reason != "route_clearance_below_margin"
+            )
         reasons = tuple(dict.fromkeys(initial_reasons + projection_reasons + geometry_reasons))
         reachable = not bool(projection_reasons)
         if not settings.project_to_reachable_dynamics and reasons:
