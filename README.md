@@ -81,6 +81,7 @@ they are not additional execution queues.
 - [DN-MPC P12 pairwise TTC label-semantics audit stop](docs/DN_MPC_P12_PAIRWISE_TTC_LABEL_AUDIT_STOP_20260908.md)
 - [DN-MPC P13 pairwise outcome-label contract stop](docs/DN_MPC_P13_PAIRWISE_OUTCOME_LABEL_CONTRACT_STOP_20260908.md)
 - [DN-MPC P14 offline virtual-probe calibration](docs/DN_MPC_P14_VIRTUAL_PROBE_CALIBRATION_20260908.md)
+- [DN-MPC P15 balanced pairwise calibration stop](docs/DN_MPC_P15_BALANCED_PAIRWISE_CALIBRATION_STOP_20260908.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the
