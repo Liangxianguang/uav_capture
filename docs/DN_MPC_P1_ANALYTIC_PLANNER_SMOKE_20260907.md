@@ -1,6 +1,6 @@
 # DN-MPC P1 解析规划器 Smoke 结果
 
-**日期：** 2026-09-07  
+**日期：** 2026-09-07
 **状态：** development-only；未开启 locked test
 
 ## 1. 目的和边界
