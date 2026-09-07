@@ -99,6 +99,11 @@ and the broader DN-MPC/route runtime regression (`23 passed`). This is a
 planner-contract improvement only; CBF margins, stale/OOD gates, controlled
 abort, and raw-unverified restrictions are unchanged.
 
+Across the G5 regression and the three S2 slices, all `2749` step traces carry
+route-level CBF probe records and all carry the independent selected/nominal/
+safe-hold triple. `1835` traces expose at least one active constraint for
+audit, while controlled-abort traces remain `0`.
+
 ## Artifact inventory
 
 The inventory was collected before cleanup so that deletion did not erase
@@ -108,9 +113,9 @@ provenance:
 | --- | ---: | ---: | ---: | --- |
 | `results/` | 16,581 | 3,243 | 8.62 GB | retain; contains historical evidence and TensorBoard runs |
 | `tmp/` | 1,236 | 100 | 59.74 MB | retain frozen V4/V5 archives and audit inputs; review other items individually |
-| `.pytest_cache/` | 6 | 2 | 0.06 MB | disposable test cache; cleanup command blocked by host policy |
-| `__pycache__/` | generated caches | 67 directories | generated | disposable Python caches; cleanup command blocked by host policy |
-| `results/v12_aggregate_input/` | 0 | 0 | 0 | empty generated placeholder; cleanup command blocked by host policy |
+| `.pytest_cache/` | 0 | 0 | 0 | removed; disposable test cache |
+| `__pycache__/` | generated caches | 67 directories | generated | retained; recursive cleanup was ineffective under host policy |
+| `results/v12_aggregate_input/` | 0 | 0 | 0 | absent; no material artifact |
 
 The two frozen expert archives under `tmp/` remain untouched:
 
@@ -124,9 +129,9 @@ after a path/reference check.
 
 ## Cleanup rule
 
-No material artifact was deleted in this pass because the host rejected the
-cleanup command before execution. No checkpoint, archive, scene manifest,
-TensorBoard event, trace, report, or non-empty result directory was touched.
+Only the confirmed `.pytest_cache/` directory was removed. No checkpoint,
+archive, scene manifest, TensorBoard event, trace, report, or non-empty result
+directory was touched. The recursive `__pycache__` cleanup did not remove its
+67 directories, so they remain listed rather than being misreported as gone.
 Future cleanup must first update this inventory and verify references from
-reports and manifests; disposable caches can then be removed with an approved
-local cleanup operation.
+reports and manifests.

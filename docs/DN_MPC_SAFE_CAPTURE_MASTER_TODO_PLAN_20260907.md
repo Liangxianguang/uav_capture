@@ -203,10 +203,10 @@ CBF 接入顺序固定为：
 5. 只执行第一步；
 6. 重新观测并进入下一周期。
 
-- [ ] 保持现有 obstacle、boundary、pairwise margin 和 acceleration limit。
-- [ ] 记录 nominal action、selected action、safe-hold action、CBF correction norm。
-- [ ] 记录每条约束的 active/infeasible 原因，不只记录一个 abort 标签。
-- [ ] 验证路线规划器不会绕过 CBF 或直接写入环境 action。
+- [x] 保持现有 obstacle、boundary、pairwise margin 和 acceleration limit。
+- [x] 记录 nominal action、selected action、safe-hold action、CBF correction norm。
+- [x] 记录每条约束的 active/infeasible 原因，不只记录一个 abort 标签。
+- [x] 验证路线规划器不会绕过 CBF 或直接写入环境 action。
 - [x] 首先只在 G5 固定 4 场景运行 DN-MPC + CBF，不接 JEPA。
 
 **P4 门：** safe capture 不低于 G5 `4/4`，collision/boundary/pairwise/raw-unverified 为 0，
