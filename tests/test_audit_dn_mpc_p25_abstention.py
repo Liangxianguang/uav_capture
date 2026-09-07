@@ -34,4 +34,3 @@ def test_abstention_audit_keeps_two_eligible_candidates() -> None:
     assert report["zero_eligible_group_count"] == 0
     assert report["min_eligible_candidates"] == 3
     assert report["trace_missing_group_count"] == 0
-

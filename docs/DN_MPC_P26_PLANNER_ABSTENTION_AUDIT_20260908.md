@@ -46,4 +46,3 @@ loosening the safety contract.
   prohibition unchanged.
 - Do not open online JEPA promotion or a three-seed replay yet; exact top-1
   and fresh OOD/disagreement calibration remain unmet.
-

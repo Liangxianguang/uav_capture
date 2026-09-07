@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from train_route_identity_jepa import load_dataset
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 ROUTE_LABELS = (
     "nominal",
     "left_detour",
@@ -197,4 +199,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
