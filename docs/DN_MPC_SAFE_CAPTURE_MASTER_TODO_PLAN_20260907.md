@@ -456,5 +456,14 @@ DN-MPC -> nominal route planner
     evaluator；同时采集 selected/nominal/safe-hold 独立 CBF counterfactual
     和 OOD/disagreement calibration。P19-P21 全部 gate 通过后再进行三 seed
     paired replay。
+21. [x] 完成 route-length utility weight sweep，结果见
+    `DN_MPC_P22_ROUTE_UTILITY_WEIGHT_AUDIT_20260908.md`。calibration 按
+    informative exact top-1 选择的权重为 `0.0`；validation 在该权重下仍为
+    `31.43%` informative exact top-1。较大的 route-length 权重提高 pairwise
+    utility direction，但没有形成可靠的直接选路证据，因此不接入在线闭环。
+22. [ ] 重新定义面向捕获效用的 route label（包含进度、可行性、绕行代价和
+    目标逃逸代价），在独立 calibration 后训练下一枚 evaluator；未通过
+    selected/nominal/safe-hold CBF trace 和 OOD/disagreement gate 前不得三
+    seed paired replay。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

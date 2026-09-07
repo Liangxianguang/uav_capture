@@ -89,6 +89,7 @@ they are not additional execution queues.
 - [DN-MPC P20 geometry-hold repair and re-audit](docs/DN_MPC_P20_GEOMETRY_HOLD_REPAIR_AND_REAUDIT_20260908.md)
 - [DN-MPC P20 P18 ranking re-audit](docs/DN_MPC_P20_P18_CANDIDATE_RANKING_REAUDIT_20260908.md)
 - [DN-MPC P21 route-progress label audit](docs/DN_MPC_P21_ROUTE_PROGRESS_LABEL_AUDIT_20260908.md)
+- [DN-MPC P22 route-utility weight audit](docs/DN_MPC_P22_ROUTE_UTILITY_WEIGHT_AUDIT_20260908.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the
