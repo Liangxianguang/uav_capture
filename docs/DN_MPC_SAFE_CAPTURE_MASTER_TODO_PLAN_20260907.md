@@ -446,9 +446,15 @@ DN-MPC -> nominal route planner
     `DN_MPC_P20_GEOMETRY_HOLD_REPAIR_AND_REAUDIT_20260908.md`。零 eligible
     group 从 `10/172` 降为 `0/172`，但 validation top-1 route-progress
     agreement 仍只有 `19.19%`，promotion gate 仍失败。
-19. [ ] 审计 route-progress label/score direction，重新校准或训练 P18
+19. [x] 完成 route-progress label/score direction 审计，结果见
+    `DN_MPC_P21_ROUTE_PROGRESS_LABEL_AUDIT_20260908.md`。validation 中
+    `79.65%` 的 group 的 top-label gap 不超过 `0.005`，tie-aware top-1
+    为 `66.28%`，但 informative-group exact top-1 只有 `31.43%`；pairwise
+    agreement 为 `84.32%`。因此近似并列只能解释一部分失败，P18 仍不具备
+    直接选路资格。
+20. [ ] 使用 tie-aware/utility-aware route-progress 监督重新校准或训练
     evaluator；同时采集 selected/nominal/safe-hold 独立 CBF counterfactual
-    和 OOD/disagreement calibration。P19/P20 全部 gate 通过后再进行三 seed
+    和 OOD/disagreement calibration。P19-P21 全部 gate 通过后再进行三 seed
     paired replay。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**
