@@ -73,6 +73,7 @@ they are not additional execution queues.
 - [DN-MPC-Hybrid master execution plan](docs/DN_MPC_SAFE_CAPTURE_MASTER_TODO_PLAN_20260907.md)
 - [DN-MPC P1 analytic planner smoke](docs/DN_MPC_P1_ANALYTIC_PLANNER_SMOKE_20260907.md)
 - [DN-MPC P6 interaction-conditioned route feature stop](docs/DN_MPC_P6_INTERACTION_ACTION_FEATURE_STOP_20260908.md)
+- [DN-MPC P7 interaction transitions and pairwise-pooling stop](docs/DN_MPC_P7_INTERACTION_TRANSITIONS_PAIRWISE_POOLING_STOP_20260908.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the

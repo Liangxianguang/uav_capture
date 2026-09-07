@@ -14,6 +14,11 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 
 DATASET_VERSION = "jepa_safe_capture_route_identity_hard_negative_v2"
 EXPECTED_SPLITS = ("train", "validation", "calibration")
+INTERACTION_SAMPLE_TYPES = {
+    "near_pass": 2,
+    "formation_crossing": 3,
+    "split_merge": 4,
+}
 RISK_LABELS = (
     "labels_stopping_distance",
     "labels_obstacle_ttc",
@@ -112,7 +117,18 @@ def audit_archive(directory: Path, *, expected_dataset_version: str = DATASET_VE
     visibility = np.asarray(arrays["labels_target_visible"])
     if not np.isin(visibility, (0.0, 1.0)).all():
         raise ValueError("target visibility must be binary")
-    runtime = np.asarray(arrays["sample_type"]) == 0
+    sample_type = np.asarray(arrays["sample_type"], dtype=np.int64)
+    if not np.isin(sample_type, (0, 1, *INTERACTION_SAMPLE_TYPES.values())).all():
+        raise ValueError(f"Unknown sample_type values in archive: {sorted(np.unique(sample_type).tolist())}")
+    interaction_contract = metadata.get("interaction_hard_negatives", {})
+    if not isinstance(interaction_contract, dict):
+        raise ValueError("interaction_hard_negatives metadata must be a mapping")
+    if interaction_contract.get("enabled", False):
+        if interaction_contract.get("sample_type_mapping") != INTERACTION_SAMPLE_TYPES:
+            raise ValueError("Interaction sample_type mapping does not match the audit contract")
+        if not interaction_contract.get("offline_only", False):
+            raise ValueError("Interaction hard-negative rows must be offline-only")
+    runtime = sample_type == 0
     if not runtime.any():
         raise ValueError("archive has no runtime route rows")
     feasibility_min = np.asarray(arrays["labels_cbf_feasible"])[runtime].min(axis=1)
@@ -131,8 +147,10 @@ def audit_archive(directory: Path, *, expected_dataset_version: str = DATASET_VE
         raise ValueError(f"Failure and CBF feasibility labels disagree: {directory}")
     acceleration = np.asarray(arrays["labels_acceleration_slack"])[runtime]
     acceleration_sentinel = acceleration == -1.0
-    if float(acceleration.min()) < -1.0:
-        raise ValueError(f"Acceleration slack is below the -1 sentinel: {directory}")
+    # A finite measured QP slack can be lower than -1 when a requested
+    # action is far outside the acceleration ball.  ``-1`` is only the
+    # missing-diagnostic sentinel; measured negative slacks remain valid
+    # supervision and are reported separately below.
     event_dir = Path(str(json.loads(provenance_path.read_text(encoding="utf-8"))["tensorboard_logdir"]))
     if not event_dir.is_dir():
         raise FileNotFoundError(f"TensorBoard directory is missing: {event_dir}")
@@ -141,12 +159,35 @@ def audit_archive(directory: Path, *, expected_dataset_version: str = DATASET_VE
     missing_scalars = sorted(REQUIRED_TENSORBOARD_SCALARS.difference(accumulator.Tags().get("scalars", [])))
     if missing_scalars:
         raise ValueError(f"TensorBoard is missing archive scalars: {missing_scalars}")
+    if interaction_contract.get("enabled", False):
+        required_interaction_scalars = {
+            f"Archive/interaction_hard_negative_samples/{mode}"
+            for mode in INTERACTION_SAMPLE_TYPES
+        }
+        required_interaction_scalars |= {
+            f"Archive/interaction_hard_negative_branch_failures/{mode}"
+            for mode in INTERACTION_SAMPLE_TYPES
+        }
+        missing_interaction = sorted(
+            required_interaction_scalars.difference(accumulator.Tags().get("scalars", []))
+        )
+        if missing_interaction:
+            raise ValueError(f"TensorBoard is missing interaction scalars: {missing_interaction}")
+    sample_type_counts = {
+        str(int(value)): int(count)
+        for value, count in zip(*np.unique(sample_type, return_counts=True))
+    }
     return {
         "directory": str(directory),
         "split": split,
         "dataset_sha256": _sha256(dataset_path),
         "sample_count": sample_count,
         "runtime_sample_count": int(runtime.sum()),
+        "sample_type_counts": sample_type_counts,
+        "interaction_sample_counts": {
+            mode: int(np.sum(sample_type == sample_type_id))
+            for mode, sample_type_id in INTERACTION_SAMPLE_TYPES.items()
+        },
         "episode_seeds": sorted({int(value) for value in np.asarray(arrays["episode_seed"]).tolist()}),
         "route_geometry_valid": int(route_geometry.sum()),
         "route_geometry_invalid": int((~route_geometry).sum()),
@@ -155,6 +196,9 @@ def audit_archive(directory: Path, *, expected_dataset_version: str = DATASET_VE
         "boundary_clearance_negative_rows": int((boundary_clearance < 0.0).sum()),
         "runtime_boundary_clearance_negative_rows": runtime_boundary_negative,
         "offline_shadow_boundary_clearance_negative_rows": shadow_boundary_negative,
+        "offline_interaction_boundary_clearance_negative_rows": int(
+            np.sum((sample_type >= 2) & (boundary_clearance < 0.0))
+        ),
         "acceleration_slack_sentinel_values": int(acceleration_sentinel.sum()),
         "acceleration_slack_measured_negative_values": int(
             np.sum((acceleration < 0.0) & ~acceleration_sentinel)

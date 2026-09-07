@@ -24,6 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 DATASET_VERSION = "jepa_safe_capture_route_identity_hard_negative_v2"
 EXPECTED_SPLITS = ("train", "validation", "calibration")
+INTERACTION_SAMPLE_TYPES = (2, 3, 4)
 ROUTE_SIDES = (
     "nominal",
     "left",
@@ -228,11 +229,13 @@ def _split_report(
         raise ValueError("Sample metadata arrays do not align with inputs.")
     runtime = sample_type == 0
     shadow = sample_type == 1
+    interaction = np.isin(sample_type, INTERACTION_SAMPLE_TYPES)
     report: dict[str, Any] = {
         "split": split,
         "sample_count": int(inputs.shape[0]),
         "runtime_sample_count": int(runtime.sum()),
         "offline_shadow_sample_count": int(shadow.sum()),
+        "offline_interaction_sample_count": int(interaction.sum()),
         "episode_count": int(np.unique(episode_seed).size),
         "episode_seeds": sorted({int(value) for value in episode_seed.tolist()}),
         "route_side_counts": {
@@ -262,6 +265,7 @@ def _split_report(
         }
         runtime_positive = positive & runtime
         shadow_positive = positive & shadow
+        interaction_positive = positive & interaction
         key = f"le_{threshold:g}s"
         report["hard_tail"][key] = {
             "positive_sample_count": int(positive.sum()),
@@ -272,6 +276,10 @@ def _split_report(
             "runtime_positive_fraction": float(runtime_positive.sum() / max(int(runtime.sum()), 1)),
             "shadow_positive_count": int(shadow_positive.sum()),
             "shadow_positive_fraction": float(shadow_positive.sum() / max(int(shadow.sum()), 1)),
+            "interaction_positive_count": int(interaction_positive.sum()),
+            "interaction_positive_fraction": float(
+                interaction_positive.sum() / max(int(interaction.sum()), 1)
+            ),
             "route_side_positive_counts": {
                 ROUTE_SIDES[int(index)] if 0 <= int(index) < len(ROUTE_SIDES) else str(int(index)): int(
                     np.sum(positive & (route_side == index))
@@ -291,14 +299,18 @@ def _split_report(
     return report
 
 
-def _load_archive(directory: Path, expected_split: str) -> tuple[dict[str, np.ndarray], dict[str, Any], Path, Path]:
+def _load_archive(
+    directory: Path,
+    expected_split: str,
+    expected_dataset_version: str = DATASET_VERSION,
+) -> tuple[dict[str, np.ndarray], dict[str, Any], Path, Path]:
     directory = directory.resolve()
     dataset = directory / "route_identity_counterfactual.npz"
     metadata_path = directory / "metadata.json"
     if not dataset.is_file() or not metadata_path.is_file():
         raise FileNotFoundError(f"Archive must contain route_identity_counterfactual.npz and metadata.json: {directory}")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    if metadata.get("dataset_version") != DATASET_VERSION or metadata.get("split") != expected_split:
+    if metadata.get("dataset_version") != expected_dataset_version or metadata.get("split") != expected_split:
         raise ValueError(f"Unexpected archive contract for {directory}: {metadata.get('dataset_version')!r}/{metadata.get('split')!r}")
     if metadata.get("development_only") is not True or metadata.get("locked_test_opened") is not False:
         raise ValueError(f"Archive is not development-only: {directory}")
@@ -364,6 +376,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--tensorboard-logdir", type=Path, required=True)
+    parser.add_argument("--dataset-version", default=DATASET_VERSION)
     args = parser.parse_args()
     output = args.output.resolve()
     report_path = args.report.resolve()
@@ -376,7 +389,9 @@ def main() -> int:
     metadata_paths: dict[str, Path] = {}
     seed_sets: dict[str, set[int]] = {}
     for split in EXPECTED_SPLITS:
-        arrays, metadata, dataset, metadata_path = _load_archive(getattr(args, f"{split}_archive"), split)
+        arrays, metadata, dataset, metadata_path = _load_archive(
+            getattr(args, f"{split}_archive"), split, args.dataset_version
+        )
         split_report = _split_report(split, arrays, metadata)
         split_report["archive_sha256"] = _sha256(dataset)
         split_report["metadata_sha256"] = _sha256(metadata_path)
@@ -404,7 +419,7 @@ def main() -> int:
     )
     result: dict[str, Any] = {
         "audit": "jepa_pairwise_interaction_tail",
-        "dataset_version": DATASET_VERSION,
+        "dataset_version": args.dataset_version,
         "archives": reports,
         "episode_seed_disjoint": True,
         "distribution_shift_vs_train": _distribution_shift(reports, feature_names),

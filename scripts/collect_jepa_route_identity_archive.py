@@ -19,6 +19,7 @@ import platform
 import subprocess
 import sys
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -45,6 +46,7 @@ from encirclement3d.cbf_qp import JointCBFQPSafetyFilter  # noqa: E402
 from encirclement3d.observation_encoding import policy_observations  # noqa: E402
 from encirclement3d.obstacle_route_candidates import (  # noqa: E402
     ROUTE_LABELS,
+    ObstacleRouteCandidate,
     ObstacleRouteConfig,
     make_obstacle_route_candidates,
 )
@@ -74,6 +76,10 @@ ROUTE_SIDES = (
     "visibility_hold",
     "boundary_shadow",
 )
+INTERACTION_HARD_NEGATIVE_MODES = ("near_pass", "formation_crossing", "split_merge")
+INTERACTION_SAMPLE_TYPES = {
+    mode: 2 + index for index, mode in enumerate(INTERACTION_HARD_NEGATIVE_MODES)
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -98,6 +104,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-stride", type=int, default=8)
     parser.add_argument("--history-length", type=int, default=8)
     parser.add_argument("--chunk-length-steps", type=int, default=3)
+    parser.add_argument(
+        "--interaction-hard-negatives",
+        action="store_true",
+        help="Add offline-only pairwise interaction transition branches to each sampled state.",
+    )
     parser.add_argument("--dataset-version", default=DATASET_VERSION)
     parser.add_argument(
         "--actor-checkpoint",
@@ -203,6 +214,113 @@ def _route_config(
         project_to_reachable_dynamics=True,
         world_lower=tuple(float(value) for value in env.lower),
         world_upper=tuple(float(value) for value in env.upper),
+    )
+
+
+def _reachable_interaction_chunk(
+    env: CaptureRadiusPursuit3DEnv,
+    previous_action: np.ndarray,
+    desired_chunk: np.ndarray,
+) -> np.ndarray:
+    """Project a synthetic interaction maneuver through reachable dynamics."""
+
+    previous = np.asarray(previous_action, dtype=np.float64).copy()
+    desired_chunk = np.asarray(desired_chunk, dtype=np.float64)
+    if desired_chunk.ndim != 3 or desired_chunk.shape[1:] != previous.shape:
+        raise ValueError("Synthetic interaction chunk has an invalid action shape.")
+    projected: list[np.ndarray] = []
+    max_speed = float(env.agents["defender_max_speed"])
+    max_delta = float(env.agents["defender_max_acceleration"]) * float(env.dt)
+    for desired in desired_chunk:
+        previous = env._move_toward_velocity(
+            previous,
+            env._clip_rows(desired, max_speed),
+            max_delta=max_delta,
+        )
+        projected.append(np.asarray(previous, dtype=np.float64).copy())
+    return np.stack(projected, axis=0)
+
+
+def _unit_direction(start: np.ndarray, end: np.ndarray, fallback: np.ndarray) -> np.ndarray:
+    delta = np.asarray(end, dtype=np.float64) - np.asarray(start, dtype=np.float64)
+    norm = float(np.linalg.norm(delta))
+    if norm <= 1e-9 or not np.isfinite(norm):
+        return np.asarray(fallback, dtype=np.float64).copy()
+    return delta / norm
+
+
+def _interaction_hard_negative_chunks(
+    env: CaptureRadiusPursuit3DEnv,
+    nominal: np.ndarray,
+    previous_action: np.ndarray,
+    chunk_length_steps: int,
+) -> dict[str, np.ndarray]:
+    """Create public-state pairwise transition probes for offline labels.
+
+    These probes are deliberately not runtime candidates. They are passed
+    through the same reachable projection and CBF counterfactual as normal
+    routes so the risk heads see the interaction transitions that nominal
+    replay rarely visits.
+    """
+
+    positions = np.asarray(env.defender_positions, dtype=np.float64)
+    defender_count = int(positions.shape[0])
+    if defender_count < 2:
+        return {}
+    fallback = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+    speed = min(float(env.agents["defender_max_speed"]), 4.5)
+    centroid = positions.mean(axis=0)
+    pairings = ((0, 1), (2, 3)) if defender_count >= 4 else ((0, 1),)
+    result: dict[str, np.ndarray] = {}
+    for mode in INTERACTION_HARD_NEGATIVE_MODES:
+        desired = np.repeat(np.asarray(nominal, dtype=np.float64)[None, :, :], chunk_length_steps, axis=0)
+        if mode == "near_pass":
+            for first, second in pairings:
+                line = _unit_direction(positions[first], positions[second], fallback)
+                tangent = np.array([-line[1], line[0], 0.0], dtype=np.float64)
+                tangent = _unit_direction(np.zeros(3, dtype=np.float64), tangent, np.array([0.0, 1.0, 0.0]))
+                # Both vehicles pass along a common tangent while retaining a
+                # small closing component, creating a close-but-reachable
+                # interaction tail rather than a duplicate swap maneuver.
+                desired[:, first] = speed * (0.85 * tangent + 0.15 * line)
+                desired[:, second] = speed * (0.85 * tangent - 0.15 * line)
+        elif mode == "formation_crossing":
+            for first, second in pairings:
+                first_to_second = _unit_direction(positions[first], positions[second], fallback)
+                second_to_first = -first_to_second
+                desired[:, first] = speed * first_to_second
+                desired[:, second] = speed * second_to_first
+        else:  # split_merge: one pair converges while the other opens outward.
+            first, second = pairings[0]
+            first_to_second = _unit_direction(positions[first], positions[second], fallback)
+            desired[:, first] = speed * first_to_second
+            desired[:, second] = -speed * first_to_second
+            for agent in range(2, defender_count):
+                outward = _unit_direction(centroid, positions[agent], fallback)
+                desired[:, agent] = speed * outward
+        result[mode] = _reachable_interaction_chunk(env, previous_action, desired)
+    return result
+
+
+def _offline_interaction_route(
+    template: ObstacleRouteCandidate,
+    mode: str,
+    action_chunk: np.ndarray,
+) -> ObstacleRouteCandidate:
+    """Wrap a synthetic action block as an explicitly offline route branch."""
+
+    return replace(
+        template,
+        route_id=f"offline_interaction:{mode}",
+        action_chunk=np.asarray(action_chunk, dtype=np.float64).copy(),
+        raw_action_chunk=np.asarray(action_chunk, dtype=np.float64).copy(),
+        projected=True,
+        reachable=True,
+        geometric_feasible=False,
+        minimum_geometric_clearance_m=0.0,
+        route_length_m=float(np.linalg.norm(action_chunk, axis=-1).sum()),
+        rejection_reasons=("offline_interaction_transition",),
+        fallback_only=False,
     )
 
 
@@ -684,6 +802,7 @@ def _append_samples(
     scenario_index: int,
     time_index: int,
     action_scale: float,
+    sample_type: int = 0,
 ) -> None:
     if len(observation_history) < 8 or len(executed_action_history) != len(observation_history) - 1:
         raise ValueError("Route archive histories are not causally aligned.")
@@ -729,7 +848,7 @@ def _append_samples(
         samples["route_length_m"].append(float(route.route_length_m))
         samples["route_geometric_clearance_m"].append(float(route.minimum_geometric_clearance_m))
         samples["route_geometry_valid"].append(float(route.valid))
-        samples["route_candidate_index"].append(int(route_index))
+        samples["route_candidate_index"].append(int(route_index) if int(sample_type) == 0 else -1)
         samples["route_side_index"].append(ROUTE_SIDES.index(str(route.side)))
         samples["route_obstacle_id"].append(-1 if route.obstacle_id is None else int(route.obstacle_id))
         samples["time_index"].append(int(time_index))
@@ -737,7 +856,7 @@ def _append_samples(
         samples["scenario_index"].append(int(scenario_index))
         samples["earliest_failure_step"].append(int(labels["earliest_failure_step"]))
         samples["branch_terminated"].append(float(labels["branch_terminated"]))
-        samples["sample_type"].append(0)
+        samples["sample_type"].append(int(sample_type))
 
 
 def _append_boundary_shadow_samples(
@@ -883,6 +1002,13 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     contract = archive_config.get("data_contract", {})
     if contract.get("dataset_version") != args.dataset_version or contract.get("candidate_profile") != "obstacle_route_v1":
         raise ValueError("archive config does not match the route-identity collector")
+    interaction_contract = contract.get("interaction_hard_negatives", {})
+    if interaction_contract and not isinstance(interaction_contract, Mapping):
+        raise ValueError("data_contract interaction_hard_negatives must be a mapping")
+    if interaction_contract and bool(interaction_contract.get("enabled", False)) != bool(args.interaction_hard_negatives):
+        raise ValueError("archive config interaction_hard_negatives.enabled does not match the collector flag")
+    if interaction_contract and dict(interaction_contract.get("sample_type_mapping", {})) != INTERACTION_SAMPLE_TYPES:
+        raise ValueError("archive config interaction sample_type_mapping does not match the collector")
     if int(contract.get("chunk_length_steps", -1)) != int(args.chunk_length_steps):
         raise ValueError("archive config chunk_length_steps does not match --chunk-length-steps")
     state_distribution = archive_config.get("state_distribution", {})
@@ -915,6 +1041,8 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     cbf_feasible = 0
     cbf_total = 0
     branch_failures = 0
+    interaction_counts: Counter[str] = Counter()
+    interaction_branch_failures: Counter[str] = Counter()
     actor_policy = None
     actor_device = None
     actor_action_scale = 5.0
@@ -1048,6 +1176,48 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                         time_index=time_index,
                         action_scale=5.0,
                     )
+                if args.interaction_hard_negatives:
+                    # These branches are deliberately offline-only.  They use
+                    # the same first candidate metadata for a stable archive
+                    # schema, but their action chunks are projected synthetic
+                    # interaction transitions and never reach env.step().
+                    if not route_batch.candidates:
+                        raise RuntimeError("Route generator returned no template for interaction branches")
+                    template = route_batch.candidates[0]
+                    interaction_chunks = _interaction_hard_negative_chunks(
+                        env,
+                        reachable_nominal,
+                        previous_action,
+                        args.chunk_length_steps,
+                    )
+                    for mode in INTERACTION_HARD_NEGATIVE_MODES:
+                        chunk = interaction_chunks.get(mode)
+                        if chunk is None:
+                            continue
+                        offline_route = _offline_interaction_route(template, mode, chunk)
+                        interaction_labels = _route_rollout(
+                            env,
+                            observation,
+                            controller,
+                            offline_route,
+                            safety_filter,
+                            extent=extent,
+                        )
+                        interaction_counts[mode] += int(env.n_defenders)
+                        interaction_branch_failures[mode] += int(bool(interaction_labels["cbf_failed"]))
+                        _append_samples(
+                            samples,
+                            observation_history=observation_history,
+                            executed_action_history=executed_actions,
+                            route=offline_route,
+                            route_index=-1,
+                            labels=interaction_labels,
+                            episode_seed=int(spec["episode_seed"]),
+                            scenario_index=scenario_index,
+                            time_index=time_index,
+                            action_scale=5.0,
+                            sample_type=INTERACTION_SAMPLE_TYPES[mode],
+                        )
                 _append_boundary_shadow_samples(
                     samples,
                     observation_history=observation_history,
@@ -1129,6 +1299,14 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         "sample_count_per_defender": int(arrays["inputs"].shape[0]),
         "array_shapes": {key: list(value.shape) for key, value in arrays.items()},
         "class_counts": class_counts,
+        "interaction_hard_negatives": {
+            "enabled": bool(args.interaction_hard_negatives),
+            "modes": list(INTERACTION_HARD_NEGATIVE_MODES),
+            "sample_type_mapping": dict(INTERACTION_SAMPLE_TYPES),
+            "offline_only": True,
+            "sample_counts": dict(sorted(interaction_counts.items())),
+            "branch_failures": dict(sorted(interaction_branch_failures.items())),
+        },
         "information_boundary": {
             "target_truth_used_only_for_offline_labels": True,
             "online_route_generation_uses_public_obstacles_and_target_beliefs": True,
@@ -1244,6 +1422,22 @@ def main() -> int:
                 float(metadata["route_counts"].get(label, 0)),
                 index,
             )
+        for index, mode in enumerate(INTERACTION_HARD_NEGATIVE_MODES):
+            writer.add_scalar(
+                f"Archive/interaction_hard_negative_samples/{mode}",
+                float(metadata["interaction_hard_negatives"]["sample_counts"].get(mode, 0)),
+                index,
+            )
+            writer.add_scalar(
+                f"Archive/interaction_hard_negative_branch_failures/{mode}",
+                float(metadata["interaction_hard_negatives"]["branch_failures"].get(mode, 0)),
+                index,
+            )
+        writer.add_text(
+            "Archive/interaction_hard_negative_contract",
+            json.dumps(metadata["interaction_hard_negatives"], sort_keys=True),
+            0,
+        )
         writer.add_text("Archive/dataset_version", DATASET_VERSION, 0)
         writer.add_text("Archive/protocol_sha256", metadata["source"]["protocol_sha256"], 0)
         writer.add_text("Archive/dataset_sha256", _sha256(dataset_path), 0)

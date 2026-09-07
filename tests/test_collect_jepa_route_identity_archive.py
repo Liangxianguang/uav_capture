@@ -21,6 +21,8 @@ _archive_cbf_contract = COLLECTOR._archive_cbf_contract
 _pairwise_ttc_labels = COLLECTOR._pairwise_ttc_labels
 _risk_labels = COLLECTOR._risk_labels
 _boundary_shadow_ttc = COLLECTOR._boundary_shadow_ttc
+_interaction_hard_negative_chunks = COLLECTOR._interaction_hard_negative_chunks
+_reachable_interaction_chunk = COLLECTOR._reachable_interaction_chunk
 
 
 class _ShadowEnv:
@@ -205,3 +207,58 @@ def test_risk_labels_include_stopping_distance_and_boundary_ttc() -> None:
     assert labels["stopping_distance"][0] == pytest.approx(4.0)
     assert labels["boundary_ttc"][0] < 10.0
     assert labels["boundary_ttc"][1] == pytest.approx(10.0)
+
+
+class _InteractionEnv:
+    defender_positions = np.array(
+        [
+            [-2.0, -0.5, 2.0],
+            [2.0, 0.5, 2.0],
+            [-1.5, 2.0, 2.0],
+            [1.5, 2.2, 2.0],
+        ],
+        dtype=np.float64,
+    )
+    n_defenders = 4
+    dt = 0.1
+    agents = {"defender_max_speed": 5.0, "defender_max_acceleration": 6.0}
+
+    @staticmethod
+    def _clip_rows(value: np.ndarray, max_norm: float) -> np.ndarray:
+        value = np.asarray(value, dtype=np.float64).copy()
+        norms = np.linalg.norm(value, axis=1, keepdims=True)
+        scale = np.minimum(1.0, float(max_norm) / np.maximum(norms, 1e-12))
+        return value * scale
+
+    @staticmethod
+    def _move_toward_velocity(previous: np.ndarray, desired: np.ndarray, *, max_delta: float) -> np.ndarray:
+        delta = np.asarray(desired) - np.asarray(previous)
+        norms = np.linalg.norm(delta, axis=1, keepdims=True)
+        return np.asarray(previous) + delta * np.minimum(1.0, float(max_delta) / np.maximum(norms, 1e-12))
+
+
+def test_interaction_hard_negative_modes_are_projected_and_distinct() -> None:
+    env = _InteractionEnv()
+    nominal = np.zeros((env.n_defenders, 3), dtype=np.float64)
+    previous = np.zeros_like(nominal)
+    chunks = _interaction_hard_negative_chunks(env, nominal, previous, 5)
+
+    assert set(chunks) == {"near_pass", "formation_crossing", "split_merge"}
+    for chunk in chunks.values():
+        assert chunk.shape == (5, env.n_defenders, 3)
+        assert np.isfinite(chunk).all()
+        assert float(np.linalg.norm(chunk, axis=-1).max()) <= 5.0 + 1e-8
+    assert not np.allclose(chunks["near_pass"], chunks["formation_crossing"])
+    assert not np.allclose(chunks["formation_crossing"], chunks["split_merge"])
+
+
+def test_reachable_interaction_projection_respects_acceleration_envelope() -> None:
+    env = _InteractionEnv()
+    previous = np.zeros((env.n_defenders, 3), dtype=np.float64)
+    desired = np.full((5, env.n_defenders, 3), 5.0, dtype=np.float64)
+    projected = _reachable_interaction_chunk(env, previous, desired)
+
+    assert projected.shape == desired.shape
+    assert np.isfinite(projected).all()
+    step_deltas = np.linalg.norm(np.diff(np.concatenate([previous[None], projected], axis=0), axis=2), axis=2)
+    assert float(step_deltas.max()) <= env.agents["defender_max_acceleration"] * env.dt + 1e-8
