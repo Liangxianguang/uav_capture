@@ -404,7 +404,14 @@ DN-MPC -> nominal route planner
 6. [x] S1 已通过（`4/4`），并完成 S2 planner-only L0/L1 slices（均 `8/8`）；见
    `docs/DN_MPC_S1_REPLAY_AND_ARTIFACT_INVENTORY_20260907.md`。接下来先审计路线状态机，再考虑 JEPA。
 7. [ ] S1/S2 稳定后再采集 hard-negative archive 和训练 JEPA evaluator。
-8. [ ] calibration gate 通过后才实现 Ledger-Lite；否则保留解析 DN-MPC + CBF。
-9. [ ] 完成三 seed paired replay，再考虑新的 locked block。
+8. [x] 完成 P12 pairwise TTC label-semantics audit；结果见
+   `docs/DN_MPC_P12_PAIRWISE_TTC_LABEL_AUDIT_STOP_20260908.md`。当前 TTC hazard
+   与实际 strict-margin violation/CBF infeasibility 不等价，已停止继续调
+   pairwise positive weight。
+9. [ ] 重新定义并独立采集 `predicted_ttc_hazard`、`strict_margin_violation`、
+   `cbf_infeasible` 和 `branch_failure`，通过新 calibration gate 后才训练下一版
+   JEPA evaluator。
+10. [ ] calibration gate 通过后才实现 Ledger-Lite；否则保留解析 DN-MPC + CBF。
+11. [ ] 完成三 seed paired replay，再考虑新的 locked block。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

@@ -74,6 +74,11 @@ they are not additional execution queues.
 - [DN-MPC P1 analytic planner smoke](docs/DN_MPC_P1_ANALYTIC_PLANNER_SMOKE_20260907.md)
 - [DN-MPC P6 interaction-conditioned route feature stop](docs/DN_MPC_P6_INTERACTION_ACTION_FEATURE_STOP_20260908.md)
 - [DN-MPC P7 interaction transitions and pairwise-pooling stop](docs/DN_MPC_P7_INTERACTION_TRANSITIONS_PAIRWISE_POOLING_STOP_20260908.md)
+- [DN-MPC P8 pairwise relational JEPA stop](docs/DN_MPC_P8_PAIRWISE_RELATIONAL_STOP_20260908.md)
+- [DN-MPC P9 pairwise calibration stratification](docs/DN_MPC_P9_PAIRWISE_CALIBRATION_STRATIFICATION_20260908.md)
+- [DN-MPC P10 fresh calibration stop](docs/DN_MPC_P10_FRESH_CALIBRATION_STOP_20260908.md)
+- [DN-MPC P11 pairwise hazard-weight sweep stop](docs/DN_MPC_P11_PAIRWISE_HAZARD_WEIGHT_SWEEP_STOP_20260908.md)
+- [DN-MPC P12 pairwise TTC label-semantics audit stop](docs/DN_MPC_P12_PAIRWISE_TTC_LABEL_AUDIT_STOP_20260908.md)
 
 The V5 `95.0%` number is included to make the best current observed run
 inspectable. It has **not** opened its V5 locked block and does not meet the
