@@ -36,6 +36,7 @@ ROUTE_LABELS = (
 )
 
 _SHAPES = {"cylinder", "box", "wall"}
+_OPTIONAL_ROUTE_LABELS = ("boundary_rescue",)
 
 
 def _as_finite_vector(value: Any, shape: tuple[int, ...], name: str) -> np.ndarray:
@@ -188,6 +189,11 @@ class ObstacleRouteConfig:
     visibility_search_enabled: bool = False
     visibility_search_offset_m: float = 1.5
     visibility_search_mode: str = "lateral_interior_scan_v1"
+    # Optional development-only route that points the whole formation toward
+    # the public world interior before the boundary CBF becomes infeasible.
+    boundary_rescue_enabled: bool = False
+    boundary_rescue_trigger_m: float = 3.0
+    boundary_rescue_offset_m: float = 2.0
 
     def __post_init__(self) -> None:
         if self.chunk_length_steps < 3:
@@ -206,6 +212,10 @@ class ObstacleRouteConfig:
             raise ValueError("visibility_search_offset_m must be positive and finite.")
         if not str(self.visibility_search_mode).strip():
             raise ValueError("visibility_search_mode must be non-empty.")
+        if not np.isfinite(self.boundary_rescue_trigger_m) or self.boundary_rescue_trigger_m <= 0.0:
+            raise ValueError("boundary_rescue_trigger_m must be positive and finite.")
+        if not np.isfinite(self.boundary_rescue_offset_m) or self.boundary_rescue_offset_m <= 0.0:
+            raise ValueError("boundary_rescue_offset_m must be positive and finite.")
         for name, bounds in (("world_lower", self.world_lower), ("world_upper", self.world_upper)):
             if bounds is not None:
                 array = _as_finite_vector(bounds, (3,), name)
@@ -225,10 +235,13 @@ class ObstacleRouteConfig:
         return float(self.vehicle_radius_m + self.obstacle_margin_m)
 
     def contract(self) -> dict[str, Any]:
+        route_labels = list(ROUTE_LABELS)
+        if self.boundary_rescue_enabled:
+            route_labels.extend(_OPTIONAL_ROUTE_LABELS)
         return {
             "route_profile": "obstacle_route_v1",
-            "route_labels": list(ROUTE_LABELS),
-            "candidate_count": len(ROUTE_LABELS),
+            "route_labels": route_labels,
+            "candidate_count": len(route_labels),
             "chunk_length_steps": int(self.chunk_length_steps),
             "execute_only_first_step": True,
             "cbf_execution_boundary": "downstream_joint_cbf",
@@ -247,6 +260,9 @@ class ObstacleRouteConfig:
             "visibility_search_enabled": bool(self.visibility_search_enabled),
             "visibility_search_offset_m": float(self.visibility_search_offset_m),
             "visibility_search_mode": str(self.visibility_search_mode),
+            "boundary_rescue_enabled": bool(self.boundary_rescue_enabled),
+            "boundary_rescue_trigger_m": float(self.boundary_rescue_trigger_m),
+            "boundary_rescue_offset_m": float(self.boundary_rescue_offset_m),
         }
 
 
@@ -280,7 +296,7 @@ class ObstacleRouteCandidate:
             if not np.isfinite(array).all():
                 raise ValueError(f"Route {array_name} must be finite.")
             object.__setattr__(self, array_name, array.copy())
-        if self.label not in ROUTE_LABELS:
+        if self.label not in ROUTE_LABELS and self.label not in _OPTIONAL_ROUTE_LABELS:
             raise ValueError(f"Unknown route label: {self.label!r}.")
         if self.fallback_only and self.label != "verified_safe_hold":
             raise ValueError("Only verified_safe_hold may be fallback_only.")
@@ -633,6 +649,7 @@ def _route_waypoints(
     upper: np.ndarray,
     config: ObstacleRouteConfig,
     visibility_search_goal: np.ndarray | None = None,
+    boundary_rescue_goal: np.ndarray | None = None,
 ) -> tuple[np.ndarray, str, tuple[str, ...], int | None, str | None]:
     """Create a route corridor and geometric pre-check reasons."""
 
@@ -643,6 +660,10 @@ def _route_waypoints(
 
     obstacle_id = None if obstacle is None else obstacle.obstacle_id
     obstacle_shape = None if obstacle is None else obstacle.shape
+    if label == "boundary_rescue":
+        if boundary_rescue_goal is None:
+            return np.stack([centroid]), "boundary_rescue", ("boundary_rescue_not_available",), None, None
+        return np.stack([boundary_rescue_goal]), "boundary_rescue", (), None, None
     if label in {"left_detour", "right_detour"} and obstacle is not None:
         side_xy = left_xy if label == "left_detour" else -left_xy
         forward_support = obstacle.support_radius(forward_xy)
@@ -864,9 +885,30 @@ def make_obstacle_route_candidates(
         if settings.visibility_search_enabled and not belief_received
         else None
     )
+    boundary_rescue_goal: np.ndarray | None = None
+    boundary_rescue_active = False
+    if settings.boundary_rescue_enabled and np.isfinite(lower).all() and np.isfinite(upper).all():
+        boundary_clearance = float(
+            min(
+                np.min(positions - lower[None, :]),
+                np.min(upper[None, :] - positions),
+            )
+        )
+        boundary_rescue_active = boundary_clearance < float(settings.boundary_rescue_trigger_m)
+        if boundary_rescue_active:
+            world_center = 0.5 * (lower + upper)
+            inward = _unit(world_center - centroid, np.array([-forward_xy[0], -forward_xy[1], 0.0]))
+            boundary_rescue_goal = centroid + inward * float(settings.boundary_rescue_offset_m)
+            boundary_rescue_goal = np.maximum(
+                lower + settings.clearance_margin_m,
+                np.minimum(upper - settings.clearance_margin_m, boundary_rescue_goal),
+            )
 
     candidates: list[ObstacleRouteCandidate] = []
-    for label in ROUTE_LABELS:
+    labels = list(ROUTE_LABELS)
+    if settings.boundary_rescue_enabled:
+        labels.extend(_OPTIONAL_ROUTE_LABELS)
+    for label in labels:
         route_id = f"{label}:obstacle-{principal.obstacle_id if principal is not None else 'none'}"
         waypoints, side, initial_reasons, obstacle_id, obstacle_shape = _route_waypoints(
             label,
@@ -880,6 +922,7 @@ def make_obstacle_route_candidates(
             upper=upper,
             config=settings,
             visibility_search_goal=visibility_search_goal,
+            boundary_rescue_goal=boundary_rescue_goal,
         )
         if label in {"left_detour", "right_detour"} and principal is not None:
             side_direction = left_xy if label == "left_detour" else -left_xy
@@ -931,7 +974,7 @@ def make_obstacle_route_candidates(
     chunks = np.stack([candidate.action_chunk for candidate in candidates], axis=0)
     return ObstacleRouteBatch(
         candidates=tuple(candidates),
-        labels=ROUTE_LABELS,
+        labels=tuple(labels),
         chunks=chunks,
         valid_mask=np.asarray([candidate.valid for candidate in candidates], dtype=bool),
         route_contract=settings.contract(),

@@ -41,6 +41,8 @@ class DNMPCConfig:
     stopping_distance_weight: float = 0.15
     stopping_acceleration_mps2: float = 6.0
     tangent_route_hold_steps: int = 5
+    boundary_rescue_trigger_m: float = 3.0
+    boundary_rescue_priority: bool = True
 
     def __post_init__(self) -> None:
         if int(self.horizon_steps) <= 0:
@@ -58,6 +60,7 @@ class DNMPCConfig:
             "terminal_progress_weight",
             "stopping_distance_weight",
             "stopping_acceleration_mps2",
+            "boundary_rescue_trigger_m",
         ):
             value = float(getattr(self, name))
             if not np.isfinite(value) or value < 0.0 or (name == "dt_seconds" and value <= 0.0):
@@ -292,9 +295,24 @@ class DistributedMinimaxMPC:
         )
 
     @staticmethod
+    def _boundary_clearance(observation: Mapping[str, Any]) -> float:
+        """Return public geometric clearance to the nearest world boundary."""
+
+        positions = np.asarray(observation.get("defender_positions"), dtype=np.float64)
+        lower_value = observation.get("world_lower")
+        upper_value = observation.get("world_upper")
+        if positions.ndim != 2 or positions.shape[1] != 3:
+            raise ValueError("defender_positions must have shape [defenders, 3].")
+        if lower_value is None or upper_value is None:
+            return float("inf")
+        lower = _finite_array(lower_value, (3,), "world_lower")
+        upper = _finite_array(upper_value, (3,), "world_upper")
+        return float(min(np.min(positions - lower[None, :]), np.min(upper[None, :] - positions)))
+
+    @staticmethod
     def _route_phase(candidate: Any) -> str:
         label = str(getattr(candidate, "label", "nominal"))
-        if label in {"braking", "radial_out"}:
+        if label in {"braking", "radial_out", "boundary_rescue"}:
             return "pre_brake"
         if label in {"left_detour", "right_detour", "upper_detour", "lower_detour"}:
             return "tangent_left" if label == "left_detour" else "tangent_right" if label == "right_detour" else "tangent_vertical"
@@ -381,29 +399,43 @@ class DistributedMinimaxMPC:
         selected_index = best_index
         reason = "minimax_best_route"
         current_phase = self._phase
-        tangent_indices = [
+        boundary_rescue_indices = [
             int(index)
             for index in valid_indices
-            if self._route_phase(candidates[int(index)]).startswith("tangent_")
-            and str(getattr(candidates[int(index)], "side", "")) == self._route_side
+            if str(getattr(candidates[int(index)], "label", "")) == "boundary_rescue"
         ]
-        if current_phase.startswith("tangent_") and int(self._tangent_age) < int(self.config.tangent_route_hold_steps):
-            if current_index is not None and self._route_phase(candidates[current_index]).startswith("tangent_"):
-                selected_index = int(current_index)
-                reason = "tangent_side_hold"
-            elif tangent_indices:
-                selected_index = min(tangent_indices, key=lambda index: float(scores[index]))
-                reason = "tangent_side_reacquire"
-        if current_index is not None and int(self._route_age) < int(self.config.max_route_age_steps):
-            improvement = float(scores[current_index] - scores[best_index])
-            if reason != "minimax_best_route":
-                pass
-            elif int(self._route_age) < int(self.config.minimum_hold_steps):
-                selected_index = int(current_index)
-                reason = "route_hold_minimum_age"
-            elif improvement < float(self.config.switch_improvement_m):
-                selected_index = int(current_index)
-                reason = "route_hold_hysteresis"
+        rescue_priority = bool(
+            self.config.boundary_rescue_priority
+            and boundary_rescue_indices
+            and self._boundary_clearance(observation) < float(self.config.boundary_rescue_trigger_m)
+        )
+        if rescue_priority:
+            selected_index = min(boundary_rescue_indices, key=lambda index: float(scores[index]))
+            reason = "boundary_rescue_priority"
+        else:
+            tangent_indices = [
+                int(index)
+                for index in valid_indices
+                if self._route_phase(candidates[int(index)]).startswith("tangent_")
+                and str(getattr(candidates[int(index)], "side", "")) == self._route_side
+            ]
+            if current_phase.startswith("tangent_") and int(self._tangent_age) < int(self.config.tangent_route_hold_steps):
+                if current_index is not None and self._route_phase(candidates[current_index]).startswith("tangent_"):
+                    selected_index = int(current_index)
+                    reason = "tangent_side_hold"
+                elif tangent_indices:
+                    selected_index = min(tangent_indices, key=lambda index: float(scores[index]))
+                    reason = "tangent_side_reacquire"
+            if current_index is not None and int(self._route_age) < int(self.config.max_route_age_steps):
+                improvement = float(scores[current_index] - scores[best_index])
+                if reason != "minimax_best_route":
+                    pass
+                elif int(self._route_age) < int(self.config.minimum_hold_steps):
+                    selected_index = int(current_index)
+                    reason = "route_hold_minimum_age"
+                elif improvement < float(self.config.switch_improvement_m):
+                    selected_index = int(current_index)
+                    reason = "route_hold_hysteresis"
         selected = candidates[selected_index]
         switched = self._route_id is not None and str(selected.route_id) != self._route_id
         if switched:

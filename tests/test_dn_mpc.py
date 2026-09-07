@@ -90,3 +90,30 @@ def test_dn_mpc_honors_external_cbf_eligibility_mask() -> None:
     assert decision.selected_index == 1
     with pytest.raises(ValueError):
         DistributedMinimaxMPC().plan(candidates, _observation(), eligible_mask=[True])
+
+
+def test_dn_mpc_prioritizes_boundary_rescue_over_route_hysteresis() -> None:
+    observation = _observation()
+    observation["defender_positions"] = np.array(
+        [[8.2, -1.0, 1.0], [8.2, 1.0, 1.0]], dtype=np.float64
+    )
+    observation["world_lower"] = np.array([-10.0, -10.0, 0.5], dtype=np.float64)
+    observation["world_upper"] = np.array([10.0, 10.0, 10.0], dtype=np.float64)
+    nominal_action = np.array([[[2.0, 0.0, 0.0], [2.0, 0.0, 0.0]]], dtype=np.float64)
+    rescue_action = np.array([[[-2.0, 0.0, 0.0], [-2.0, 0.0, 0.0]]], dtype=np.float64)
+    nominal = _candidate("nominal:0", nominal_action)
+    nominal.label = "nominal"
+    rescue = _candidate("boundary_rescue:none", rescue_action, side="boundary_rescue")
+    rescue.label = "boundary_rescue"
+    planner = DistributedMinimaxMPC(
+        DNMPCConfig(minimum_hold_steps=5, boundary_rescue_trigger_m=3.0)
+    )
+    planner._route_id = "nominal:0"
+    planner._route_age = 1
+    decision = planner.plan(
+        SimpleNamespace(candidates=(nominal, rescue)),
+        observation,
+        previous_action=np.zeros((2, 3), dtype=np.float64),
+    )
+    assert decision.selected_route_id == "boundary_rescue:none"
+    assert decision.reason == "boundary_rescue_priority"

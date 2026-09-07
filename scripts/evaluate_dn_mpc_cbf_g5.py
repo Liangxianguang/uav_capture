@@ -105,6 +105,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--minimum-hold-steps", type=int, default=2)
     parser.add_argument("--switch-improvement-m", type=float, default=0.25)
     parser.add_argument("--tangent-route-hold-steps", type=int, default=5)
+    parser.add_argument("--boundary-rescue-enabled", action="store_true")
+    parser.add_argument("--boundary-rescue-trigger-m", type=float, default=3.0)
+    parser.add_argument("--boundary-rescue-offset-m", type=float, default=2.0)
     parser.add_argument("--development-only", action="store_true")
     return parser.parse_args()
 
@@ -146,6 +149,7 @@ def _planner_config(args: argparse.Namespace, dt_seconds: float) -> DNMPCConfig:
         minimum_hold_steps=int(args.minimum_hold_steps),
         switch_improvement_m=float(args.switch_improvement_m),
         tangent_route_hold_steps=int(args.tangent_route_hold_steps),
+        boundary_rescue_trigger_m=float(args.boundary_rescue_trigger_m),
     )
 
 
@@ -198,6 +202,9 @@ def _run_episode(*, item: dict[str, Any], config: dict[str, Any], actor: Any, ac
                 world_lower=tuple(float(value) for value in env.lower),
                 world_upper=tuple(float(value) for value in env.upper),
                 corridor_samples=int(args.route_corridor_samples),
+                boundary_rescue_enabled=bool(args.boundary_rescue_enabled),
+                boundary_rescue_trigger_m=float(args.boundary_rescue_trigger_m),
+                boundary_rescue_offset_m=float(args.boundary_rescue_offset_m),
             ),
             previous_action=previous_action,
         )
@@ -320,6 +327,10 @@ def main() -> None:
         raise SystemExit("Route hold steps must be non-negative.")
     if not np.isfinite(args.switch_improvement_m) or args.switch_improvement_m < 0.0:
         raise SystemExit("Switch improvement must be finite and non-negative.")
+    if not np.isfinite(args.boundary_rescue_trigger_m) or args.boundary_rescue_trigger_m <= 0.0:
+        raise SystemExit("Boundary rescue trigger must be finite and positive.")
+    if not np.isfinite(args.boundary_rescue_offset_m) or args.boundary_rescue_offset_m <= 0.0:
+        raise SystemExit("Boundary rescue offset must be finite and positive.")
     output_dir = _fresh(args.output_dir, "output directory")
     (output_dir / "step_traces").mkdir(parents=True, exist_ok=True)
     tensorboard_dir = _fresh(args.tensorboard_dir, "TensorBoard directory")
@@ -374,6 +385,8 @@ def main() -> None:
             "cbf": JointCBFQPSafetyFilter(probe_env, anticipatory_horizon_steps=args.cbf_horizon, barrier_mode="strict_buffer").contract,
             "route_probe_horizon": int(args.route_probe_horizon),
             "route_chunk_length_steps": 5,
+            "boundary_rescue_enabled": bool(args.boundary_rescue_enabled),
+            "boundary_rescue_offset_m": float(args.boundary_rescue_offset_m),
             "execute_first_step_then_replan": True,
             "jepa_enabled": False,
             "ledger_enabled": False,

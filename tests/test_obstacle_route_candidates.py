@@ -98,6 +98,48 @@ def test_open_scene_generates_all_development_route_labels() -> None:
     assert batch.candidates[batch.labels.index("formation_split")].side == "split"
 
 
+def test_boundary_rescue_is_opt_in_and_points_toward_public_world_interior() -> None:
+    observation = _observation([])
+    positions = np.asarray(observation["defender_positions"], dtype=np.float64).copy()
+    positions[:, 0] = 8.2
+    observation["defender_positions"] = positions
+    disabled = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+    assert "boundary_rescue" not in disabled.labels
+
+    enabled = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+        config=ObstacleRouteConfig(
+            boundary_rescue_enabled=True,
+            boundary_rescue_trigger_m=3.0,
+            boundary_rescue_offset_m=2.0,
+        ),
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+    rescue = enabled.candidates[enabled.labels.index("boundary_rescue")]
+    assert rescue.valid
+    assert rescue.side == "boundary_rescue"
+    assert rescue.action_chunk[0, :, 0].mean() < 0.0
+    assert enabled.route_contract["boundary_rescue_enabled"] is True
+
+
+def test_boundary_rescue_is_invalid_when_public_boundary_is_not_close() -> None:
+    observation = _observation([])
+    enabled = make_obstacle_route_candidates(
+        np.zeros((4, 3), dtype=np.float64),
+        observation,
+        config=ObstacleRouteConfig(boundary_rescue_enabled=True),
+        previous_action=np.zeros((4, 3), dtype=np.float64),
+    )
+    rescue = enabled.candidates[enabled.labels.index("boundary_rescue")]
+    assert not rescue.valid
+    assert "boundary_rescue_not_available" in rescue.rejection_reasons
+
+
 def test_central_obstacle_generates_distinct_left_right_and_upper_routes() -> None:
     observation = _observation([_cylinder((0.0, 0.0))])
     batch = generate_obstacle_route_candidates(
