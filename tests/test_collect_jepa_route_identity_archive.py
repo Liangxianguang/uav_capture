@@ -53,8 +53,10 @@ class _ShadowEnv:
 def test_boundary_shadow_from_nine_meter_initial_side_distance_has_negative_clearance() -> None:
     env = _ShadowEnv()
 
-    _actions, boundary = _boundary_shadow_rollout(env)
+    actions, boundary = _boundary_shadow_rollout(env, horizon=5)
 
+    assert actions.shape == (5, env.n_defenders, 3)
+    assert boundary.shape == (5, env.n_defenders)
     assert float(boundary.min()) < 0.0
     assert env.step_calls == 0
 

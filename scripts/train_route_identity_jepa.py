@@ -1,9 +1,10 @@
 """Train the route-aware JEPA evaluator on the obstacle-route archive.
 
 This trainer is intentionally separate from the historical V3/V21 trainers.
-The route archive has a 12-candidate, three-step chunk contract and contains
-explicit geometry/CBF negative branches.  A fresh checkpoint is therefore
-required before calibration or runtime use; old ledgers cannot be reused.
+The route archive has a 12-candidate, three- or five-step chunk contract and
+contains explicit geometry/CBF negative branches. A fresh checkpoint is
+therefore required before calibration or runtime use; old ledgers cannot be
+reused.
 """
 
 from __future__ import annotations
@@ -166,8 +167,8 @@ def _load_metadata(path: Path, dataset: Path, expected_split: str) -> dict[str, 
         raise ValueError(f"Expected {expected_split} metadata, got {metadata.get('split')!r}.")
     if metadata.get("candidate_profile") != "obstacle_route_v1" or int(metadata.get("candidate_count", 0)) != 12:
         raise ValueError("Route trainer requires the obstacle_route_v1 12-candidate contract.")
-    if int(metadata.get("history_length", 0)) != 8 or int(metadata.get("chunk_length_steps", 0)) != 3:
-        raise ValueError("Route trainer requires history_length=8 and chunk_length_steps=3.")
+    if int(metadata.get("history_length", 0)) != 8 or int(metadata.get("chunk_length_steps", 0)) not in (3, 5):
+        raise ValueError("Route trainer requires history_length=8 and chunk_length_steps in {3,5}.")
     if metadata.get("development_only") is not True or metadata.get("locked_test_opened") is not False:
         raise ValueError("Route training is permitted only in the closed development protocol.")
     boundary = metadata.get("information_boundary", {})
@@ -197,8 +198,9 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
         raise ValueError(f"inputs must have shape [N,8,63], got {arrays['inputs'].shape}")
     if arrays["action_history"].shape[1:] != (8, 3):
         raise ValueError("action_history must have shape [N,8,3].")
-    if arrays["route_action_chunk"].shape[1:] != (3, 3):
-        raise ValueError("route_action_chunk must have shape [N,3,3].")
+    chunk_length = int(metadata["chunk_length_steps"])
+    if arrays["route_action_chunk"].shape[1:] != (chunk_length, 3):
+        raise ValueError(f"route_action_chunk must have shape [N,{chunk_length},3].")
     for name in ("labels_relative",):
         if arrays[name].shape[1:] != (5, 3):
             raise ValueError(f"{name} must have shape [N,5,3].")
@@ -677,7 +679,7 @@ def main() -> None:
         "interaction_group_slices": protocol.get("model_contract", {}).get(
             "interaction_group_slices", [[0, 15], [15, 33], [33, 48], [48, 63]]
         ),
-        "route_chunk_length": 3,
+        "route_chunk_length": int(train_metadata["chunk_length_steps"]),
         "route_candidate_count": 12,
         "route_side_count": 12,
         "pairwise_pooling": bool(args.pairwise_pooling),

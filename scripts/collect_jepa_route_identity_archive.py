@@ -98,6 +98,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-stride", type=int, default=8)
     parser.add_argument("--history-length", type=int, default=8)
     parser.add_argument("--chunk-length-steps", type=int, default=3)
+    parser.add_argument("--dataset-version", default=DATASET_VERSION)
     parser.add_argument(
         "--actor-checkpoint",
         type=Path,
@@ -184,9 +185,13 @@ def _fresh(path: Path, label: str) -> Path:
     return resolved
 
 
-def _route_config(env: CaptureRadiusPursuit3DEnv, safety_filter: JointCBFQPSafetyFilter) -> ObstacleRouteConfig:
+def _route_config(
+    env: CaptureRadiusPursuit3DEnv,
+    safety_filter: JointCBFQPSafetyFilter,
+    chunk_length_steps: int,
+) -> ObstacleRouteConfig:
     return ObstacleRouteConfig(
-        chunk_length_steps=3,
+        chunk_length_steps=int(chunk_length_steps),
         dt_seconds=float(env.dt),
         max_speed_mps=float(env.agents["defender_max_speed"]),
         max_acceleration_mps2=float(env.agents["defender_max_acceleration"]),
@@ -369,7 +374,9 @@ def _boundary_shadow_rollout(
     radius = float(env.agents["drone_radius"])
     max_speed = float(env.agents["defender_max_speed"])
     dt = float(env.dt)
-    actions = np.zeros((3, env.n_defenders, 3), dtype=np.float32)
+    if int(horizon) <= 0:
+        raise ValueError("boundary shadow horizon must be positive")
+    actions = np.zeros((int(horizon), env.n_defenders, 3), dtype=np.float32)
     for agent, position in enumerate(positions):
         lower_gaps = position - lower - radius
         upper_gaps = upper - position - radius
@@ -682,8 +689,8 @@ def _append_samples(
     inputs = np.stack(observation_history[-8:], axis=0)
     past_actions = np.stack(executed_action_history[-7:], axis=0)
     candidate_chunk = np.asarray(route.action_chunk, dtype=np.float32)
-    if candidate_chunk.shape[0] != 3:
-        raise ValueError("Route archive requires three-step candidate chunks.")
+    if candidate_chunk.ndim != 3 or candidate_chunk.shape[0] not in (3, 5):
+        raise ValueError("Route archive requires a three- or five-step candidate chunk.")
     for agent in range(inputs.shape[1]):
         samples["inputs"].append(inputs[:, agent].copy())
         samples["action_history"].append(
@@ -733,6 +740,7 @@ def _append_boundary_shadow_samples(
     scenario_index: int,
     time_index: int,
     action_scale: float,
+    chunk_length_steps: int = max(HORIZON_STEPS),
 ) -> float:
     """Append one data-only boundary stress sample per defender."""
 
@@ -740,8 +748,10 @@ def _append_boundary_shadow_samples(
         raise ValueError("Boundary shadow histories are not causally aligned.")
     inputs = np.stack(observation_history[-8:], axis=0)
     past_actions = np.stack(executed_action_history[-7:], axis=0)
-    action_chunk, boundary = _boundary_shadow_rollout(env)
-    boundary_ttc = _boundary_shadow_ttc(env, action_chunk)
+    if int(chunk_length_steps) <= 0:
+        raise ValueError("boundary shadow chunk length must be positive")
+    action_chunk, boundary = _boundary_shadow_rollout(env, horizon=int(chunk_length_steps))
+    boundary_ttc = _boundary_shadow_ttc(env, action_chunk, horizon=int(chunk_length_steps))
     for agent in range(inputs.shape[1]):
         samples["inputs"].append(inputs[:, agent].copy())
         samples["action_history"].append(
@@ -793,10 +803,14 @@ def _arrayize(samples: Mapping[str, list[Any]]) -> dict[str, np.ndarray]:
         "scenario_index",
         "earliest_failure_step",
     }
-    return {
-        key: np.asarray(value, dtype=np.int64 if key in integer else np.float32)
-        for key, value in samples.items()
-    }
+    arrays: dict[str, np.ndarray] = {}
+    for key, value in samples.items():
+        try:
+            arrays[key] = np.asarray(value, dtype=np.int64 if key in integer else np.float32)
+        except ValueError as error:
+            shapes = sorted({tuple(np.asarray(item).shape) for item in value})
+            raise ValueError(f"Archive field {key!r} has inconsistent item shapes: {shapes}") from error
+    return arrays
 
 
 def _runtime_sample_mask(arrays: Mapping[str, np.ndarray]) -> np.ndarray:
@@ -840,16 +854,18 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     )
 
     protocol = load_protocol(args.protocol.resolve())
-    if args.episodes <= 0 or args.sample_stride <= 0 or args.history_length != 8 or args.chunk_length_steps != 3:
-        raise ValueError("episodes/sample-stride must be positive; route archive fixes history=8 and chunk=3")
+    if args.episodes <= 0 or args.sample_stride <= 0 or args.history_length != 8 or args.chunk_length_steps not in (3, 5):
+        raise ValueError("episodes/sample-stride must be positive; route archive supports history=8 and chunk=3 or 5")
     env_config_path = args.environment_config.resolve()
     archive_config_path = args.archive_config.resolve()
     archive_config = yaml.safe_load(archive_config_path.read_text(encoding="utf-8"))
     if not isinstance(archive_config, dict) or archive_config.get("locked_test_opened") is not False:
         raise ValueError("archive config must be a closed development protocol")
     contract = archive_config.get("data_contract", {})
-    if contract.get("dataset_version") != DATASET_VERSION or contract.get("candidate_profile") != "obstacle_route_v1":
+    if contract.get("dataset_version") != args.dataset_version or contract.get("candidate_profile") != "obstacle_route_v1":
         raise ValueError("archive config does not match the route-identity collector")
+    if int(contract.get("chunk_length_steps", -1)) != int(args.chunk_length_steps):
+        raise ValueError("archive config chunk_length_steps does not match --chunk-length-steps")
     state_distribution = archive_config.get("state_distribution", {})
     if not isinstance(state_distribution, dict):
         raise ValueError("archive config state_distribution must be a mapping")
@@ -936,7 +952,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
             anticipatory_horizon_steps=int(cbf_contract["anticipatory_horizon_steps"]),
             barrier_mode=str(cbf_contract["barrier_mode"]),
         )
-        route_config = _route_config(env, safety_filter)
+        route_config = _route_config(env, safety_filter, args.chunk_length_steps)
         extent = float(config["world"]["half_extent_xy"])
         observation_history = [policy_observations(env, observation).copy()]
         executed_actions: list[np.ndarray] = []
@@ -1022,6 +1038,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                     scenario_index=scenario_index,
                     time_index=time_index,
                     action_scale=5.0,
+                    chunk_length_steps=args.chunk_length_steps,
                 )
             action, diagnostics = safety_filter.filter(
                 desired,
@@ -1057,7 +1074,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     runtime_mask = _runtime_sample_mask(arrays)
     class_counts = _class_counts(arrays)
     metadata = {
-        "dataset_version": DATASET_VERSION,
+        "dataset_version": str(args.dataset_version),
         "task": "action_conditioned_interaction_aware_jepa_route_identity_counterfactual",
         "split": str(args.split),
         "development_only": True,
@@ -1065,7 +1082,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         "episodes": int(args.episodes),
         "history_length": 8,
         "horizon_steps": list(HORIZON_STEPS),
-        "chunk_length_steps": 3,
+        "chunk_length_steps": int(args.chunk_length_steps),
         "candidate_profile": "obstacle_route_v1",
         "candidate_count": len(ROUTE_LABELS),
         "route_labels": list(ROUTE_LABELS),
