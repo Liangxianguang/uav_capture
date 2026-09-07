@@ -43,6 +43,42 @@ result without a safety event or controlled-abort increase. This permits the
 next planner-only stage, route-state/nominal L0-L1 replay. It does **not**
 authorize JEPA training, Ledger-Lite integration, or a locked benchmark.
 
+## S2 planner-only replay
+
+The generic manifest replay entry point
+(`scripts/evaluate_dn_mpc_cbf_scene_manifest.py`) was added so dedicated
+development manifests can be replayed without regenerating them under the S3
+protocol. It validates each scene hash and geometry, then uses the same
+reachable projection, candidate-level CBF probes, independent selected/
+nominal/safe-hold probes, strict final CBF, and first-step execution contract.
+
+| Frozen slice | Episodes | Safe capture | Mean time | Route switches | Safety events | Worst clearance |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| L0 open, `horizon=5` | 8 | 8/8 (100.0%) | 5.900 s | 40 | 0 | 0.353859 m |
+| L0 single obstacle, `horizon=5` | 8 | 8/8 (100.0%) | 8.725 s | 75 | 0 | 0.350302 m |
+| L1 nominal, 3 obstacles, `horizon=5` | 8 | 8/8 (100.0%) | 11.188 s | 129 | 0 | 0.350664 m |
+
+For all three slices, collision, defender boundary, pairwise, raw-unverified,
+controlled-abort, and CBF fallback counts were zero. The route probe rejection
+counts were respectively 149/3776, 689/6874, and 1135/7907; these are
+candidate-level rejections and did not produce an execution safety event.
+
+The output and TensorBoard runs are isolated under:
+
+```text
+results/dn_mpc_cbf_s2_l0_open_replay_seed20260907_h5/
+results/dn_mpc_cbf_s2_l0_single_obstacle_seed20260907_h5/
+results/dn_mpc_cbf_s2_l1_nominal_seed20260907_h5/
+results/dn_mpc_jepa_safe_capture_tensorboard/s2_l0_open_replay_seed20260907_h5/
+results/dn_mpc_jepa_safe_capture_tensorboard/s2_l0_single_obstacle_seed20260907_h5/
+results/dn_mpc_jepa_safe_capture_tensorboard/s2_l1_nominal_seed20260907_h5/
+```
+
+These are development slices from the frozen M0 scene manifest, not new
+locked-test claims. S2 passes the planner-only gate for these slices. The
+route-switch count rises with obstacle complexity, so the next review should
+inspect route identity/side persistence before any JEPA integration.
+
 ## Artifact inventory
 
 The inventory was collected before cleanup so that deletion did not erase

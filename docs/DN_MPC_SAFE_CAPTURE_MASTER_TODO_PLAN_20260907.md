@@ -401,7 +401,8 @@ DN-MPC -> nominal route planner
 4. [x] 新增 `configs/dn_mpc_jepa_safe_capture_development.yaml`，明确 `development_only=true` 和 `locked_test_opened=false`。
 5. [x] 完成 P0 manifest；最新严格 chunk-5 G5 结果为 `4/4`，见
    `docs/DN_MPC_P0_BASELINE_FREEZE_G5_CHUNK5_20260907.md`。
-6. [ ] S1 已通过（`4/4`，见 `docs/DN_MPC_S1_REPLAY_AND_ARTIFACT_INVENTORY_20260907.md`）；接入路线状态机并运行 L0-L1，若失败只修 planner/接口，不训练 JEPA。
+6. [x] S1 已通过（`4/4`），并完成 S2 planner-only L0/L1 slices（均 `8/8`）；见
+   `docs/DN_MPC_S1_REPLAY_AND_ARTIFACT_INVENTORY_20260907.md`。接下来先审计路线状态机，再考虑 JEPA。
 7. [ ] S1/S2 稳定后再采集 hard-negative archive 和训练 JEPA evaluator。
 8. [ ] calibration gate 通过后才实现 Ledger-Lite；否则保留解析 DN-MPC + CBF。
 9. [ ] 完成三 seed paired replay，再考虑新的 locked block。
