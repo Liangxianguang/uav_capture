@@ -524,4 +524,16 @@ DN-MPC -> nominal route planner
     route 的 agreement；在标签合同和 fresh calibration 修复前不得追加
     seed、创建 Ledger-Lite 或接入在线闭环。
 
+33. [x] P30 已完成 route-length utility 离线诊断；结果见
+    `docs/DN_MPC_P30_ROUTE_UTILITY_DIAGNOSTIC_20260908.md`。只用 calibration
+    选择 `lambda=0.3` 后，P28 validation exact top-1 从 `47.09%` 提升到
+    `66.28%`，informative top-1 从 `80.00%` 提升到 `89.13%`，pairwise
+    agreement 从 `87.74%` 提升到 `97.79%`。这是公共路线效用项的离线
+    证据，不是捕获率或在线 promotion 证据。
+
+34. [ ] 设计并独立校准 route-utility label（进度、路长、CBF 可行性、目标
+    逃逸代价和 route-switch penalty），然后在 P28/P29 两个 checkpoint
+    上做同口径离线复评；未通过完整 trace、fresh calibration 和独立 seed
+    稳定性门前，不接入在线闭环。
+
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**
