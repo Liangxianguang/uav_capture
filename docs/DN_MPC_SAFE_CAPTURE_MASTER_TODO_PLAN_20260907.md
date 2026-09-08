@@ -536,4 +536,16 @@ DN-MPC -> nominal route planner
     上做同口径离线复评；未通过完整 trace、fresh calibration 和独立 seed
     稳定性门前，不接入在线闭环。
 
+35. [x] P31 已完成 route-utility label 的离线校准和 P28/P29 复评；结果见
+    `docs/DN_MPC_P31_ROUTE_UTILITY_LABEL_CALIBRATION_20260908.md`。P28
+    validation exact/informative/pairwise 为 `62.21%/80.65%/96.71%`，P29
+    为 `43.02%/87.10%/96.89%`；model-vs-selected 仍为 `41.28%/29.65%`。
+    utility 方向改善但 seed 波动和 planner contract mismatch 仍存在，继续
+    保持 offline-only。
+
+36. [ ] 新建 archive contract，加入 `previous_executed_route_id`、真实
+    route-switch outcome、CBF counterfactual traces 和目标逃逸标签；完成
+    独立 calibration 后，用一个共享 utility contract 复评 P28/P29，仍不得
+    直接接入在线闭环。
+
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**
