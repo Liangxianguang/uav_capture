@@ -69,4 +69,3 @@ The current result is still offline-only. It must not be described as a
 - audit JSON: `results/dn_mpc_jepa_safe_capture_dev/p29_route_utility_audit/audit.json`
 - audit Markdown: `results/dn_mpc_jepa_safe_capture_dev/p29_route_utility_audit/AUDIT.md`
 - TensorBoard: `results/dn_mpc_jepa_safe_capture_tensorboard/p29_route_utility_audit`
-
