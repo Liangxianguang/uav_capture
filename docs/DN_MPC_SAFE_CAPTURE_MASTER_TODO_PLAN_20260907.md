@@ -555,9 +555,18 @@ DN-MPC -> nominal route planner
     该阶段仍是 archive/label contract，不是 safe-capture 提升，也没有
     创建 Ledger-Lite 或打开 locked test。
 
-37. [ ] 在 P36 full archive 上启用显式 pairwise action-conditioned route
+37. [x] 在 P36 full archive 上启用显式 pairwise action-conditioned route
     feature，训练一个新 listwise JEPA evaluator；用独立 calibration 选择
-    route utility（进度、路长、CBF 可行性、目标逃逸和 route-switch），
-    validation candidate agreement 未达到 promotion gate 前保持 offline-only。
+    route utility（进度、路长、CBF 可行性、目标逃逸和 route-switch）。P37
+    train/validation/calibration 各 8 episodes 的 pairwise archive 审计通过，
+    新 evaluator seed `373701` 的 validation truth-ranking 为
+    `99.41%/100.00%/99.07%`（exact/informative/pairwise），但与解析 DN-MPC
+    selected route 一致率只有 `34.42%`，promotion gate 失败，继续
+    offline-only。结果见 `DN_MPC_P37_PAIRWISE_JEPA_AUDIT_20260908.md`。
+
+38. [ ] 对 P37 的 route-family、候选 eligibility、tie-break、route-switch
+    和 CBF-abstention 分层统计做 bounded diagnosis；如果 candidate agreement
+    仍低于 gate，停止扩大 JEPA 模型，保留解析 DN-MPC + CBF，并将 JEPA
+    限定为离线评价器。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

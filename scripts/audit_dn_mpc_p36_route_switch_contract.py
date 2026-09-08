@@ -46,7 +46,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def audit_archive(directory: Path, expected_split: str | None = None) -> dict[str, Any]:
+def audit_archive(
+    directory: Path,
+    expected_split: str | None = None,
+    expected_dataset_version: str = "dn_mpc_route_identity_chunk5_p36_route_switch_v1",
+    require_pairwise: bool = False,
+) -> dict[str, Any]:
     directory = directory.resolve()
     dataset_path = directory / "route_identity_counterfactual.npz"
     metadata_path = directory / "metadata.json"
@@ -55,7 +60,7 @@ def audit_archive(directory: Path, expected_split: str | None = None) -> dict[st
         raise FileNotFoundError(f"missing P36 archive artifact in {directory}")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-    if metadata.get("dataset_version") != "dn_mpc_route_identity_chunk5_p36_route_switch_v1":
+    if metadata.get("dataset_version") != expected_dataset_version:
         raise ValueError(f"unexpected dataset version: {directory}")
     split = str(metadata.get("split"))
     if expected_split is not None and split != expected_split:
@@ -94,6 +99,12 @@ def audit_archive(directory: Path, expected_split: str | None = None) -> dict[st
         raise ValueError(f"unexpected route match tolerance: {directory}")
     if metadata.get("target_escape_label_contract", {}).get("enabled") is not True:
         raise ValueError(f"target escape label contract is disabled: {directory}")
+    if require_pairwise:
+        if metadata.get("pairwise_action_conditioned_route_chunk") is not True:
+            raise ValueError(f"pairwise route feature is disabled: {directory}")
+        interaction = metadata.get("interaction_hard_negatives", {})
+        if interaction.get("enabled") is not True or interaction.get("offline_only") is not True:
+            raise ValueError(f"pairwise interaction hard-negative contract is invalid: {directory}")
 
     arrays = np.load(dataset_path, allow_pickle=False)
     missing = sorted(REQUIRED_ARRAYS.difference(arrays.files))
@@ -176,17 +187,19 @@ def main() -> None:
     parser.add_argument("--train", type=Path, required=True)
     parser.add_argument("--validation", type=Path)
     parser.add_argument("--calibration", type=Path, required=True)
+    parser.add_argument("--dataset-version", default="dn_mpc_route_identity_chunk5_p36_route_switch_v1")
+    parser.add_argument("--require-pairwise", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     report: dict[str, Any] = {
-        "protocol": "dn_mpc_route_identity_chunk5_p36_route_switch_v1",
+        "protocol": str(args.dataset_version),
         "development_only": True,
         "locked_test_opened": False,
-        "train": audit_archive(args.train, "train"),
-        "calibration": audit_archive(args.calibration, "calibration"),
+        "train": audit_archive(args.train, "train", args.dataset_version, args.require_pairwise),
+        "calibration": audit_archive(args.calibration, "calibration", args.dataset_version, args.require_pairwise),
     }
     if args.validation is not None:
-        report["validation"] = audit_archive(args.validation, "validation")
+        report["validation"] = audit_archive(args.validation, "validation", args.dataset_version, args.require_pairwise)
     split_names = tuple(name for name in ("train", "validation", "calibration") if name in report)
     for left_index, left_name in enumerate(split_names):
         for right_name in split_names[left_index + 1 :]:

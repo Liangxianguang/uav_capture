@@ -1,0 +1,45 @@
+protocol_name: dn_mpc_p37_pairwise_jepa_train
+protocol_version: 1
+phase: development_only
+locked_test_opened: false
+not_a_locked_test: true
+
+model:
+  script: scripts/train_route_identity_jepa.py
+  seed: 373701
+  model_type: interaction_aware_action_conditioned_jepa_route_identity_hard_negative_v2
+  hidden_dim: 128
+  latent_dim: 64
+  num_layers: 1
+  route_ranking_mode: listwise
+  route_ranking_temperature: 0.005
+  pairwise_pooling: true
+  pairwise_relational: true
+
+optimization:
+  epochs: 40
+  batch_size: 512
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  patience: 8
+  min_delta: 0.00001
+
+data:
+  train_dataset: results/dn_mpc_jepa_safe_capture_dev/p37_route_switch_pairwise_train8/route_identity_counterfactual.npz
+  train_metadata: results/dn_mpc_jepa_safe_capture_dev/p37_route_switch_pairwise_train8/metadata.json
+  validation_dataset: results/dn_mpc_jepa_safe_capture_dev/p37_route_switch_pairwise_validation8/route_identity_counterfactual.npz
+  validation_metadata: results/dn_mpc_jepa_safe_capture_dev/p37_route_switch_pairwise_validation8/metadata.json
+  calibration_dataset: results/dn_mpc_jepa_safe_capture_dev/p37_route_switch_pairwise_calibration8/route_identity_counterfactual.npz
+  calibration_metadata: results/dn_mpc_jepa_safe_capture_dev/p37_route_switch_pairwise_calibration8/metadata.json
+
+outputs:
+  checkpoint: results/dn_mpc_jepa_safe_capture_checkpoints/p37_route_jepa_pairwise_seed373701/checkpoint.pt
+  tensorboard: results/dn_mpc_jepa_safe_capture_tensorboard/p37_route_jepa_pairwise_seed373701
+  utility_audit: results/dn_mpc_jepa_safe_capture_dev/p37_route_utility_audit8_v2
+
+safety:
+  cbf_margin_changed: false
+  stale_ood_nonfinite_gates_changed: false
+  controlled_abort_preserved: true
+  raw_unverified_execution_allowed: false
+  online_jepa_override: false

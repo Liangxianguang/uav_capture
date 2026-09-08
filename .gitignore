@@ -13,6 +13,9 @@ results/*
 !results/STAGE4_COMMON_LOCKED_REPORT.md
 !results/STAGE4_COMMON_LOCKED_SUMMARY.json
 
+# Historical recovery archives and local diagnostic scratch files stay local.
+tmp/
+
 # Local simulator archives and generated meshes.
 third_party/*.zip
 third_party/**/files/
