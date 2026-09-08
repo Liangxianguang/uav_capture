@@ -8,6 +8,7 @@ from scripts.audit_dn_mpc_p36_route_utility import (
     _parse_switch_grid,
 )
 from scripts.diagnose_dn_mpc_p44_utility_scale import _summarize
+from scripts.audit_dn_mpc_p45_safety_first_hierarchy import _select_candidate
 
 
 def test_switch_grid_parser_sorts_and_deduplicates_values() -> None:
@@ -47,3 +48,31 @@ def test_p44_summary_excludes_unknown_switch_rows_from_switch_statistics() -> No
     assert report["terms"]["switch"]["count"] == 2
     assert report["terms"]["switch_known_fraction"] == 2 / 3
     assert report["terms"]["switch_rate"] == 0.5
+
+
+def test_p45_hierarchy_uses_route_length_only_inside_primary_tie_band() -> None:
+    candidates = [
+        {
+            "candidate": 0,
+            "eligible": True,
+            "truth_progress": 1.0,
+            "predicted_progress": 1.0,
+            "truth_escape": 0.0,
+            "predicted_escape": 0.0,
+            "route_length": 2.0,
+            "switch_penalty": 0.0,
+        },
+        {
+            "candidate": 1,
+            "eligible": True,
+            "truth_progress": 0.95,
+            "predicted_progress": 0.95,
+            "truth_escape": 0.0,
+            "predicted_escape": 0.0,
+            "route_length": 0.1,
+            "switch_penalty": 1.0,
+        },
+    ]
+    scales = {"progress": 1.0, "escape": 1.0, "route_length": 1.0}
+    assert _select_candidate(candidates, scales, predicted=True, escape_weight=0.0, tie_band=0.01) == 0
+    assert _select_candidate(candidates, scales, predicted=True, escape_weight=0.0, tie_band=0.1) == 1

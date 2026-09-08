@@ -645,9 +645,20 @@ DN-MPC -> nominal route planner
     route length 和 switch 作为 tie-break。该 hierarchy 通过前不再训练
     evaluator seed、不创建 Ledger-Lite、不做 paired replay。
 
-48. [ ] 实现 P44 safety-first hierarchy offline evaluator mode，在 P37/P43
+48. [x] 实现 P44 safety-first hierarchy offline evaluator mode，在 P37/P43
     两个 checkpoint 上只用 calibration 校准 tie band 和物理归一化，随后
     在 validation 报告 truth-ranking、planner-selected agreement、
-    candidate eligibility 及所有安全审计字段；不接入在线闭环。
+    candidate eligibility 及所有安全审计字段；结果见
+    `docs/DN_MPC_P45_SAFETY_FIRST_HIERARCHY_AUDIT_20260908.md`。两 seed 均
+    选择 `(escape=0, tie_band=0.05)`，但 validation model-vs-planner
+    agreement 仅 `40.65%/41.54%`，低于 P42 weighted utility 的 `80.42%`，
+    hierarchy promotion gate 失败；不接入在线闭环。
+
+49. [ ] 停止 hierarchy 调参和 evaluator seed 扩张，保留 analytic DN-MPC
+    + CBF 为执行权威，JEPA 仅作 offline risk/trajectory evaluator。下一次
+    ranking 实验必须先重定义 planner-distillation route label，并在新的
+    独立 archive 上完成 selected/nominal/safe-hold、OOD/disagreement 和
+    safety trace 校准；在该合同前不创建 Ledger-Lite、不做 paired replay、
+    不打开 locked benchmark。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。P38 已证明当前主要瓶颈是 planner/执行路线合同错配；P39 必须先修复该合同。**
