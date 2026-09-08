@@ -11,9 +11,9 @@ actions. It measures the exact normalized terms used by the P40-P43 route
 utility audit: route progress, route length, target escape cost, multi-step CBF
 feasibility and planner route-switch penalty.
 
-Archive: `p39_route_identity_calibration8`  
-Dataset SHA-256: `de37a54d1800b4bc8352cc20712e9dcf0676dbf60a4d44300f96441326a64ceb`  
-Eligible candidate rows: `3,709`  
+Archive: `p39_route_identity_calibration8`
+Dataset SHA-256: `de37a54d1800b4bc8352cc20712e9dcf0676dbf60a4d44300f96441326a64ceb`
+Eligible candidate rows: `3,709`
 TensorBoard: `results/dn_mpc_jepa_safe_capture_tensorboard/p44_utility_scale_diagnosis_v2/`
 
 ## Normalized distributions
