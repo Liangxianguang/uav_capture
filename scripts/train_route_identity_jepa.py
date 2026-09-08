@@ -77,6 +77,9 @@ REQUIRED_ARRAYS = (
 )
 OPTIONAL_TRACE_ARRAYS = (
     "selected_candidate_index",
+    "planner_selected_candidate_index",
+    "previous_selected_candidate_index",
+    "planner_route_switch_outcome",
     "independent_cbf_trace_present",
     "selected_cbf_feasible",
     "selected_cbf_verified_feasible",
@@ -268,6 +271,18 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
             arrays[pairwise_field] = np.zeros(
                 (*arrays["route_action_chunk"].shape[:2], 9), dtype=np.float32
             )
+        planner_contract = metadata.get("planner_selection_identity_contract", {})
+        if isinstance(planner_contract, dict) and planner_contract.get("enabled") is True:
+            planner_fields = (
+                "planner_selected_candidate_index",
+                "previous_selected_candidate_index",
+                "planner_route_switch_outcome",
+            )
+            missing_planner = [field for field in planner_fields if field not in archive_files]
+            if missing_planner:
+                raise ValueError(
+                    f"{path} declares planner selection identity but is missing {missing_planner}"
+                )
     samples = int(arrays["inputs"].shape[0])
     if arrays["inputs"].shape[1:] != (8, 63):
         raise ValueError(f"inputs must have shape [N,8,63], got {arrays['inputs'].shape}")
@@ -321,6 +336,9 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
         "scenario_index",
         "time_index",
         "selected_candidate_index",
+        "planner_selected_candidate_index",
+        "previous_selected_candidate_index",
+        "planner_route_switch_outcome",
         "independent_cbf_trace_present",
     ):
         values = arrays[name]

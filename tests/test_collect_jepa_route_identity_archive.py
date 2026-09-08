@@ -100,6 +100,53 @@ def test_unknown_runtime_route_is_an_explicit_switch_abstention() -> None:
     assert samples["route_switch_outcome"] == [-1]
 
 
+def test_planner_selection_switch_is_separate_from_executed_route_switch() -> None:
+    class _Route:
+        action_chunk = np.zeros((5, 1, 3), dtype=np.float64)
+        side = "nominal"
+        obstacle_id = None
+        route_length_m = 1.0
+        minimum_geometric_clearance_m = 1.0
+        label = "nominal"
+        valid = True
+
+    samples = _empty_samples()
+    labels = {
+        name: np.zeros((5, 1), dtype=np.float32)
+        for name in (
+            "relative", "obstacle_clearance", "inter_agent_clearance",
+            "boundary_clearance", "stopping_distance", "obstacle_ttc",
+            "boundary_ttc", "pairwise_ttc", "acceleration_slack",
+            "target_visible", "cbf_correction", "cbf_intervention",
+            "cbf_feasible", "cbf_min_slack", "route_progress", "rollout_valid",
+        )
+    }
+    labels["relative"] = np.zeros((5, 1, 3), dtype=np.float32)
+    labels["earliest_failure_step"] = 6
+    labels["branch_terminated"] = False
+    _append_samples(
+        samples,
+        observation_history=[np.zeros((1, 63), dtype=np.float32) for _ in range(8)],
+        executed_action_history=[np.zeros((1, 3), dtype=np.float32) for _ in range(7)],
+        route=_Route(),
+        route_index=0,
+        labels=labels,
+        episode_seed=1,
+        scenario_index=2,
+        time_index=8,
+        action_scale=5.0,
+        previous_executed_route_index=3,
+        executed_route_index=0,
+        previous_selected_candidate_index=2,
+        planner_selected_candidate_index=0,
+    )
+    assert samples["previous_executed_route_index"] == [3]
+    assert samples["route_switch_outcome"] == [1]
+    assert samples["previous_selected_candidate_index"] == [2]
+    assert samples["planner_selected_candidate_index"] == [0]
+    assert samples["planner_route_switch_outcome"] == [1]
+
+
 class _ShadowEnv:
     def __init__(self) -> None:
         self.defender_positions = np.array(

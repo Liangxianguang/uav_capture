@@ -877,6 +877,9 @@ def _empty_samples() -> dict[str, list[Any]]:
         "branch_terminated": [],
         "sample_type": [],
         "selected_candidate_index": [],
+        "planner_selected_candidate_index": [],
+        "previous_selected_candidate_index": [],
+        "planner_route_switch_outcome": [],
         "previous_executed_route_index": [],
         "executed_route_index": [],
         "route_switch_outcome": [],
@@ -957,6 +960,8 @@ def _append_samples(
     previous_executed_route_index: int = -1,
     executed_route_index: int = -1,
     route_match_residual_mps: float = -1.0,
+    previous_selected_candidate_index: int = -1,
+    planner_selected_candidate_index: int = -1,
 ) -> None:
     if len(observation_history) < 8 or len(executed_action_history) != len(observation_history) - 1:
         raise ValueError("Route archive histories are not causally aligned.")
@@ -1042,6 +1047,19 @@ def _append_samples(
                 switched = 0
         else:
             previous, current, switched, residual = -1, -1, 0, -1.0
+        planner_previous = int(previous_selected_candidate_index) if int(sample_type) == 0 else -1
+        planner_current = int(planner_selected_candidate_index) if int(sample_type) == 0 else -1
+        if int(sample_type) != 0:
+            planner_switched = -1
+        elif planner_previous >= 0 and planner_current >= 0:
+            planner_switched = int(planner_previous != planner_current)
+        else:
+            # The first planner decision and an explicit no-feasible-candidate
+            # decision have no previous selected candidate to compare against.
+            planner_switched = -1
+        samples["planner_selected_candidate_index"].append(planner_current)
+        samples["previous_selected_candidate_index"].append(planner_previous)
+        samples["planner_route_switch_outcome"].append(planner_switched)
         samples["previous_executed_route_index"].append(previous)
         samples["executed_route_index"].append(current)
         samples["route_switch_outcome"].append(switched)
@@ -1129,6 +1147,9 @@ def _append_boundary_shadow_samples(
         samples["executed_route_index"].append(-1)
         samples["route_switch_outcome"].append(0)
         samples["route_match_residual_mps"].append(-1.0)
+        samples["planner_selected_candidate_index"].append(-1)
+        samples["previous_selected_candidate_index"].append(-1)
+        samples["planner_route_switch_outcome"].append(-1)
         _append_independent_trace_fields(samples, None, agent=agent)
     return float(np.min(boundary))
 
@@ -1143,6 +1164,9 @@ def _arrayize(samples: Mapping[str, list[Any]]) -> dict[str, np.ndarray]:
         "scenario_index",
         "earliest_failure_step",
         "selected_candidate_index",
+        "planner_selected_candidate_index",
+        "previous_selected_candidate_index",
+        "planner_route_switch_outcome",
         "independent_cbf_trace_present",
         "previous_executed_route_index",
         "executed_route_index",
@@ -1342,6 +1366,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         )
         sampled_states = 0
         previous_executed_route_index = -1
+        previous_selected_candidate_index = -1
         for time_index in range(int(env.max_steps)):
             if (
                 actor_policy is not None
@@ -1400,24 +1425,27 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                     config=route_config,
                     previous_action=previous_action,
                 )
+                # The planner sees only public route geometry, target belief and
+                # first-step CBF eligibility. Its state is recorded separately
+                # from the frozen actor's executed-route identity. No planner
+                # request is executed by this archive collector.
+                route_probe = probe_route_batch_with_cbf(
+                    route_batch,
+                    safety_filter,
+                    observation,
+                    horizon_steps=1,
+                )
+                decision = planner.plan(
+                    route_batch,
+                    observation,
+                    previous_action=previous_action,
+                    eligible_mask=route_probe.candidate_batch.valid_mask,
+                )
+                planner_selected_index = -1 if decision.selected_index is None else int(decision.selected_index)
                 independent_trace: dict[str, Any] | None = None
                 if args.independent_cbf_traces:
-                    # The planner only sees publicly available route geometry,
-                    # target belief and first-step CBF eligibility.  Its chosen
-                    # request is then probed independently from nominal and
-                    # safe-hold; none of these probes is executed here.
-                    route_probe = probe_route_batch_with_cbf(
-                        route_batch,
-                        safety_filter,
-                        observation,
-                        horizon_steps=1,
-                    )
-                    decision = planner.plan(
-                        route_batch,
-                        observation,
-                        previous_action=previous_action,
-                        eligible_mask=route_probe.candidate_batch.valid_mask,
-                    )
+                    # The chosen request is probed independently from nominal
+                    # and safe-hold; none of these probes is executed here.
                     selected_index = decision.selected_index
                     if selected_index is not None:
                         selected_action = np.asarray(
@@ -1478,6 +1506,8 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                         previous_executed_route_index=previous_executed_route_index,
                         executed_route_index=executed_route_index,
                         route_match_residual_mps=route_match_residual_mps,
+                        previous_selected_candidate_index=previous_selected_candidate_index,
+                        planner_selected_candidate_index=planner_selected_index,
                     )
                 hard_negative_active = hard_negative_window_active
                 if hard_negative_active:
@@ -1590,6 +1620,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
             previous_action = np.asarray(action, dtype=np.float64).copy()
             if collect_route_state:
                 previous_executed_route_index = int(executed_route_index)
+                previous_selected_candidate_index = int(planner_selected_index)
             if terminated or truncated:
                 break
         scene = scenario_metadata(scenario)
@@ -1651,6 +1682,17 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
             "match_tolerance_mps": float(EXECUTED_ROUTE_MATCH_TOLERANCE_MPS),
             "measured_between_sampled_route_decisions": True,
             "unknown_route_value": -1,
+        },
+        "planner_selection_identity_contract": {
+            "enabled": True,
+            "previous_field": "previous_selected_candidate_index",
+            "current_field": "planner_selected_candidate_index",
+            "switch_field": "planner_route_switch_outcome",
+            "selection_source": "analytic_dn_mpc_over_first_step_cbf_eligible_candidates",
+            "unknown_candidate_value": -1,
+            "first_decision_switch_value": -1,
+            "abstention_switch_value": -1,
+            "independent_from_execution_identity": True,
         },
         "target_escape_label_contract": {
             "enabled": True,
@@ -1753,6 +1795,21 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
             ),
             "switch_rows": int(np.sum(runtime_mask & (arrays["route_switch_outcome"] > 0))),
         },
+        "planner_selection_identity_counts": {
+            "runtime_rows": int(np.sum(runtime_mask)),
+            "current_known_rows": int(
+                np.sum(runtime_mask & (arrays["planner_selected_candidate_index"] >= 0))
+            ),
+            "previous_known_rows": int(
+                np.sum(runtime_mask & (arrays["previous_selected_candidate_index"] >= 0))
+            ),
+            "switch_rows": int(
+                np.sum(runtime_mask & (arrays["planner_route_switch_outcome"] > 0))
+            ),
+            "unknown_rows": int(
+                np.sum(runtime_mask & (arrays["planner_route_switch_outcome"] < 0))
+            ),
+        },
     }
     return arrays, metadata, scenes
 
@@ -1844,6 +1901,23 @@ def main() -> int:
         matched_residual = arrays["route_match_residual_mps"][runtime_mask & (arrays["route_match_residual_mps"] >= 0.0)]
         writer.add_scalar("RouteIdentity/match_residual_p95_mps", float(np.percentile(matched_residual, 95)) if matched_residual.size else -1.0, 0)
         writer.add_text("RouteIdentity/contract", json.dumps(metadata["route_execution_identity_contract"], sort_keys=True), 0)
+        writer.add_text("PlannerSelection/contract", json.dumps(metadata["planner_selection_identity_contract"], sort_keys=True), 0)
+        planner_counts = metadata["planner_selection_identity_counts"]
+        writer.add_scalar(
+            "PlannerSelection/current_known_fraction",
+            float(planner_counts["current_known_rows"] / max(planner_counts["runtime_rows"], 1)),
+            0,
+        )
+        writer.add_scalar(
+            "PlannerSelection/previous_known_fraction",
+            float(planner_counts["previous_known_rows"] / max(planner_counts["runtime_rows"], 1)),
+            0,
+        )
+        writer.add_scalar(
+            "PlannerSelection/switch_fraction",
+            float(planner_counts["switch_rows"] / max(planner_counts["runtime_rows"], 1)),
+            0,
+        )
         writer.add_text("Labels/target_escape", json.dumps(metadata["target_escape_label_contract"], sort_keys=True), 0)
         writer.add_scalar(
             "Archive/boundary_clearance_negative_fraction",

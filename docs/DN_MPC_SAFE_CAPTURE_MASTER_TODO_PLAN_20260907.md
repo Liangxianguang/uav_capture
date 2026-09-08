@@ -576,8 +576,11 @@ DN-MPC -> nominal route planner
 39. [ ] P39 修复 route identity contract：分离 frozen actor 的
     `previous_executed_route_index` 与 analytic planner 的
     `previous_selected_candidate_index`，新增 planner 自身的 route-switch
-    outcome，并在 utility 中显式声明使用哪一种 switch 定义。不得用 actor
-    的历史执行路线替代 planner 历史 selected candidate。
+    outcome，并在 utility 中显式声明使用哪一种 switch 定义。采集器和
+    utility fallback 已实现并通过单 episode smoke，结果见
+    `docs/DN_MPC_P39_ROUTE_IDENTITY_CONTRACT_SMOKE_20260908.md`；尚未完成
+    三份 full archive，因此不得用 actor 的历史执行路线替代 planner 历史
+    selected candidate。
 
 40. [ ] P39 审计 candidate eligibility：确认所有候选先经过
     reachable-dynamics projection、全体 defender 几何有效性和首步 Joint

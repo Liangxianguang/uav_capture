@@ -1,8 +1,10 @@
 """Calibrate route utility with the P36 executed-route identity contract.
 
-This is an offline-only extension of the P31 diagnostic.  It adds a measured
-route-switch penalty using the previous executed route.  It never executes an
-action, changes the planner, creates a Ledger, or opens a locked test.
+This is an offline-only extension of the P31 diagnostic.  For P39 archives it
+uses the analytic planner's previous selected candidate for the route-switch
+penalty; legacy P36 archives fall back to the previous executed route and are
+marked as such.  It never executes an action, changes the planner, creates a
+Ledger, or opens a locked test.
 """
 
 from __future__ import annotations
@@ -51,7 +53,25 @@ def _records(tensors: dict[str, torch.Tensor], predictions: dict[str, np.ndarray
     scenario = arrays["scenario_index"]
     time_index = arrays["time_index"]
     candidate = arrays["route_candidate_index"]
-    previous = arrays["previous_executed_route_index"]
+    planner_fields = (
+        "planner_selected_candidate_index",
+        "previous_selected_candidate_index",
+        "planner_route_switch_outcome",
+    )
+    present_planner_fields = [field in arrays for field in planner_fields]
+    if any(present_planner_fields) and not all(present_planner_fields):
+        raise ValueError("Planner selection identity contract is only partially present")
+    planner_identity_available = all(present_planner_fields)
+    previous = (
+        arrays["previous_selected_candidate_index"]
+        if planner_identity_available
+        else arrays["previous_executed_route_index"]
+    )
+    selected_field = (
+        "planner_selected_candidate_index"
+        if planner_identity_available
+        else "selected_candidate_index"
+    )
     groups: list[dict[str, Any]] = []
     keys = sorted({(int(scenario[i]), int(time_index[i])) for i in np.flatnonzero(runtime)})
     for key in keys:
@@ -88,7 +108,7 @@ def _records(tensors: dict[str, torch.Tensor], predictions: dict[str, np.ndarray
                     "switch_penalty": float(previous_route >= 0 and candidate_id != previous_route),
                 }
             )
-        selected = arrays["selected_candidate_index"][group]
+        selected = arrays[selected_field][group]
         selected_candidate = int(selected[0]) if selected.size else -1
         groups.append(
             {
@@ -96,6 +116,7 @@ def _records(tensors: dict[str, torch.Tensor], predictions: dict[str, np.ndarray
                 "time_index": key[1],
                 "previous_route": previous_route,
                 "selected": selected_candidate,
+                "planner_identity_available": planner_identity_available,
                 "candidates": candidates,
             }
         )
@@ -220,13 +241,38 @@ def main() -> int:
                 if field not in archive.files:
                     raise ValueError(f"{dataset} is missing {field}")
                 tensors_by_split[split][field] = torch.from_numpy(np.asarray(archive[field], dtype=np.float32))
+    planner_identity_by_split = {
+        split: all(
+            field in tensors_by_split[split]
+            for field in (
+                "planner_selected_candidate_index",
+                "previous_selected_candidate_index",
+                "planner_route_switch_outcome",
+            )
+        )
+        for split in tensors_by_split
+    }
+    if len(set(planner_identity_by_split.values())) > 1:
+        raise ValueError(
+            f"Planner selection identity contract differs across splits: {planner_identity_by_split}"
+        )
+    planner_identity_available = next(iter(planner_identity_by_split.values()))
     result: dict[str, Any] = {
         "audit_type": "dn_mpc_route_utility_calibration",
         "dataset_version": str(args.dataset_version),
         "development_only": True,
         "locked_test_opened": False,
         "device": str(device),
-        "route_switch_penalty": {"available": True, "definition": "candidate_id != previous_executed_route_index"},
+        "route_switch_penalty": {
+            "available": True,
+            "definition": (
+                "candidate_id != previous_selected_candidate_index"
+                if planner_identity_available
+                else "candidate_id != previous_executed_route_index"
+            ),
+            "planner_selection_identity_used": planner_identity_available,
+            "legacy_fallback": not planner_identity_available,
+        },
         "weight_grid": WEIGHT_GRID,
         "archives": {
             split: {"dataset": str(dataset), "dataset_sha256": _sha256(dataset), "metadata": str(metadata), "metadata_sha256": _sha256(metadata)}
@@ -272,7 +318,7 @@ def main() -> int:
         "",
         "**Status:** development-only; offline-only; no action executed.",
         "",
-        "The utility adds a measured penalty when a candidate route differs from the previous executed route. Unknown route rows are explicit CBF abstentions and are excluded from candidate ranking.",
+        "The utility adds a measured penalty against the planner's previous selected candidate when the P39 identity contract is present; legacy archives use the previous executed route. Unknown rows are explicit CBF abstentions and are excluded from candidate ranking.",
         "",
         "| Model | Selected (length, escape, cbf, switch) | Validation exact | Validation informative | Validation pairwise | Validation selected |",
         "|---|---|---:|---:|---:|---:|",
