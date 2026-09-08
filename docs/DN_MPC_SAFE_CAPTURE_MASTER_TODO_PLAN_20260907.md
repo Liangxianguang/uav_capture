@@ -492,9 +492,12 @@ DN-MPC -> nominal route planner
     候选全部首步 CBF 不可行；validation `172/172` group 均至少有 2 个
     可行候选。该问题属于已进入联合 CBF 不可行区的显式 abstention，不能
     通过伪造 selected route 或放宽 CBF 解决。
-27. [ ] 基于 P25 archive hash 建立 fresh OOD、rollout-disagreement 和
-    abstention calibration；promotion gate 通过前不得在线接入、创建
-    Ledger-Lite 或进行三 seed paired replay。
+27. [x] 基于 P25 archive hash 建立 fresh OOD、rollout-disagreement 和
+    abstention calibration；结果见
+    `docs/DN_MPC_P27_FRESH_CALIBRATION_20260908.md`。OOD、route-progress
+    error 和 rollout coverage gate 通过，但 validation candidate agreement
+    只有 `19.19%`，因此 promotion gate 失败；保持 offline-only，不创建
+    Ledger-Lite，不进行三 seed paired replay。
 28. [ ] 基于 P26 两个 abstention state 做 anticipatory route hard-negative
     replay：在进入不可行区之前增加 braking、最近切向和 boundary-rescue
     候选，并重新采集独立 selected/nominal/safe-hold trace；仍需先通过
