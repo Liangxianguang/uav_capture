@@ -67,4 +67,3 @@ remain separate from planner identity metrics.
    treating it as a training negative.
 3. Re-run utility calibration using planner selected identity, then compare
    corrected model-vs-planner agreement against the promotion gate.
-
