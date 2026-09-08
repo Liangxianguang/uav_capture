@@ -619,11 +619,19 @@ DN-MPC -> nominal route planner
     提升。`lower_detour` 仍需移出学习词表或实现独立验证的
     ground-clearance route。
 
-45. [ ] 在 P42 utility gate 后训练一个与 `seed=373701` 独立的 evaluator
-    seed；只用 calibration 选择权重，再在 validation 评估 truth-ranking、
-    planner-selected agreement、candidate eligibility、selected/nominal/
-    safe-hold trace 和 OOD/disagreement。若独立 seed 不稳定，停止追加
-    seed，先修复标签或尺度；在该 gate 前不创建 Ledger-Lite、不做三 seed
-    paired replay、不接入在线 route override。
+45. [x] 在 P42 utility gate 后训练一个与 `seed=373701` 独立的 evaluator
+    seed；P43 结果见 `docs/DN_MPC_P43_INDEPENDENT_SEED_STABILITY_AUDIT_20260908.md`。
+    seed `393702` 的 validation model-vs-planner-selected 为 `80.42%`、
+    pairwise 为 `97.87%`，但 calibration 选择的
+    `(length=2.0, escape=0, cbf=0.1, switch=2.0)` 与 P37 的
+    `(1.5,0,1.5,1.5)` 不稳定，length/switch 重新贴边，独立 seed gate
+    失败。按停止规则停止追加 seed，先修复 utility 标签/尺度；不创建
+    Ledger-Lite、不做三 seed paired replay、不接入在线 route override。
+
+46. [ ] 进行 utility label/scale bounded diagnosis：报告 calibration 上
+    各 utility 项的范围、相关性和重复计数，检查 route length 与 progress
+    的单位归一化及 switch penalty 的物理含义，制定预注册的 safety-first
+    utility hierarchy 后只复评现有两个 checkpoint。该诊断通过前不得再
+    训练 evaluator seed、创建 Ledger-Lite 或打开 locked benchmark。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。P38 已证明当前主要瓶颈是 planner/执行路线合同错配；P39 必须先修复该合同。**
