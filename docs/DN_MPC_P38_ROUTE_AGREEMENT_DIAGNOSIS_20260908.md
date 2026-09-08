@@ -1,7 +1,7 @@
 # DN-MPC P38 Route-Agreement Diagnosis
 
-**Date:** 2026-09-08  
-**Phase:** development-only, offline-only  
+**Date:** 2026-09-08
+**Phase:** development-only, offline-only
 **Decision:** route-contract repair is required; JEPA remains an offline evaluator
 
 ## Scope
