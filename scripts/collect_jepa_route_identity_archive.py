@@ -85,6 +85,15 @@ INTERACTION_HARD_NEGATIVE_MODES = ("near_pass", "formation_crossing", "split_mer
 INTERACTION_SAMPLE_TYPES = {
     mode: 2 + index for index, mode in enumerate(INTERACTION_HARD_NEGATIVE_MODES)
 }
+HARD_NEGATIVE_ROUTE_LABELS = (
+    "braking",
+    "left_detour",
+    "right_detour",
+    "boundary_rescue",
+)
+HARD_NEGATIVE_SAMPLE_TYPES = {
+    label: 5 + index for index, label in enumerate(HARD_NEGATIVE_ROUTE_LABELS)
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -121,6 +130,38 @@ def parse_args() -> argparse.Namespace:
             "Record read-only selected/nominal/safe-hold CBF counterfactuals "
             "for the P25 traceability contract."
         ),
+    )
+    parser.add_argument(
+        "--hard-negative-replay",
+        action="store_true",
+        help=(
+            "Add offline braking/nearest-tangent/boundary-rescue branches in a "
+            "specified window around a known planner-abstention state."
+        ),
+    )
+    parser.add_argument(
+        "--hard-negative-scenario-index",
+        type=int,
+        action="append",
+        default=None,
+        help="Restrict hard-negative replay to these scenario indices; omit to include all.",
+    )
+    parser.add_argument(
+        "--hard-negative-center-time",
+        type=int,
+        default=None,
+        help="Known abstention time index. The replay window is centered here.",
+    )
+    parser.add_argument(
+        "--hard-negative-time-window",
+        type=int,
+        default=8,
+        help="Inclusive time-index radius around --hard-negative-center-time.",
+    )
+    parser.add_argument(
+        "--hard-negative-only",
+        action="store_true",
+        help="Collect route branches only inside the requested hard-negative window.",
     )
     parser.add_argument("--dataset-version", default=DATASET_VERSION)
     parser.add_argument(
@@ -927,7 +968,15 @@ def _append_samples(
         samples["route_geometric_clearance_m"].append(float(route.minimum_geometric_clearance_m))
         samples["route_geometry_valid"].append(float(route.valid))
         samples["route_candidate_index"].append(int(route_index) if int(sample_type) == 0 else -1)
-        samples["route_side_index"].append(ROUTE_SIDES.index(str(route.side)))
+        # ``boundary_rescue`` is an offline-only P28 branch.  It deliberately
+        # reuses the reserved boundary-shadow side index so the runtime
+        # twelve-side model contract remains unchanged.
+        route_side = str(route.side)
+        if route_side not in ROUTE_SIDES:
+            if route_side != "boundary_rescue":
+                raise ValueError(f"Unknown route side {route_side!r}")
+            route_side = "boundary_shadow"
+        samples["route_side_index"].append(ROUTE_SIDES.index(route_side))
         samples["route_obstacle_id"].append(-1 if route.obstacle_id is None else int(route.obstacle_id))
         samples["time_index"].append(int(time_index))
         samples["episode_seed"].append(int(episode_seed))
@@ -1082,6 +1131,13 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     protocol = load_protocol(args.protocol.resolve())
     if args.episodes <= 0 or args.sample_stride <= 0 or args.history_length != 8 or args.chunk_length_steps not in (3, 5):
         raise ValueError("episodes/sample-stride must be positive; route archive supports history=8 and chunk=3 or 5")
+    if args.hard_negative_replay:
+        if not args.independent_cbf_traces:
+            raise ValueError("P28 hard-negative replay requires --independent-cbf-traces")
+        if args.chunk_length_steps != 5:
+            raise ValueError("P28 hard-negative replay requires chunk_length_steps=5")
+        if args.hard_negative_time_window < 0:
+            raise ValueError("hard-negative time window must be non-negative")
     env_config_path = args.environment_config.resolve()
     archive_config_path = args.archive_config.resolve()
     archive_config = yaml.safe_load(archive_config_path.read_text(encoding="utf-8"))
@@ -1131,6 +1187,9 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
     branch_failures = 0
     interaction_counts: Counter[str] = Counter()
     interaction_branch_failures: Counter[str] = Counter()
+    hard_negative_counts: Counter[str] = Counter()
+    hard_negative_branch_failures: Counter[str] = Counter()
+    hard_negative_states: Counter[tuple[int, int]] = Counter()
     independent_trace_states = 0
     independent_trace_selected_missing = 0
     actor_policy = None
@@ -1236,7 +1295,25 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                 env._clip_rows(desired, float(env.agents["defender_max_speed"])),
                 max_delta=float(env.agents["defender_max_acceleration"]) * float(env.dt),
             )
-            if time_index >= args.history_length - 1 and (time_index - (args.history_length - 1)) % args.sample_stride == 0:
+            hard_negative_scenario_filter = (
+                None
+                if args.hard_negative_scenario_index is None
+                else {int(value) for value in args.hard_negative_scenario_index}
+            )
+            hard_negative_window_active = bool(args.hard_negative_replay)
+            if hard_negative_window_active and hard_negative_scenario_filter is not None:
+                hard_negative_window_active = scenario_index in hard_negative_scenario_filter
+            if hard_negative_window_active and args.hard_negative_center_time is not None:
+                hard_negative_window_active = (
+                    abs(int(time_index) - int(args.hard_negative_center_time))
+                    <= int(args.hard_negative_time_window)
+                )
+            collect_route_state = (
+                time_index >= args.history_length - 1
+                and (time_index - (args.history_length - 1)) % args.sample_stride == 0
+                and (not args.hard_negative_only or hard_negative_window_active)
+            )
+            if collect_route_state:
                 sampled_states += 1
                 route_batch = make_obstacle_route_candidates(
                     reachable_nominal,
@@ -1315,6 +1392,55 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                         action_scale=5.0,
                         independent_trace=independent_trace,
                     )
+                hard_negative_active = hard_negative_window_active
+                if hard_negative_active:
+                    # Generate an optional boundary-rescue proposal without
+                    # changing the twelve-candidate runtime batch.  Braking
+                    # and nearest left/right tangent routes are copied as
+                    # separate offline hard-negative samples.  Every branch
+                    # is projected and labelled by the same read-only CBF
+                    # counterfactual path as normal routes.
+                    hard_route_config = replace(route_config, boundary_rescue_enabled=True)
+                    hard_batch = make_obstacle_route_candidates(
+                        reachable_nominal,
+                        observation,
+                        config=hard_route_config,
+                        previous_action=previous_action,
+                    )
+                    hard_routes = {
+                        str(route.label): route
+                        for route in hard_batch.candidates
+                        if str(route.label) in HARD_NEGATIVE_SAMPLE_TYPES
+                    }
+                    for label in HARD_NEGATIVE_ROUTE_LABELS:
+                        hard_route = hard_routes.get(label)
+                        if hard_route is None:
+                            continue
+                        hard_labels = _route_rollout(
+                            env,
+                            observation,
+                            controller,
+                            hard_route,
+                            safety_filter,
+                            extent=extent,
+                        )
+                        hard_negative_counts[label] += int(env.n_defenders)
+                        hard_negative_branch_failures[label] += int(bool(hard_labels["cbf_failed"]))
+                        hard_negative_states[(int(scenario_index), int(time_index))] += 1
+                        _append_samples(
+                            samples,
+                            observation_history=observation_history,
+                            executed_action_history=executed_actions,
+                            route=hard_route,
+                            route_index=-1,
+                            labels=hard_labels,
+                            episode_seed=int(spec["episode_seed"]),
+                            scenario_index=scenario_index,
+                            time_index=time_index,
+                            action_scale=5.0,
+                            sample_type=HARD_NEGATIVE_SAMPLE_TYPES[label],
+                            independent_trace=None,
+                        )
                 if args.interaction_hard_negatives:
                     # These branches are deliberately offline-only.  They use
                     # the same first candidate metadata for a stable archive
@@ -1448,7 +1574,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         "sample_count_per_defender": int(arrays["inputs"].shape[0]),
         "array_shapes": {key: list(value.shape) for key, value in arrays.items()},
         "class_counts": class_counts,
-            "interaction_hard_negatives": {
+        "interaction_hard_negatives": {
             "enabled": bool(args.interaction_hard_negatives),
             "modes": list(INTERACTION_HARD_NEGATIVE_MODES),
             "sample_type_mapping": dict(INTERACTION_SAMPLE_TYPES),
@@ -1456,6 +1582,26 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
             "sample_counts": dict(sorted(interaction_counts.items())),
                 "branch_failures": dict(sorted(interaction_branch_failures.items())),
             },
+        "anticipatory_hard_negative_replay": {
+            "enabled": bool(args.hard_negative_replay),
+            "offline_only": True,
+            "route_labels": list(HARD_NEGATIVE_ROUTE_LABELS),
+            "sample_type_mapping": dict(HARD_NEGATIVE_SAMPLE_TYPES),
+            "scenario_index_filter": None
+            if args.hard_negative_scenario_index is None
+            else [int(value) for value in args.hard_negative_scenario_index],
+            "center_time_index": None
+            if args.hard_negative_center_time is None
+            else int(args.hard_negative_center_time),
+            "time_window": int(args.hard_negative_time_window),
+            "hard_negative_only": bool(args.hard_negative_only),
+            "states": [
+                {"scenario_index": int(scenario), "time_index": int(time), "route_count": int(count)}
+                for (scenario, time), count in sorted(hard_negative_states.items())
+            ],
+            "sample_counts": dict(sorted(hard_negative_counts.items())),
+            "branch_failures": dict(sorted(hard_negative_branch_failures.items())),
+        },
             "independent_cbf_trace_contract": {
                 "enabled": bool(args.independent_cbf_traces),
                 "selection_authority": "analytic_dn_mpc_over_first_step_cbf_eligible_candidates",
@@ -1558,6 +1704,15 @@ def main() -> int:
             float(np.mean(arrays["labels_boundary_ttc"].min(axis=1) < TTC_CLIP_SECONDS)),
             0,
         )
+        writer.add_scalar(
+            "HardNegative/enabled",
+            float(bool(metadata.get("anticipatory_hard_negative_replay", {}).get("enabled", False))),
+            0,
+        )
+        for label, count in sorted(
+            metadata.get("anticipatory_hard_negative_replay", {}).get("sample_counts", {}).items()
+        ):
+            writer.add_scalar(f"HardNegative/sample_count/{label}", float(count), 0)
         writer.add_scalar(
             "Archive/negative_pairwise_ttc_fraction",
             float(np.mean(arrays["labels_pairwise_ttc"].min(axis=1) < TTC_CLIP_SECONDS)),

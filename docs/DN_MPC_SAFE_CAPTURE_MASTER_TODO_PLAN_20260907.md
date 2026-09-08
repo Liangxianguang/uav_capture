@@ -498,9 +498,18 @@ DN-MPC -> nominal route planner
     error 和 rollout coverage gate 通过，但 validation candidate agreement
     只有 `19.19%`，因此 promotion gate 失败；保持 offline-only，不创建
     Ledger-Lite，不进行三 seed paired replay。
-28. [ ] 基于 P26 两个 abstention state 做 anticipatory route hard-negative
+28. [x] 基于 P26 两个 abstention state 做 anticipatory route hard-negative
     replay：在进入不可行区之前增加 braking、最近切向和 boundary-rescue
-    候选，并重新采集独立 selected/nominal/safe-hold trace；仍需先通过
-    candidate eligibility、exact top-1 和 fresh OOD/disagreement calibration。
+    候选；结果见 `docs/DN_MPC_P28_HARD_NEGATIVE_AND_AUGMENTED_JEPA_20260908.md`。
+    四类路线均保留为 offline sample type `5..8`，未改变 runtime 12-route
+    contract，未执行 raw-unverified action。
+29. [x] 将 P28 hard-negative rows 合并到独立 train/calibration archive，
+    使用 listwise temperature=`0.005` 训练 seed `282801`，并完成 P27/P19
+    离线审计。validation model-vs-truth 为 `47.09%`，较 P24 `36.63%`
+    提升 `10.46 pp`；model-vs-selected 为 `39.53%`，较 `19.19%` 提升
+    `20.35 pp`，但仍低于 `50%` promotion gate，因此保持 offline-only。
+30. [ ] 在 promotion gates 全部通过前，不创建 Ledger-Lite、不做三 seed
+    paired replay；下一步只允许做独立 seed 的 bounded reproducibility 或
+    针对 route utility/label 的离线诊断，不能接入在线闭环。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

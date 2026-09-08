@@ -1,0 +1,74 @@
+protocol_name: jepa_safe_capture_route_identity_archive_dn_mpc_chunk5_p28_hard_negative_train
+protocol_version: 1
+phase: development_only
+locked_test_opened: false
+not_a_locked_test: true
+
+source_protocol: configs/central_random_mixed_obstacle_s3_route_v1_p17_validation_protocol.yaml
+environment_config: configs/capture_radius_pursuit_central_v4_flee.yaml
+split: train
+calibration_split: calibration
+episodes_smoke: 2
+sample_stride: 1
+
+data_contract:
+  dataset_version: dn_mpc_route_identity_chunk5_p28_hard_negative_train_v1
+  history_length: 8
+  horizon_steps: [1, 2, 3, 5]
+  chunk_length_steps: 5
+  candidate_profile: obstacle_route_v1
+  candidate_count: 12
+  candidate_semantics: geometry_conditioned_route_chunk_execute_first_step_then_replan
+  action_history_alignment: past_executed_actions_then_route_first_action
+  target_truth_used_only_for_offline_labels: true
+  split_overlap_forbidden: true
+  locked_test_collection_forbidden: true
+  interaction_hard_negatives:
+    enabled: true
+    offline_only: true
+    modes: [near_pass, formation_crossing, split_merge]
+    sample_type_mapping: {near_pass: 2, formation_crossing: 3, split_merge: 4}
+  anticipatory_hard_negative_replay:
+    enabled: true
+    offline_only: true
+    route_labels: [braking, left_detour, right_detour, boundary_rescue]
+    sample_type_mapping: {braking: 5, left_detour: 6, right_detour: 7, boundary_rescue: 8}
+    runtime_candidate_contract_unchanged: true
+  pairwise_action_conditioned_route_chunk:
+    enabled: true
+    feature_dim_per_step: 9
+    definition: candidate_action_minus_each_other_defender_action
+
+state_distribution:
+  mode: frozen_runtime_actor
+  actor_checkpoint_required: true
+
+safety_contract:
+  cbf_margin_changed: false
+  stale_ood_nonfinite_gates_changed: false
+  controlled_abort_preserved: true
+  raw_unverified_execution_allowed: false
+  branch_advances_only_after_verified_primary_cbf: true
+  hard_negative_branches_executed: false
+
+cbf_contract:
+  anticipatory_horizon_steps: 5
+  barrier_mode: strict_buffer
+  margin_source: configs/capture_radius_pursuit_central_v4_flee.yaml
+
+hard_negative_replay:
+  scenario_index: [6]
+  center_time_index: 47
+  time_window: 8
+
+tensorboard:
+  required: true
+  scalar_groups:
+    - Archive/sample_count
+    - Archive/runtime_sample_count
+    - Archive/cbf_first_step_feasible_fraction
+    - HardNegative/enabled
+    - HardNegative/sample_count/braking
+    - HardNegative/sample_count/left_detour
+    - HardNegative/sample_count/right_detour
+    - HardNegative/sample_count/boundary_rescue

@@ -23,6 +23,7 @@ _risk_labels = COLLECTOR._risk_labels
 _boundary_shadow_ttc = COLLECTOR._boundary_shadow_ttc
 _interaction_hard_negative_chunks = COLLECTOR._interaction_hard_negative_chunks
 _reachable_interaction_chunk = COLLECTOR._reachable_interaction_chunk
+_append_samples = COLLECTOR._append_samples
 
 
 class _ShadowEnv:
@@ -262,3 +263,45 @@ def test_reachable_interaction_projection_respects_acceleration_envelope() -> No
     assert np.isfinite(projected).all()
     step_deltas = np.linalg.norm(np.diff(np.concatenate([previous[None], projected], axis=0), axis=2), axis=2)
     assert float(step_deltas.max()) <= env.agents["defender_max_acceleration"] * env.dt + 1e-8
+
+
+def test_hard_negative_sample_keeps_runtime_side_contract_for_boundary_rescue() -> None:
+    class _Route:
+        action_chunk = np.zeros((5, 2, 3), dtype=np.float64)
+        side = "boundary_rescue"
+        obstacle_id = None
+        route_length_m = 1.0
+        minimum_geometric_clearance_m = 0.5
+        label = "boundary_rescue"
+        valid = False
+
+    samples = _empty_samples()
+    labels = {
+        name: np.zeros((5, 2), dtype=np.float32)
+        for name in (
+            "relative", "obstacle_clearance", "inter_agent_clearance",
+            "boundary_clearance", "stopping_distance", "obstacle_ttc",
+            "boundary_ttc", "pairwise_ttc", "acceleration_slack",
+            "target_visible", "cbf_correction", "cbf_intervention",
+            "cbf_feasible", "cbf_min_slack", "route_progress", "rollout_valid",
+        )
+    }
+    labels["relative"] = np.zeros((5, 2, 3), dtype=np.float32)
+    labels["earliest_failure_step"] = 1
+    labels["branch_terminated"] = False
+    _append_samples(
+        samples,
+        observation_history=[np.zeros((2, 63), dtype=np.float32) for _ in range(8)],
+        executed_action_history=[np.zeros((2, 3), dtype=np.float32) for _ in range(7)],
+        route=_Route(),
+        route_index=-1,
+        labels=labels,
+        episode_seed=1,
+        scenario_index=2,
+        time_index=47,
+        action_scale=5.0,
+        sample_type=COLLECTOR.HARD_NEGATIVE_SAMPLE_TYPES["boundary_rescue"],
+    )
+    assert samples["sample_type"] == [8, 8]
+    assert samples["route_candidate_index"] == [-1, -1]
+    assert samples["route_side_index"] == [11, 11]
