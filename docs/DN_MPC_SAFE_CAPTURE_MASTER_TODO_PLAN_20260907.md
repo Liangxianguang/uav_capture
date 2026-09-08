@@ -512,4 +512,16 @@ DN-MPC -> nominal route planner
     paired replay；下一步只允许做独立 seed 的 bounded reproducibility 或
     针对 route utility/label 的离线诊断，不能接入在线闭环。
 
+31. [x] P29 已完成独立 seed `282802` 的 bounded reproducibility；结果见
+    `docs/DN_MPC_P29_BOUNDED_REPRODUCIBILITY_20260908.md`。训练、预测审计、
+    fresh calibration 和 TensorBoard provenance 均完整，但 validation
+    model-vs-truth 为 `41.28%`、model-vs-selected 为 `26.74%`，低于 P28
+    seed `282801` 的 `47.09%/39.53%`，candidate-agreement gate 失败，继续
+    保持 offline-only。
+
+32. [ ] 下一步只做 route utility/label 离线诊断：分别报告 runtime rows、
+    P28 hard-negative rows、near-tie groups、candidate eligibility 和各类
+    route 的 agreement；在标签合同和 fresh calibration 修复前不得追加
+    seed、创建 Ledger-Lite 或接入在线闭环。
+
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**
