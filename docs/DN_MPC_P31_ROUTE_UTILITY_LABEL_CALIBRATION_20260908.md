@@ -79,4 +79,3 @@ selected/nominal/safe-hold CBF traces.
 - Tests: `tests/test_audit_dn_mpc_p31_route_utility_label.py` (`2 passed`)
 - Audit JSON/Markdown/details: `results/dn_mpc_jepa_safe_capture_dev/p31_route_utility_label_audit_v2/`
 - TensorBoard: `results/dn_mpc_jepa_safe_capture_tensorboard/p31_route_utility_label_audit_v2/`
-
