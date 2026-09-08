@@ -564,9 +564,39 @@ DN-MPC -> nominal route planner
     selected route 一致率只有 `34.42%`，promotion gate 失败，继续
     offline-only。结果见 `DN_MPC_P37_PAIRWISE_JEPA_AUDIT_20260908.md`。
 
-38. [ ] 对 P37 的 route-family、候选 eligibility、tie-break、route-switch
-    和 CBF-abstention 分层统计做 bounded diagnosis；如果 candidate agreement
-    仍低于 gate，停止扩大 JEPA 模型，保留解析 DN-MPC + CBF，并将 JEPA
-    限定为离线评价器。
+38. [x] 完成 P38 route-family、候选 eligibility、tie-break、route-switch
+    和 CBF-abstention 分层诊断，结果见
+    `docs/DN_MPC_P38_ROUTE_AGREEMENT_DIAGNOSIS_20260908.md`。validation
+    平均每组有 `8.57` 个 eligible candidates，显式 abstention 为 `0.59%`，
+    JEPA model-vs-truth 为 `99.41%`，但 model-vs-analytic-selected 只有
+    `34.42%`。该差距来自 route-label/planner/执行路线合同不一致，不能
+    归因于简单的 CBF 过严；停止扩大 JEPA，保留解析 DN-MPC + CBF，JEPA
+    继续限定为离线评价器。
 
-**当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**
+39. [ ] P39 修复 route identity contract：分离 frozen actor 的
+    `previous_executed_route_index` 与 analytic planner 的
+    `previous_selected_candidate_index`，新增 planner 自身的 route-switch
+    outcome，并在 utility 中显式声明使用哪一种 switch 定义。不得用 actor
+    的历史执行路线替代 planner 历史 selected candidate。
+
+40. [ ] P39 审计 candidate eligibility：确认所有候选先经过
+    reachable-dynamics projection、全体 defender 几何有效性和首步 Joint
+    CBF；对 `lower_detour` 永远不可行的问题定位是几何合同、动作投影还是
+    场景分布，并修复候选生成/标签，而不是把永久不可用路线当作普通负例。
+
+41. [ ] P39 重新采集 seed-disjoint train/validation/calibration archives，
+    保留 selected/nominal/safe-hold 独立 CBF counterfactual、route identity、
+    target-escape、switch outcome、OOD/disagreement 与 TensorBoard provenance。
+    新 archive 必须通过 finite-value、hash、无泄漏和 abstention 一致性审计。
+
+42. [ ] P39 在 fresh calibration 上重新选择 utility weights，并分别报告
+    model-vs-truth、model-vs-planner-selected、planner switch、near-tie、
+    family coverage 和 abstention；若 corrected selected agreement 未达到
+    promotion gate，停止训练扩展并保留 JEPA offline-only。
+
+43. [ ] 只有 P39 contract、fresh calibration 和独立 seed 稳定性全部通过后，
+    才允许创建/更新 Ledger-Lite、进行三 seed paired replay 或接入在线 route
+    override；在此之前不得降低 CBF margin、关闭 stale/OOD/non-finite gate，
+    也不得打开 locked benchmark。
+
+**当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。P38 已证明当前主要瓶颈是 planner/执行路线合同错配；P39 必须先修复该合同。**
