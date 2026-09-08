@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+import numpy as np
 
 from scripts.audit_dn_mpc_p36_route_utility import (
     _at_grid_boundary,
@@ -9,6 +10,7 @@ from scripts.audit_dn_mpc_p36_route_utility import (
 )
 from scripts.diagnose_dn_mpc_p44_utility_scale import _summarize
 from scripts.audit_dn_mpc_p45_safety_first_hierarchy import _select_candidate
+from scripts.audit_dn_mpc_p46_planner_distillation import _group_audit
 
 
 def test_switch_grid_parser_sorts_and_deduplicates_values() -> None:
@@ -76,3 +78,23 @@ def test_p45_hierarchy_uses_route_length_only_inside_primary_tie_band() -> None:
     scales = {"progress": 1.0, "escape": 1.0, "route_length": 1.0}
     assert _select_candidate(candidates, scales, predicted=True, escape_weight=0.0, tie_band=0.01) == 0
     assert _select_candidate(candidates, scales, predicted=True, escape_weight=0.0, tie_band=0.1) == 1
+
+
+def test_p46_teacher_labels_preserve_ineligible_and_abstention_as_unknown() -> None:
+    arrays = {
+        "sample_type": np.zeros(6, dtype=np.float32),
+        "scenario_index": np.zeros(6, dtype=np.int64),
+        "time_index": np.array([0, 0, 0, 0, 1, 1], dtype=np.int64),
+        "route_candidate_index": np.array([0, 0, 1, 1, 2, 2], dtype=np.int64),
+        "route_geometry_valid": np.array([1, 1, 0, 0, 0, 0], dtype=np.float32),
+        "labels_cbf_feasible": np.ones((6, 5), dtype=np.float32),
+        "planner_selected_candidate_index": np.zeros(6, dtype=np.int64),
+        "previous_selected_candidate_index": np.full(6, -1, dtype=np.int64),
+        "planner_route_switch_outcome": np.full(6, -1, dtype=np.int64),
+    }
+    arrays["planner_selected_candidate_index"][4:] = -1
+    report, labels = _group_audit(arrays)
+    assert report["invalid_planner_selection_groups"] == 0
+    assert report["abstention_groups"] == 1
+    assert labels["planner_teacher_label"].tolist() == [1, 1, -1, -1, -1, -1]
+    assert labels["planner_eligible"].tolist() == [1, 1, 0, 0, 0, 0]
