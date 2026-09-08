@@ -1032,7 +1032,14 @@ def _append_samples(
             previous = int(previous_executed_route_index)
             current = int(executed_route_index)
             residual = float(route_match_residual_mps)
-            switched = int(previous >= 0 and current >= 0 and previous != current)
+            if previous >= 0 and current >= 0:
+                switched = int(previous != current)
+            elif previous >= 0 or current >= 0:
+                # An unknown current/previous route is an abstention, not a
+                # route hold. Keep that outcome explicit for downstream labels.
+                switched = -1
+            else:
+                switched = 0
         else:
             previous, current, switched, residual = -1, -1, 0, -1.0
         samples["previous_executed_route_index"].append(previous)

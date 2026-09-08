@@ -57,6 +57,49 @@ def test_executed_route_match_marks_large_residual_unknown() -> None:
     assert residual == pytest.approx(np.sqrt(3.0))
 
 
+def test_unknown_runtime_route_is_an_explicit_switch_abstention() -> None:
+    class _Route:
+        action_chunk = np.zeros((5, 1, 3), dtype=np.float64)
+        side = "nominal"
+        obstacle_id = None
+        route_length_m = 1.0
+        minimum_geometric_clearance_m = 1.0
+        label = "nominal"
+        valid = True
+
+    samples = _empty_samples()
+    labels = {
+        name: np.zeros((5, 1), dtype=np.float32)
+        for name in (
+            "relative", "obstacle_clearance", "inter_agent_clearance",
+            "boundary_clearance", "stopping_distance", "obstacle_ttc",
+            "boundary_ttc", "pairwise_ttc", "acceleration_slack",
+            "target_visible", "cbf_correction", "cbf_intervention",
+            "cbf_feasible", "cbf_min_slack", "route_progress", "rollout_valid",
+        )
+    }
+    labels["relative"] = np.zeros((5, 1, 3), dtype=np.float32)
+    labels["earliest_failure_step"] = 1
+    labels["branch_terminated"] = True
+    _append_samples(
+        samples,
+        observation_history=[np.zeros((1, 63), dtype=np.float32) for _ in range(8)],
+        executed_action_history=[np.zeros((1, 3), dtype=np.float32) for _ in range(7)],
+        route=_Route(),
+        route_index=0,
+        labels=labels,
+        episode_seed=1,
+        scenario_index=2,
+        time_index=47,
+        action_scale=5.0,
+        previous_executed_route_index=3,
+        executed_route_index=-1,
+        route_match_residual_mps=-1.0,
+    )
+    assert samples["executed_route_index"] == [-1]
+    assert samples["route_switch_outcome"] == [-1]
+
+
 class _ShadowEnv:
     def __init__(self) -> None:
         self.defender_positions = np.array(

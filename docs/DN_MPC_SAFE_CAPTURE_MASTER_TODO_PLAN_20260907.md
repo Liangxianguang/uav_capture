@@ -543,9 +543,21 @@ DN-MPC -> nominal route planner
     utility 方向改善但 seed 波动和 planner contract mismatch 仍存在，继续
     保持 offline-only。
 
-36. [ ] 新建 archive contract，加入 `previous_executed_route_id`、真实
-    route-switch outcome、CBF counterfactual traces 和目标逃逸标签；完成
-    独立 calibration 后，用一个共享 utility contract 复评 P28/P29，仍不得
-    直接接入在线闭环。
+36. [x] 完成 P36 route-switch archive contract。train/validation/calibration
+    使用互斥 episode seed，记录真实 CBF 后执行路线、上一条路线、显式
+    route-switch outcome（`-1` 表示 CBF abstention/unknown）、匹配残差、
+    target-escape label 和 selected/nominal/safe-hold 独立 trace。8-episode
+    full archive 审计通过：train `13,936` 行、validation `17,628` 行、
+    calibration `21,840` 行；runtime route 匹配分别为 `99.63%/99.41%/99.76%`，
+    unknown rows 均与首步 CBF 不可行一一对应，route-switch rate 为
+    `4.62%/5.74%/5.58%`（按 previous route 已知行计算）。结果见
+    `docs/DN_MPC_P36_ROUTE_SWITCH_CONTRACT_FULL_ARCHIVES_20260908.md`。
+    该阶段仍是 archive/label contract，不是 safe-capture 提升，也没有
+    创建 Ledger-Lite 或打开 locked test。
+
+37. [ ] 在 P36 full archive 上启用显式 pairwise action-conditioned route
+    feature，训练一个新 listwise JEPA evaluator；用独立 calibration 选择
+    route utility（进度、路长、CBF 可行性、目标逃逸和 route-switch），
+    validation candidate agreement 未达到 promotion gate 前保持 offline-only。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。**

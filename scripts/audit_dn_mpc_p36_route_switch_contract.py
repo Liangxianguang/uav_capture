@@ -120,15 +120,26 @@ def audit_archive(directory: Path, expected_split: str | None = None) -> dict[st
     matched = np.asarray(arrays["executed_route_index"])[runtime] >= 0
     previous_known = np.asarray(arrays["previous_executed_route_index"])[runtime] >= 0
     residual = np.asarray(arrays["route_match_residual_mps"])[runtime]
-    if not np.all(matched):
-        raise ValueError(f"runtime route identity has unknown rows: {directory}")
+    first_step_feasible = np.asarray(arrays["labels_cbf_feasible"])[runtime, 0] >= 0.5
+    unknown = ~matched
+    if np.any(unknown):
+        # An unknown route is valid only when no verified action was executed.
+        # These rows are explicit CBF abstentions, not missing labels.
+        selected_feasible = np.asarray(arrays["selected_cbf_feasible"])[runtime]
+        if np.any(selected_feasible[unknown] >= 0.5):
+            raise ValueError(f"feasible runtime row has unknown route identity: {directory}")
+        if np.any(np.asarray(arrays["earliest_failure_step"])[runtime][unknown] <= 0):
+            raise ValueError(f"unknown route identity lacks a branch failure marker: {directory}")
     if np.any(residual[matched] > 1.0 + 1e-9):
         raise ValueError(f"runtime route residual exceeds match tolerance: {directory}")
     switch = np.asarray(arrays["route_switch_outcome"])[runtime]
-    if not np.isin(switch[previous_known], (0, 1)).all():
+    if not np.isin(switch[previous_known & matched], (0, 1)).all():
         raise ValueError(f"route switch outcome is undefined for known previous routes: {directory}")
-    if not np.asarray(arrays["independent_cbf_trace_present"])[runtime].astype(bool).all():
-        raise ValueError(f"independent CBF traces are incomplete: {directory}")
+    if np.any(switch[unknown] != -1):
+        raise ValueError(f"unknown current route must have switch outcome -1: {directory}")
+    trace_present = np.asarray(arrays["independent_cbf_trace_present"])[runtime].astype(bool)
+    if np.any(~trace_present & ~unknown):
+        raise ValueError(f"CBF traces are incomplete for route-identified rows: {directory}")
     if np.any(np.asarray(arrays["labels_target_escape_cost"]) < 0.0):
         raise ValueError(f"target escape labels contain negative values: {directory}")
 
@@ -148,28 +159,40 @@ def audit_archive(directory: Path, expected_split: str | None = None) -> dict[st
         "sample_count": sample_count,
         "runtime_sample_count": int(runtime.sum()),
         "route_match_fraction": float(matched.mean()),
+        "unknown_route_fraction": float(unknown.mean()),
+        "unknown_rows_all_cbf_infeasible": bool(np.all(~unknown | ~first_step_feasible)),
         "previous_known_fraction": float(previous_known.mean()),
         "switch_fraction_previous_known": float(switch[previous_known].mean()) if previous_known.any() else None,
         "route_match_residual_p95_mps": float(np.percentile(residual[matched], 95)),
-        "independent_cbf_trace_fraction": float(np.asarray(arrays["independent_cbf_trace_present"])[runtime].mean()),
+        "independent_cbf_trace_fraction": float(trace_present.mean()),
         "geometry_valid_fraction": float(np.asarray(arrays["route_geometry_valid"])[runtime].mean()),
         "branch_failure_count": int(np.sum(np.asarray(arrays["earliest_failure_step"])[runtime] <= 5)),
+        "episode_seeds": sorted({int(value) for value in np.asarray(arrays["episode_seed"]).tolist()}),
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--train", type=Path, required=True)
+    parser.add_argument("--validation", type=Path)
     parser.add_argument("--calibration", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    report = {
+    report: dict[str, Any] = {
         "protocol": "dn_mpc_route_identity_chunk5_p36_route_switch_v1",
         "development_only": True,
         "locked_test_opened": False,
         "train": audit_archive(args.train, "train"),
         "calibration": audit_archive(args.calibration, "calibration"),
     }
+    if args.validation is not None:
+        report["validation"] = audit_archive(args.validation, "validation")
+    split_names = tuple(name for name in ("train", "validation", "calibration") if name in report)
+    for left_index, left_name in enumerate(split_names):
+        for right_name in split_names[left_index + 1 :]:
+            overlap = sorted(set(report[left_name]["episode_seeds"]) & set(report[right_name]["episode_seeds"]))
+            if overlap:
+                raise ValueError(f"episode seed overlap between {left_name} and {right_name}: {overlap}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
