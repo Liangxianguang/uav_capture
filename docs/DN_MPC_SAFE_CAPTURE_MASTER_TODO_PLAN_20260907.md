@@ -573,33 +573,44 @@ DN-MPC -> nominal route planner
     归因于简单的 CBF 过严；停止扩大 JEPA，保留解析 DN-MPC + CBF，JEPA
     继续限定为离线评价器。
 
-39. [ ] P39 修复 route identity contract：分离 frozen actor 的
+39. [x] P39 修复 route identity contract：分离 frozen actor 的
     `previous_executed_route_index` 与 analytic planner 的
     `previous_selected_candidate_index`，新增 planner 自身的 route-switch
     outcome，并在 utility 中显式声明使用哪一种 switch 定义。采集器和
     utility fallback 已实现并通过单 episode smoke，结果见
-    `docs/DN_MPC_P39_ROUTE_IDENTITY_CONTRACT_SMOKE_20260908.md`；尚未完成
-    三份 full archive，因此不得用 actor 的历史执行路线替代 planner 历史
-    selected candidate。
+    `docs/DN_MPC_P39_ROUTE_IDENTITY_CONTRACT_SMOKE_20260908.md`。三份 full
+    archive 和 utility 复评也已完成，综合结果见
+    `docs/DN_MPC_P39_FULL_ARCHIVE_UTILITY_AND_ELIGIBILITY_20260908.md`。
+    新合同禁止用 actor 的历史执行路线替代 planner 历史 selected candidate。
 
-40. [ ] P39 审计 candidate eligibility：确认所有候选先经过
+40. [x] P39 审计 candidate eligibility：确认所有候选先经过
     reachable-dynamics projection、全体 defender 几何有效性和首步 Joint
     CBF；对 `lower_detour` 永远不可行的问题定位是几何合同、动作投影还是
-    场景分布，并修复候选生成/标签，而不是把永久不可用路线当作普通负例。
+    场景分布，并确认当前是 solid-ground 几何合同的 `lower_face_blocked`，
+    不是首步 CBF 过严。该路线暂不作为普通负例，审计输出保留于
+    `results/dn_mpc_jepa_safe_capture_dev/p39_candidate_eligibility_v1/`。
 
-41. [ ] P39 重新采集 seed-disjoint train/validation/calibration archives，
+41. [x] P39 重新采集 seed-disjoint train/validation/calibration archives，
     保留 selected/nominal/safe-hold 独立 CBF counterfactual、route identity、
     target-escape、switch outcome、OOD/disagreement 与 TensorBoard provenance。
-    新 archive 必须通过 finite-value、hash、无泄漏和 abstention 一致性审计。
+    新 archive 已通过 finite-value、hash、无泄漏和 abstention 一致性审计，
+    train/validation/calibration 各 8 episodes 且 seed 完全互斥。
 
-42. [ ] P39 在 fresh calibration 上重新选择 utility weights，并分别报告
+42. [x] P39 在 fresh calibration 上重新选择 utility weights，并分别报告
     model-vs-truth、model-vs-planner-selected、planner switch、near-tie、
     family coverage 和 abstention；若 corrected selected agreement 未达到
-    promotion gate，停止训练扩展并保留 JEPA offline-only。
+    promotion gate，停止训练扩展并保留 JEPA offline-only。当前 validation
+    model-vs-planner-selected 为 `80.71%`，但 switch 权重仍处于网格边界，
+    因此仍需独立稳定性与扩展网格复核。
 
 43. [ ] 只有 P39 contract、fresh calibration 和独立 seed 稳定性全部通过后，
     才允许创建/更新 Ledger-Lite、进行三 seed paired replay 或接入在线 route
     override；在此之前不得降低 CBF margin、关闭 stale/OOD/non-finite gate，
     也不得打开 locked benchmark。
+
+44. [ ] P39 follow-up：扩展 switch-weight calibration grid，确认 selected
+    weight 不再位于边界；同时决定 `lower_detour` 的处理（移出学习词表或
+    实现独立验证的 ground-clearance route）。在该 gate 前不训练更大 JEPA、
+    不创建 Ledger-Lite、不做三 seed paired replay。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。P38 已证明当前主要瓶颈是 planner/执行路线合同错配；P39 必须先修复该合同。**

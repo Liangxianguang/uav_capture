@@ -78,6 +78,11 @@ def diagnose(details_path: Path, audit_path: Path, metadata_path: Path) -> dict[
         "utility_audit_sha256": _sha256(audit_path),
         "metadata_sha256": _sha256(metadata_path),
         "route_labels": labels,
+        "previous_route_source": (
+            "planner_selected_candidate"
+            if bool(audit.get("route_switch_penalty", {}).get("planner_selection_identity_used", False))
+            else "frozen_actor_executed_route"
+        ),
         "models": {},
     }
     for model_name in model_names:
@@ -146,12 +151,13 @@ def diagnose(details_path: Path, audit_path: Path, metadata_path: Path) -> dict[
                 "near_tie_groups": len(near_tie),
                 "near_tie_fraction": len(near_tie) / len(valid_groups) if valid_groups else None,
                 "groups_with_previous_route": len(with_previous),
-                # These are comparisons against the frozen actor's previous
-                # executed route, not a direct measurement of planner route
-                # switching.  The selected route comes from analytic DN-MPC,
-                # so mixing these chains would corrupt the switch label.
+                # The source is declared at report level.  Keep the historical
+                # keys for machine compatibility, but expose source-specific
+                # aliases so actor and planner decision chains cannot be mixed.
                 "model_vs_previous_executed_route_fraction": len(predicted_switch) / len(with_previous) if with_previous else None,
                 "planner_selected_vs_previous_executed_route_fraction": len(planner_selection_change) / len(with_previous) if with_previous else None,
+                "model_vs_previous_selected_route_fraction": len(predicted_switch) / len(with_previous) if with_previous else None,
+                "planner_selected_vs_previous_selected_route_fraction": len(planner_selection_change) / len(with_previous) if with_previous else None,
                 "family_by_model_best": dict(sorted(family_stats.items())),
                 "family_by_planner_selected": dict(sorted(selected_family_stats.items())),
                 "eligibility_by_route_family": dict(sorted(eligibility_by_family.items())),
@@ -174,7 +180,7 @@ def main() -> int:
         raise FileExistsError("refusing to overwrite P38 outputs")
     report = diagnose(args.details.resolve(), args.audit.resolve(), args.metadata.resolve())
     with SummaryWriter(log_dir=str(args.tensorboard_logdir.resolve()), flush_secs=1) as writer:
-        writer.add_text("Contract/diagnosis", json.dumps({"development_only": True, "locked_test_opened": False}, sort_keys=True), 0)
+        writer.add_text("Contract/diagnosis", json.dumps({"development_only": True, "locked_test_opened": False, "previous_route_source": report["previous_route_source"]}, sort_keys=True), 0)
         for model_name, model_report in report["models"].items():
             writer.add_text(f"Utility/{model_name}/selected_weights", json.dumps(model_report["selected_weights"], sort_keys=True), 0)
             for split, values in model_report["splits"].items():
@@ -188,12 +194,18 @@ def main() -> int:
                     writer.add_scalar(f"P38/{model_name}/model_best_family_groups/{split}/{family}", family_values["groups"], 0)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    previous_label = (
+        "previous planner-selected route"
+        if report["previous_route_source"] == "planner_selected_candidate"
+        else "previous frozen-actor executed route"
+    )
     lines = [
         "# DN-MPC P38 Route-Agreement Diagnosis",
         "",
         "**Status:** development-only; offline-only; no action executed.",
         "",
-        "This report stratifies the P37 learned-evaluator disagreement by route family, eligibility, near ties, route switching, and explicit CBF abstentions. It does not change the planner or safety filter.",
+        "This report stratifies the learned-evaluator disagreement by route family, eligibility, near ties, route switching, and explicit CBF abstentions. It does not change the planner or safety filter.",
+        f"The previous-route identity source for this archive is **{previous_label}**.",
         "",
     ]
     for model_name, model_report in report["models"].items():
@@ -202,7 +214,7 @@ def main() -> int:
         lines.append("")
         lines.append(f"Selected utility weights: `({weights['length']:g}, {weights['escape']:g}, {weights['cbf']:g}, {weights['switch']:g})`.")
         lines.append("")
-        lines.append("| Split | valid groups | zero/one eligible | abstention | model vs truth | model vs selected | near tie | planner selected vs previous actor route | model vs previous actor route |")
+        lines.append(f"| Split | valid groups | zero/one eligible | abstention | model vs truth | model vs selected | near tie | planner selected vs {previous_label} | model vs {previous_label} |")
         lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
         for split, values in sorted(model_report["splits"].items()):
             fmt = lambda value: "n/a" if value is None else f"{value:.2%}"

@@ -341,6 +341,16 @@ def load_dataset(path: Path, metadata_path: Path, expected_split: str) -> tuple[
         "planner_route_switch_outcome",
         "independent_cbf_trace_present",
     ):
+        if name not in arrays:
+            if name in {
+                "planner_selected_candidate_index",
+                "previous_selected_candidate_index",
+                "planner_route_switch_outcome",
+            }:
+                # Legacy P36/P37 archives predate the planner identity
+                # contract. They remain loadable for historical audits.
+                continue
+            raise ValueError(f"Route archive is missing integer field {name}")
         values = arrays[name]
         if values.shape != (samples,) or not np.isfinite(values).all():
             raise ValueError(f"{name} must be finite with shape [N].")
