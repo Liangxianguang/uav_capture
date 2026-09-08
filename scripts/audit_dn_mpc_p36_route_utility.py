@@ -34,11 +34,11 @@ from audit_dn_mpc_p31_route_utility_label import (  # noqa: E402
     load_dataset,
 )
 
-WEIGHT_GRID = {
+DEFAULT_WEIGHT_GRID = {
     "length": (0.0, 0.1, 0.2, 0.3, 0.5, 1.0),
     "escape": (0.0, 0.1, 0.2, 0.5),
     "cbf": (0.0, 0.1, 0.2, 0.5, 1.0),
-    "switch": (0.0, 0.01, 0.05, 0.1, 0.2, 0.5),
+    "switch": (0.0, 0.01, 0.05, 0.1, 0.2, 0.5, 0.75, 1.0),
 }
 
 
@@ -179,8 +179,8 @@ def _evaluate(groups: list[dict[str, Any]], weights: dict[str, float]) -> dict[s
     }
 
 
-def _grid() -> list[dict[str, float]]:
-    return [dict(zip(WEIGHT_GRID, values)) for values in itertools.product(*WEIGHT_GRID.values())]
+def _grid(weight_grid: dict[str, tuple[float, ...]]) -> list[dict[str, float]]:
+    return [dict(zip(weight_grid, values)) for values in itertools.product(*weight_grid.values())]
 
 
 def _select(reports: list[tuple[dict[str, float], dict[str, Any]]]) -> dict[str, float]:
@@ -198,11 +198,31 @@ def _select(reports: list[tuple[dict[str, float], dict[str, Any]]]) -> dict[str,
     )[0]
 
 
-def _at_grid_boundary(weights: dict[str, float]) -> dict[str, bool]:
+def _at_grid_boundary(weights: dict[str, float], weight_grid: dict[str, tuple[float, ...]]) -> dict[str, bool]:
     return {
         name: float(weights[name]) == max(float(value) for value in values)
-        for name, values in WEIGHT_GRID.items()
+        for name, values in weight_grid.items()
     }
+
+
+def _parse_switch_grid(value: str) -> tuple[float, ...]:
+    try:
+        values = tuple(sorted({float(item.strip()) for item in value.split(",") if item.strip()}))
+    except ValueError as exc:
+        raise ValueError("--switch-grid must be a comma-separated list of finite non-negative numbers") from exc
+    if not values or any(not np.isfinite(item) or item < 0.0 for item in values):
+        raise ValueError("--switch-grid must be a comma-separated list of finite non-negative numbers")
+    return values
+
+
+def _parse_nonnegative_grid(value: str, *, name: str) -> tuple[float, ...]:
+    try:
+        values = tuple(sorted({float(item.strip()) for item in value.split(",") if item.strip()}))
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a comma-separated list of finite non-negative numbers") from exc
+    if not values or any(not np.isfinite(item) or item < 0.0 for item in values):
+        raise ValueError(f"{name} must be a comma-separated list of finite non-negative numbers")
+    return values
 
 
 def main() -> int:
@@ -218,7 +238,26 @@ def main() -> int:
     parser.add_argument("--dataset-version", default="dn_mpc_route_identity_chunk5_p36_route_switch_v1")
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
+    parser.add_argument(
+        "--switch-grid",
+        default=",".join(str(value) for value in DEFAULT_WEIGHT_GRID["switch"]),
+        help="comma-separated non-negative switch-penalty weights",
+    )
+    parser.add_argument(
+        "--length-grid",
+        default=",".join(str(value) for value in DEFAULT_WEIGHT_GRID["length"]),
+        help="comma-separated non-negative route-length weights",
+    )
+    parser.add_argument(
+        "--cbf-grid",
+        default=",".join(str(value) for value in DEFAULT_WEIGHT_GRID["cbf"]),
+        help="comma-separated non-negative CBF-feasibility weights",
+    )
     args = parser.parse_args()
+    weight_grid = dict(DEFAULT_WEIGHT_GRID)
+    weight_grid["switch"] = _parse_nonnegative_grid(args.switch_grid, name="--switch-grid")
+    weight_grid["length"] = _parse_nonnegative_grid(args.length_grid, name="--length-grid")
+    weight_grid["cbf"] = _parse_nonnegative_grid(args.cbf_grid, name="--cbf-grid")
     outputs = [args.output.resolve(), args.markdown_output.resolve(), args.details_output.resolve()]
     if any(path.exists() for path in outputs) or (args.tensorboard_logdir.exists() and any(args.tensorboard_logdir.iterdir())):
         raise FileExistsError("refusing to overwrite P36 utility outputs")
@@ -273,7 +312,7 @@ def main() -> int:
             "planner_selection_identity_used": planner_identity_available,
             "legacy_fallback": not planner_identity_available,
         },
-        "weight_grid": WEIGHT_GRID,
+        "weight_grid": weight_grid,
         "archives": {
             split: {"dataset": str(dataset), "dataset_sha256": _sha256(dataset), "metadata": str(metadata), "metadata_sha256": _sha256(metadata)}
             for split, (dataset, metadata) in split_paths.items()
@@ -282,17 +321,17 @@ def main() -> int:
     }
     details: list[dict[str, Any]] = []
     with SummaryWriter(log_dir=str(args.tensorboard_logdir.resolve()), flush_secs=1) as writer:
-        writer.add_text("Config/utility_label", json.dumps(WEIGHT_GRID, sort_keys=True), 0)
+        writer.add_text("Config/utility_label", json.dumps(weight_grid, sort_keys=True), 0)
         writer.add_text("Contract/route_switch_penalty", json.dumps(result["route_switch_penalty"], sort_keys=True), 0)
         for name, checkpoint in models.items():
             model = _load_model(checkpoint, device)
             groups_by_split: dict[str, list[dict[str, Any]]] = {}
             for split, tensors in tensors_by_split.items():
                 groups_by_split[split] = _records(tensors, _predict(model, tensors, device, args.batch_size))
-            selected = _select([ (weights, _evaluate(groups_by_split["calibration"], weights)) for weights in _grid() ])
+            selected = _select([ (weights, _evaluate(groups_by_split["calibration"], weights)) for weights in _grid(weight_grid) ])
             split_report: dict[str, Any] = {}
             for split, groups in groups_by_split.items():
-                baseline_weights = {key: 0.0 for key in WEIGHT_GRID}
+                baseline_weights = {key: 0.0 for key in weight_grid}
                 baseline = _evaluate(groups, baseline_weights)
                 calibrated = _evaluate(groups, selected)
                 split_report[split] = {"baseline": baseline, "selected": calibrated}
@@ -305,12 +344,12 @@ def main() -> int:
                 "checkpoint": str(checkpoint),
                 "checkpoint_sha256": _sha256(checkpoint),
                 "selected_weights": selected,
-                "selected_at_grid_boundary": _at_grid_boundary(selected),
+                "selected_at_grid_boundary": _at_grid_boundary(selected, weight_grid),
                 "splits": split_report,
             }
             writer.add_text(
                 f"Utility/{name}/selected_weights",
-                json.dumps({"weights": selected, "at_grid_boundary": _at_grid_boundary(selected)}, sort_keys=True),
+                json.dumps({"weights": selected, "at_grid_boundary": _at_grid_boundary(selected, weight_grid)}, sort_keys=True),
                 0,
             )
     lines = [

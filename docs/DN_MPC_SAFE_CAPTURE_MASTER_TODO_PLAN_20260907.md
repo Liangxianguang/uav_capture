@@ -608,9 +608,22 @@ DN-MPC -> nominal route planner
     override；在此之前不得降低 CBF margin、关闭 stale/OOD/non-finite gate，
     也不得打开 locked benchmark。
 
-44. [ ] P39 follow-up：扩展 switch-weight calibration grid，确认 selected
-    weight 不再位于边界；同时决定 `lower_detour` 的处理（移出学习词表或
-    实现独立验证的 ground-clearance route）。在该 gate 前不训练更大 JEPA、
-    不创建 Ledger-Lite、不做三 seed paired replay。
+44. [x] P39 follow-up：扩展 switch-weight calibration grid，确认 selected
+    switch weight 不再位于边界；P40-P42 结果见
+    `docs/DN_MPC_P40_SWITCH_GRID_AUDIT_20260908.md` 和
+    `docs/DN_MPC_P42_JOINT_UTILITY_GRID_AUDIT_20260908.md`。最终有限网格
+    `length<=2`、`switch<=2`、`cbf<=2` 选择
+    `(length=1.5, escape=0, cbf=1.5, switch=1.5)`，四项均为内部点；
+    validation model-vs-planner-selected 为 `80.42%`，pairwise 为
+    `97.87%`。这只清除了 utility boundary artifact，不是 safe-capture
+    提升。`lower_detour` 仍需移出学习词表或实现独立验证的
+    ground-clearance route。
+
+45. [ ] 在 P42 utility gate 后训练一个与 `seed=373701` 独立的 evaluator
+    seed；只用 calibration 选择权重，再在 validation 评估 truth-ranking、
+    planner-selected agreement、candidate eligibility、selected/nominal/
+    safe-hold trace 和 OOD/disagreement。若独立 seed 不稳定，停止追加
+    seed，先修复标签或尺度；在该 gate 前不创建 Ledger-Lite、不做三 seed
+    paired replay、不接入在线 route override。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。P38 已证明当前主要瓶颈是 planner/执行路线合同错配；P39 必须先修复该合同。**
