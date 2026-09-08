@@ -628,10 +628,26 @@ DN-MPC -> nominal route planner
     失败。按停止规则停止追加 seed，先修复 utility 标签/尺度；不创建
     Ledger-Lite、不做三 seed paired replay、不接入在线 route override。
 
-46. [ ] 进行 utility label/scale bounded diagnosis：报告 calibration 上
+46. [x] 进行 utility label/scale bounded diagnosis：报告 calibration 上
     各 utility 项的范围、相关性和重复计数，检查 route length 与 progress
     的单位归一化及 switch penalty 的物理含义，制定预注册的 safety-first
-    utility hierarchy 后只复评现有两个 checkpoint。该诊断通过前不得再
-    训练 evaluator seed、创建 Ledger-Lite 或打开 locked benchmark。
+    utility hierarchy 后只复评现有两个 checkpoint；结果见 P44 报告。该
+    诊断通过前不得再训练 evaluator seed、创建 Ledger-Lite 或打开 locked
+    benchmark。
+
+47. [x] P44 已完成 utility label/scale bounded diagnosis，结果见
+    `docs/DN_MPC_P44_UTILITY_LABEL_SCALE_DIAGNOSIS_20260908.md`。CBF 项几乎
+    常数（median/P95=`1.0`，std=`0.0134`），route length 的 P95=`1.3351`
+    明显大于 progress P95=`0.2220`，switch 是候选相对的二值项而不是事件
+    频率；因此 P43 的 seed 不稳定来自加权 utility 合同欠定/尺度失配，
+    不是 CBF 安全门过严。下一步实现并离线复评固定的 safety-first
+    hierarchy：先 geometry/CBF eligibility，再 progress-escape，最后以
+    route length 和 switch 作为 tie-break。该 hierarchy 通过前不再训练
+    evaluator seed、不创建 Ledger-Lite、不做 paired replay。
+
+48. [ ] 实现 P44 safety-first hierarchy offline evaluator mode，在 P37/P43
+    两个 checkpoint 上只用 calibration 校准 tie band 和物理归一化，随后
+    在 validation 报告 truth-ranking、planner-selected agreement、
+    candidate eligibility 及所有安全审计字段；不接入在线闭环。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。P38 已证明当前主要瓶颈是 planner/执行路线合同错配；P39 必须先修复该合同。**

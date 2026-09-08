@@ -7,6 +7,7 @@ from scripts.audit_dn_mpc_p36_route_utility import (
     _parse_nonnegative_grid,
     _parse_switch_grid,
 )
+from scripts.diagnose_dn_mpc_p44_utility_scale import _summarize
 
 
 def test_switch_grid_parser_sorts_and_deduplicates_values() -> None:
@@ -34,3 +35,15 @@ def test_grid_boundary_is_computed_against_the_active_grid() -> None:
         "length": True,
         "switch": False,
     }
+
+
+def test_p44_summary_excludes_unknown_switch_rows_from_switch_statistics() -> None:
+    records = [
+        {"progress": 0.1, "route_length": 0.0, "escape": 0.2, "cbf": 1.0, "switch": 0.0},
+        {"progress": 0.2, "route_length": 0.1, "escape": 0.3, "cbf": 1.0, "switch": 1.0},
+        {"progress": 0.3, "route_length": 0.2, "escape": 0.4, "cbf": 1.0, "switch": float("nan")},
+    ]
+    report = _summarize(records)
+    assert report["terms"]["switch"]["count"] == 2
+    assert report["terms"]["switch_known_fraction"] == 2 / 3
+    assert report["terms"]["switch_rate"] == 0.5
