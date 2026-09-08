@@ -669,11 +669,15 @@ DN-MPC -> nominal route planner
     `99.4%–99.8%`。已生成独立 train/calibration/validation teacher-label
     NPZ；尚未训练蒸馏模型，仍不接入在线闭环。
 
-51. [ ] 设计并实现 group-level planner-distillation loss：只在非 abstention
-    group 的 eligible candidates 上学习 teacher-selected target，显式
-    mask unknown/ineligible rows；训练过程必须写入 TensorBoard，并用独立
-    calibration 绑定 OOD、disagreement、selected/nominal/safe-hold trace。
-    未通过 validation planner-agreement 和安全门前不得替换 analytic
-    DN-MPC、创建 Ledger-Lite 或打开 locked benchmark。
+51. [x] 已实现并审计 group-level planner-distillation loss：只在非
+    abstention group 的 eligible candidates 上学习
+    `planner_selected_candidate_index`，显式 mask unknown/ineligible rows；
+    full 和 route-progress-head-only 对照均完整写入 TensorBoard，并保留
+    selected/nominal/safe-hold trace。结果见
+    `docs/DN_MPC_P51_GROUP_PLANNER_DISTILLATION_AUDIT_20260908.md`：冻结
+    P42 基线 validation agreement `39.47%`，full 最佳 `42.73%`，head-only
+    最佳 `46.88%`（`+7.41 pp`），但仍低于 `50%` promotion gate，且后期
+    过拟合。P51 未通过 promotion，analytic DN-MPC 继续是唯一执行权威，
+    不创建 Ledger-Lite、不接入 online override、不打开 locked benchmark。
 
 **当前第一开发目标不是追求更高的单次成功率，而是证明：在严格 CBF 和完整审计合同下，DN-MPC 能稳定选择一条可执行、少切换、面向目标的最近切向路线。P38 已证明当前主要瓶颈是 planner/执行路线合同错配；P39 必须先修复该合同。**
