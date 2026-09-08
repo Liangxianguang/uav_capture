@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from types import SimpleNamespace
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +25,36 @@ _boundary_shadow_ttc = COLLECTOR._boundary_shadow_ttc
 _interaction_hard_negative_chunks = COLLECTOR._interaction_hard_negative_chunks
 _reachable_interaction_chunk = COLLECTOR._reachable_interaction_chunk
 _append_samples = COLLECTOR._append_samples
+_match_executed_route = COLLECTOR._match_executed_route
+
+
+def test_executed_route_match_records_nearest_candidate_and_residual() -> None:
+    batch = SimpleNamespace(
+        candidates=[
+            SimpleNamespace(action_chunk=np.zeros((5, 4, 3), dtype=np.float64)),
+            SimpleNamespace(action_chunk=np.ones((5, 4, 3), dtype=np.float64)),
+        ]
+    )
+
+    index, residual = _match_executed_route(batch, np.ones((4, 3), dtype=np.float64) * 0.2)
+
+    assert index == 0
+    assert residual == pytest.approx(0.2 * np.sqrt(3.0))
+
+
+def test_executed_route_match_marks_large_residual_unknown() -> None:
+    batch = SimpleNamespace(
+        candidates=[SimpleNamespace(action_chunk=np.zeros((5, 2, 3), dtype=np.float64))]
+    )
+
+    index, residual = _match_executed_route(
+        batch,
+        np.ones((2, 3), dtype=np.float64),
+        tolerance_mps=0.5,
+    )
+
+    assert index == -1
+    assert residual == pytest.approx(np.sqrt(3.0))
 
 
 class _ShadowEnv:

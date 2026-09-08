@@ -94,6 +94,7 @@ HARD_NEGATIVE_ROUTE_LABELS = (
 HARD_NEGATIVE_SAMPLE_TYPES = {
     label: 5 + index for index, label in enumerate(HARD_NEGATIVE_ROUTE_LABELS)
 }
+EXECUTED_ROUTE_MATCH_TOLERANCE_MPS = 1.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -269,6 +270,38 @@ def _route_config(
         world_lower=tuple(float(value) for value in env.lower),
         world_upper=tuple(float(value) for value in env.upper),
     )
+
+
+def _match_executed_route(
+    route_batch: Any,
+    executed_action: np.ndarray,
+    *,
+    tolerance_mps: float = EXECUTED_ROUTE_MATCH_TOLERANCE_MPS,
+) -> tuple[int, float]:
+    """Match a final filtered action to a candidate first-step route.
+
+    The match is a public execution trace, not a future-truth label.  A route
+    ID is retained only when every defender's joint first-step action is within
+    the fixed residual tolerance; otherwise the identity is explicitly
+    unknown (`-1`).
+    """
+
+    action = np.asarray(executed_action, dtype=np.float64)
+    if action.ndim != 2 or not np.isfinite(action).all() or tolerance_mps < 0.0:
+        raise ValueError("executed_action and tolerance must be finite")
+    candidates = getattr(route_batch, "candidates", ())
+    distances: list[tuple[int, float]] = []
+    for index, route in enumerate(candidates):
+        chunk = np.asarray(route.action_chunk, dtype=np.float64)
+        if chunk.ndim != 3 or chunk.shape[1:] != action.shape:
+            continue
+        residual = float(np.mean(np.linalg.norm(chunk[0] - action, axis=1)))
+        if np.isfinite(residual):
+            distances.append((int(index), residual))
+    if not distances:
+        return -1, float("inf")
+    index, residual = min(distances, key=lambda item: (item[1], item[0]))
+    return (index if residual <= float(tolerance_mps) else -1), residual
 
 
 def _reachable_interaction_chunk(
@@ -829,6 +862,7 @@ def _empty_samples() -> dict[str, list[Any]]:
         "labels_cbf_feasible": [],
         "labels_cbf_min_slack": [],
         "labels_route_progress": [],
+        "labels_target_escape_cost": [],
         "labels_rollout_valid": [],
         "route_length_m": [],
         "route_geometric_clearance_m": [],
@@ -843,6 +877,10 @@ def _empty_samples() -> dict[str, list[Any]]:
         "branch_terminated": [],
         "sample_type": [],
         "selected_candidate_index": [],
+        "previous_executed_route_index": [],
+        "executed_route_index": [],
+        "route_switch_outcome": [],
+        "route_match_residual_mps": [],
         "independent_cbf_trace_present": [],
         "selected_cbf_feasible": [],
         "selected_cbf_verified_feasible": [],
@@ -916,6 +954,9 @@ def _append_samples(
     action_scale: float,
     sample_type: int = 0,
     independent_trace: Mapping[str, Any] | None = None,
+    previous_executed_route_index: int = -1,
+    executed_route_index: int = -1,
+    route_match_residual_mps: float = -1.0,
 ) -> None:
     if len(observation_history) < 8 or len(executed_action_history) != len(observation_history) - 1:
         raise ValueError("Route archive histories are not causally aligned.")
@@ -964,6 +1005,9 @@ def _append_samples(
             ("rollout_valid", "labels_rollout_valid"),
         ):
             samples[target].append(np.asarray(labels[source])[:, agent].copy())
+        samples["labels_target_escape_cost"].append(
+            np.linalg.norm(np.asarray(labels["relative"])[:, agent], axis=-1).astype(np.float32)
+        )
         samples["route_length_m"].append(float(route.route_length_m))
         samples["route_geometric_clearance_m"].append(float(route.minimum_geometric_clearance_m))
         samples["route_geometry_valid"].append(float(route.valid))
@@ -984,6 +1028,17 @@ def _append_samples(
         samples["earliest_failure_step"].append(int(labels["earliest_failure_step"]))
         samples["branch_terminated"].append(float(labels["branch_terminated"]))
         samples["sample_type"].append(int(sample_type))
+        if int(sample_type) == 0:
+            previous = int(previous_executed_route_index)
+            current = int(executed_route_index)
+            residual = float(route_match_residual_mps)
+            switched = int(previous >= 0 and current >= 0 and previous != current)
+        else:
+            previous, current, switched, residual = -1, -1, 0, -1.0
+        samples["previous_executed_route_index"].append(previous)
+        samples["executed_route_index"].append(current)
+        samples["route_switch_outcome"].append(switched)
+        samples["route_match_residual_mps"].append(residual)
         _append_independent_trace_fields(samples, independent_trace, agent=agent)
 
 
@@ -1047,6 +1102,7 @@ def _append_boundary_shadow_samples(
             ("labels_cbf_feasible", zeros.copy()),
             ("labels_cbf_min_slack", zeros.copy()),
             ("labels_route_progress", zeros.copy()),
+            ("labels_target_escape_cost", zeros.copy()),
             ("labels_rollout_valid", np.ones(max(HORIZON_STEPS), dtype=np.float32)),
         ):
             samples[key].append(value.copy())
@@ -1062,6 +1118,10 @@ def _append_boundary_shadow_samples(
         samples["earliest_failure_step"].append(0)
         samples["branch_terminated"].append(0.0)
         samples["sample_type"].append(1)
+        samples["previous_executed_route_index"].append(-1)
+        samples["executed_route_index"].append(-1)
+        samples["route_switch_outcome"].append(0)
+        samples["route_match_residual_mps"].append(-1.0)
         _append_independent_trace_fields(samples, None, agent=agent)
     return float(np.min(boundary))
 
@@ -1077,6 +1137,9 @@ def _arrayize(samples: Mapping[str, list[Any]]) -> dict[str, np.ndarray]:
         "earliest_failure_step",
         "selected_candidate_index",
         "independent_cbf_trace_present",
+        "previous_executed_route_index",
+        "executed_route_index",
+        "route_switch_outcome",
     }
     arrays: dict[str, np.ndarray] = {}
     for key, value in samples.items():
@@ -1271,6 +1334,7 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
             else None
         )
         sampled_states = 0
+        previous_executed_route_index = -1
         for time_index in range(int(env.max_steps)):
             if (
                 actor_policy is not None
@@ -1313,6 +1377,14 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                 and (time_index - (args.history_length - 1)) % args.sample_stride == 0
                 and (not args.hard_negative_only or hard_negative_window_active)
             )
+            route_batch = None
+            action, diagnostics = safety_filter.filter(
+                desired,
+                observation,
+                nominal_actions=reachable_nominal,
+            )
+            executed_route_index = -1
+            route_match_residual_mps = -1.0
             if collect_route_state:
                 sampled_states += 1
                 route_batch = make_obstacle_route_candidates(
@@ -1362,6 +1434,11 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                         independent_trace_states += 1
                     else:
                         independent_trace_selected_missing += 1
+                if diagnostics.verified_feasible and diagnostics.fallback_mode == "none":
+                    executed_route_index, route_match_residual_mps = _match_executed_route(
+                        route_batch,
+                        action,
+                    )
                 for route_index, route in enumerate(route_batch.candidates):
                     route_counts[route.label] += 1
                     geometry_total += 1
@@ -1391,6 +1468,9 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                         time_index=time_index,
                         action_scale=5.0,
                         independent_trace=independent_trace,
+                        previous_executed_route_index=previous_executed_route_index,
+                        executed_route_index=executed_route_index,
+                        route_match_residual_mps=route_match_residual_mps,
                     )
                 hard_negative_active = hard_negative_window_active
                 if hard_negative_active:
@@ -1495,17 +1575,14 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
                     action_scale=5.0,
                     chunk_length_steps=args.chunk_length_steps,
                 )
-            action, diagnostics = safety_filter.filter(
-                desired,
-                observation,
-                nominal_actions=reachable_nominal,
-            )
             if not diagnostics.verified_feasible or diagnostics.fallback_mode == "controlled_abort":
                 break
             observation, _reward, terminated, truncated, _info = env.step(action, record_history=False)
             executed_actions.append(np.asarray(action, dtype=np.float32).copy())
             observation_history.append(policy_observations(env, observation).copy())
             previous_action = np.asarray(action, dtype=np.float64).copy()
+            if collect_route_state:
+                previous_executed_route_index = int(executed_route_index)
             if terminated or truncated:
                 break
         scene = scenario_metadata(scenario)
@@ -1557,6 +1634,23 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
         "boundary_shadow_is_offline_only": True,
         "candidate_semantics": "geometry_conditioned_route_chunk_execute_first_step_then_replan",
         "action_history_alignment": "past_executed_actions_then_route_first_action",
+        "route_execution_identity_contract": {
+            "enabled": True,
+            "previous_field": "previous_executed_route_index",
+            "current_field": "executed_route_index",
+            "switch_field": "route_switch_outcome",
+            "match_residual_field": "route_match_residual_mps",
+            "match_source": "nearest_candidate_joint_first_step_after_final_cbf_filter",
+            "match_tolerance_mps": float(EXECUTED_ROUTE_MATCH_TOLERANCE_MPS),
+            "measured_between_sampled_route_decisions": True,
+            "unknown_route_value": -1,
+        },
+        "target_escape_label_contract": {
+            "enabled": True,
+            "field": "labels_target_escape_cost",
+            "definition": "norm_of_offline_post_action_target_relative_vector_per_horizon_step",
+            "target_truth_used_only_for_offline_labels": True,
+        },
         "action_scale": 5.0,
         "state_distribution_source": {
             "mode": "frozen_runtime_actor" if actor_checkpoint is not None else "dynamic_rule_controller",
@@ -1638,6 +1732,19 @@ def collect(args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, 
             "first_step_feasible_branches": int(cbf_feasible),
             "total_branches": int(cbf_total),
             "branches_failed_within_horizon": int(branch_failures),
+        },
+        "route_execution_identity_counts": {
+            "runtime_rows": int(np.sum(runtime_mask)),
+            "matched_rows": int(
+                np.sum(runtime_mask & (arrays["executed_route_index"] >= 0))
+            ),
+            "unknown_rows": int(
+                np.sum(runtime_mask & (arrays["executed_route_index"] < 0))
+            ),
+            "previous_known_rows": int(
+                np.sum(runtime_mask & (arrays["previous_executed_route_index"] >= 0))
+            ),
+            "switch_rows": int(np.sum(runtime_mask & (arrays["route_switch_outcome"] > 0))),
         },
     }
     return arrays, metadata, scenes
@@ -1723,6 +1830,14 @@ def main() -> int:
             float(np.mean(arrays["labels_acceleration_slack"].min(axis=1) < 0.0)),
             0,
         )
+        identity_counts = metadata["route_execution_identity_counts"]
+        writer.add_scalar("RouteIdentity/matched_fraction", float(identity_counts["matched_rows"] / max(identity_counts["runtime_rows"], 1)), 0)
+        writer.add_scalar("RouteIdentity/previous_known_fraction", float(identity_counts["previous_known_rows"] / max(identity_counts["runtime_rows"], 1)), 0)
+        writer.add_scalar("RouteIdentity/switch_fraction", float(identity_counts["switch_rows"] / max(identity_counts["runtime_rows"], 1)), 0)
+        matched_residual = arrays["route_match_residual_mps"][runtime_mask & (arrays["route_match_residual_mps"] >= 0.0)]
+        writer.add_scalar("RouteIdentity/match_residual_p95_mps", float(np.percentile(matched_residual, 95)) if matched_residual.size else -1.0, 0)
+        writer.add_text("RouteIdentity/contract", json.dumps(metadata["route_execution_identity_contract"], sort_keys=True), 0)
+        writer.add_text("Labels/target_escape", json.dumps(metadata["target_escape_label_contract"], sort_keys=True), 0)
         writer.add_scalar(
             "Archive/boundary_clearance_negative_fraction",
             float(class_counts["boundary_clearance_negative"] / arrays["inputs"].shape[0]),
@@ -1767,6 +1882,7 @@ def main() -> int:
                 ),
                 "branch_failure_within_horizon": class_counts["branch_failure_within_horizon"],
                 "class_counts": class_counts,
+                "route_execution_identity_counts": metadata["route_execution_identity_counts"],
                 "tensorboard": str(tensorboard_dir),
             },
             indent=2,
